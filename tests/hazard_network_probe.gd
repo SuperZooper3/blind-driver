@@ -11,6 +11,7 @@ var saw_over := false
 var saw_restart := false
 var saw_puncture := false
 var saw_rollover := false
+var saw_caught := false
 var saw_graph := false
 var saw_reconnect := false
 var finished := false
@@ -85,8 +86,23 @@ func _tick() -> void:
 			game._restart_run()
 			phase = 10
 			phase_at = elapsed
-		if phase == 10 and elapsed - phase_at > 2.0:
-			_finish(true, "driver completes cliff, tire puncture, rollover, and restarts in one room")
+		if phase == 10 and elapsed - phase_at > 1.0:
+			game.car.distance_driven = 3456.0
+			game.police.phase = "chasing"
+			game.police.elapsed = 7.0
+			game.police.station = game.police._project(game.car.global_position, game.police.road_id).station - 13.0
+			game.police.speed = 15.0
+			game.police._place(1, 1.0)
+			phase = 11
+		if phase == 11 and game.car.run_state == "game_over":
+			phase = 12
+			phase_at = elapsed
+		if phase == 12 and elapsed - phase_at > 2.0:
+			game._restart_run()
+			phase = 13
+			phase_at = elapsed
+		if phase == 13 and elapsed - phase_at > 2.0:
+			_finish(true, "driver completes cliff, puncture, rollover, police capture, and restarts")
 	else:
 		if game.session.graph_received and phase == 0:
 			var record: Dictionary = game.world.roads[1].hazards[0]
@@ -116,9 +132,11 @@ func _tick() -> void:
 					saw_puncture = saw_puncture and is_equal_approx(game.car.wheel_pivots[i].scale.y, 0.55)
 		if game.car.run_id == 2 and game.car.run_state == "game_over":
 			saw_rollover = game.car.crash_reason.contains("rolled") and game.car.punctured_tires == 0 and game.ui.result_panel.visible
-		if game.car.run_id == 3 and game.car.run_state == "driving":
-			saw_restart = game.car.distance_driven < 2.0 and game.car.punctured_tires == 0 and game.world.roads[0].id > 0 and game.car.global_position.distance_to(Vector3(0, 1.6, 12)) < 2.0 and game.records.best_distance >= 2345.0
-			_finish(saw_graph and saw_fall and saw_over and saw_restart and saw_reconnect and saw_puncture and saw_rollover, "navigator matches hazards=%s fall=%s result=%s reconnect=%s restart=%s puncture=%s rollover=%s" % [saw_graph, saw_fall, saw_over, saw_reconnect, saw_restart, saw_puncture, saw_rollover])
+		if game.car.run_id == 3 and game.car.run_state == "game_over":
+			saw_caught = game.car.crash_reason.contains("police") and game.police.phase == "caught" and game.ui.result_panel.visible and absf(game.car.distance_driven - 3456.0) < 1.0
+		if game.car.run_id == 4 and game.car.run_state == "driving":
+			saw_restart = game.car.distance_driven < 2.0 and game.car.punctured_tires == 0 and game.world.roads[0].id > 0 and game.car.global_position.distance_to(Vector3(0, 1.6, 12)) < 2.0 and game.records.best_distance >= 3456.0 and game.police.phase == "waiting" and game.police.catch_time == 0
+			_finish(saw_graph and saw_fall and saw_over and saw_restart and saw_reconnect and saw_puncture and saw_rollover and saw_caught, "navigator matches hazards=%s fall=%s result=%s reconnect=%s restart=%s puncture=%s rollover=%s caught=%s" % [saw_graph, saw_fall, saw_over, saw_reconnect, saw_restart, saw_puncture, saw_rollover, saw_caught])
 	if elapsed > 38.0:
 		_finish(false, "hazard network probe timed out at phase %d" % phase)
 

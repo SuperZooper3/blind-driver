@@ -1,6 +1,6 @@
 // Explicit JSON protocol, shared conceptually with scripts/wire_protocol.gd.
 // No Godot objects, Variant decoding, executable payloads, or arbitrary RPC calls.
-export const VERSION = 5;
+export const VERSION = 6;
 export const MAX_PAYLOAD = 512 * 1024;
 export const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const number = (value, min = -1e7, max = 1e7) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
@@ -26,6 +26,7 @@ export function snapshotIssue(state) {
   if (typeof state.on_road !== 'boolean') return 'on_road';
   if (!number(state.impact, 0, 1)) return 'impact';
   if (!integer(state.tires, 0, 15)) return 'tires';
+  if (!validPolice(state.police)) return 'police';
   return null;
 }
 export const validSnapshot = state => snapshotIssue(state) === null;
@@ -64,4 +65,12 @@ export function normalizeLobby(value) {
   if (typeof value !== 'string' || value.length > 40 || !/^[a-z0-9 -]+$/i.test(value)) return null;
   const name = value.trim().toLowerCase().replace(/[ -]+/g, '-');
   return name.length >= 3 && name.length <= 40 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) ? name : null;
+}
+
+export function validPolice(value) {
+  return isRecord(value) && vector(value.position, 3) && vector(value.rotation, 4)
+    && Math.abs(value.rotation.reduce((sum, n) => sum + n * n, 0) - 1) < 0.02
+    && ['waiting', 'chasing', 'escaped', 'caught'].includes(value.phase) && typeof value.paused === 'boolean'
+    && number(value.elapsed, 0, 1e12) && number(value.speed, 0, 45) && number(value.gap, 0, 1e7)
+    && number(value.closing, -100, 100) && number(value.catch, 0, 1);
 }

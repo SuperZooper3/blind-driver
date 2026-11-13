@@ -22,6 +22,10 @@ var root: Control
 var views: HBoxContainer
 var driver_screen: TextureRect
 var navigator_screen: TextureRect
+var driver_mirror: TextureRect
+var navigator_mirror: TextureRect
+var driver_mirror_frame: PanelContainer
+var navigator_mirror_frame: PanelContainer
 var menu: PanelContainer
 var hud: Control
 var map: Control
@@ -29,6 +33,11 @@ var map_panel: PanelContainer
 var map_clip: Control
 var dashboard: Control
 var personal_best_label: Label
+var pursuit_box: VBoxContainer
+var pursuit_title: Label
+var pursuit_detail: Label
+var rear_button: Button
+var rear_button_held := false
 var surface_label: Label
 var route_label: Label
 var route_distance: Label
@@ -89,6 +98,7 @@ func _ready() -> void:
 	root.theme = theme
 	_build_views()
 	_build_hud()
+	_build_mirrors()
 	_build_menu()
 	_build_settings()
 	_build_local_menu()
@@ -174,9 +184,22 @@ func _build_hud() -> void:
 	surface_label = _label("GRAVEL", 10, amber)
 	surface_label.position = Vector2(211, 117)
 	footer.add_child(surface_label)
-	footer_label = _label("W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nC  camera    ESC  menu", 13, cream)
+	footer_label = _label("W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nB / RB  look back    C  camera    ESC  menu", 13, cream)
 	footer_label.position = Vector2(386, 44)
 	footer.add_child(footer_label)
+	pursuit_box = VBoxContainer.new()
+	pursuit_box.custom_minimum_size = Vector2(300, 0)
+	pursuit_box.add_theme_constant_override("separation", 4)
+	footer.add_child(pursuit_box)
+	pursuit_title = _label("PATROL BEHIND YOU", 16, amber)
+	pursuit_box.add_child(pursuit_title)
+	pursuit_detail = _label("Listen for the siren", 12, muted)
+	pursuit_box.add_child(pursuit_detail)
+	rear_button = _button("Hold to look back  /  B or RB", func(): pass)
+	rear_button.custom_minimum_size.y = 34
+	rear_button.button_down.connect(func(): rear_button_held = true)
+	rear_button.button_up.connect(func(): rear_button_held = false)
+	pursuit_box.add_child(rear_button)
 	var route_panel := PanelContainer.new()
 	route_panel.name = "RouteCard"
 	route_panel.add_theme_stylebox_override("panel", _style(Color("193c34"), 8))
@@ -204,6 +227,27 @@ func _build_hud() -> void:
 	hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	hint_label.position = Vector2(28, -FOOTER_HEIGHT - 90)
 	hud.add_child(hint_label)
+
+func _build_mirrors() -> void:
+	for seat in ["driver", "navigator"]:
+		var frame := PanelContainer.new()
+		var style := _style(Color("0b211e"), 12, Color("87988b"))
+		style.set_content_margin_all(4)
+		frame.add_theme_stylebox_override("panel", style)
+		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud.add_child(frame)
+		var mirror := TextureRect.new()
+		mirror.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		mirror.stretch_mode = TextureRect.STRETCH_SCALE
+		mirror.flip_h = true
+		mirror.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		frame.add_child(mirror)
+		if seat == "driver":
+			driver_mirror = mirror
+			driver_mirror_frame = frame
+		else:
+			navigator_mirror = mirror
+			navigator_mirror_frame = frame
 
 func _menu_box(panel: PanelContainer) -> VBoxContainer:
 	panel.add_theme_stylebox_override("panel", _style(ink, 14))
@@ -288,7 +332,7 @@ func _build_settings() -> void:
 	blur_slider.step = 0.001
 	blur_slider.value = 0.028
 	box.add_child(blur_slider)
-	box.add_child(_label("WASD  drive   ·   SPACE  handbrake   ·   M  map\nC  camera   ·   H  lights   ·   F  fullscreen   ·   V  mute\nGamepad: left stick + triggers, A brake, Y map", 12, muted))
+	box.add_child(_label("WASD  drive   ·   SPACE  handbrake   ·   M  map\nB / RB  look back   ·   C  camera   ·   H  lights   ·   F  fullscreen   ·   V  mute\nGamepad: left stick + triggers, A brake, Y map", 12, muted))
 	box.add_child(HSeparator.new())
 	var advanced := VBoxContainer.new()
 	advanced.add_theme_constant_override("separation", 10)
@@ -447,6 +491,14 @@ func _button(text: String, action: Callable) -> Button:
 func _layout() -> void:
 	var width := root.size.x
 	var height := root.size.y
+	var seat_width := width * 0.5 if mode == "split" else width
+	var mirror_size := Vector2(minf(220, seat_width * 0.38), minf(220, seat_width * 0.38) / 3.2 + 8)
+	driver_mirror_frame.size = mirror_size
+	navigator_mirror_frame.size = mirror_size
+	driver_mirror_frame.position = Vector2((seat_width - mirror_size.x) * 0.5, 90)
+	navigator_mirror_frame.position = Vector2((seat_width - mirror_size.x) * 0.5 + (seat_width if mode == "split" else 0.0), 90)
+	driver_mirror_frame.visible = not in_menu and mode in ["split", "host"]
+	navigator_mirror_frame.visible = not in_menu and mode != "host"
 	for panel in [menu, settings_panel, local_panel]:
 		if panel != null:
 			panel.position = Vector2(32, 94)
@@ -454,11 +506,13 @@ func _layout() -> void:
 	if diagnostics_panel != null:
 		diagnostics_panel.position = Vector2(maxf(16, width - 540), 98)
 		diagnostics_panel.size = Vector2(510, 0)
+	pursuit_box.position = Vector2(width - 330, 20)
+	footer_label.visible = width >= 1150
 	views.offset_top = 78
 	views.offset_bottom = 0 if in_menu else -FOOTER_HEIGHT
 	navigator_tag.position = Vector2(width * 0.5 + 28 if mode == "split" else 28, 100)
 	var route_panel := hud.get_node("RouteCard") as PanelContainer
-	route_panel.position = Vector2(width - 340, 98)
+	route_panel.position = Vector2(width - 340, 190 if mode == "split" else 98)
 	route_panel.size = Vector2(312, 98)
 	_place_map(map_reveal)
 	if result_panel != null:
@@ -510,6 +564,8 @@ func set_mode(value: String) -> void:
 
 func show_menu(value: bool, can_resume: bool = true) -> void:
 	in_menu = value
+	if value:
+		rear_button_held = false
 	menu.visible = value
 	hud.get_node("DashboardPanel").visible = not value
 	if settings_panel != null:
@@ -549,3 +605,33 @@ func close_map() -> void:
 	if map_tween != null:
 		map_tween.kill()
 	_place_map(0.0)
+
+func update_pursuit(patrol: Node3D, rear: bool, driving: bool) -> void:
+	rear_button.visible = mode != "host"
+	rear_button.disabled = not driving
+	if not driving:
+		rear_button_held = false
+	pursuit_title.modulate = Color("f2a073") if patrol.gap < 45 else Color.WHITE
+	if patrol.phase == "caught":
+		pursuit_title.text = "CAUGHT"
+		pursuit_detail.text = "The patrol stopped your ride."
+	elif patrol.phase == "escaped":
+		pursuit_title.text = "YOU LOST THE PATROL"
+		pursuit_detail.text = "Keep your eyes on the road."
+	elif rear:
+		pursuit_title.text = "POLICE  /  %d m AWAY" % (roundi(patrol.gap / 5.0) * 5)
+		var estimate: float = patrol.eta()
+		if patrol.catch_time > 0:
+			pursuit_detail.text = "ON YOUR TAIL — KEEP MOVING!"
+		elif patrol.phase == "waiting":
+			pursuit_detail.text = "A head start. Get moving!"
+		elif estimate >= 0 and estimate < 90:
+			pursuit_detail.text = "Closing · about %d s at this pace" % maxi(1, roundi(estimate))
+		elif patrol.closing_speed < -0.75:
+			pursuit_detail.text = "You're pulling away."
+		else:
+			pursuit_detail.text = "Holding the gap."
+	else:
+		pursuit_title.text = "POLICE ON YOUR TAIL" if patrol.gap < 45 else "POLICE PURSUIT"
+		pursuit_detail.text = "Listen for the siren" if mode == "host" else "Look back to judge the gap."
+	navigator_tag.text = "02  /  LOOKING BACK" if rear else "02  /  NAVIGATOR\nKEEP TALKING"

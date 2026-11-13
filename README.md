@@ -24,15 +24,18 @@ Local play needs no additional packages or accounts. Models, forest, terrain, ma
 | Space | Handbrake; loosens the rear tires |
 | M / Tab | Navigator: unfold/fold map |
 | C | Navigator/solo: switch seat and chase cameras |
+| B (hold) | Navigator/solo: look behind and check police distance |
 | H | Headlights |
-| V | Mute/unmute motor and tire audio |
+| V | Mute/unmute motor, tire, and siren audio |
 | F | Fullscreen/windowed |
 | F8 | Connection check, live network metrics, and logs |
 | Escape | Menu; driver applies brakes while the menu is open |
 
-Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, and Start opens the menu. Keyboard and gamepad can be used together. **Settings** has the driver-blur slider. There is no recovery shortcut. Use **Start a new ride** in the pause menu, or **Drive again** after Game Over; both reset the run and trip odometer while keeping your personal best. Landing on the roof/side or puncturing a tire ends the run automatically.
+Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, holding the right shoulder button (RB) looks behind, and Start opens the menu. Keyboard and gamepad can be used together. **Settings** has the driver-blur slider. There is no recovery shortcut. Use **Start a new ride** in the pause menu, or **Drive again** after Game Over; both reset the run and trip odometer while keeping your personal best. Landing on the roof/side or puncturing a tire ends the run automatically.
 
 Talk to each other in person or over your preferred voice call. The navigator sees only the top edge of a folded map at the bottom of their view. **M / Tab** slides it up to cover their entire screen (their half in shared-screen mode), so checking the map means looking away from the road. Red **X / CLIFF** marks a fatal dead end. Lakes and construction zones are mapped; small obstacles are not. The navigator must also watch the clear road view and call out rocks, trees, ramps, bumps, and cones.
+
+A small live rear-view mirror stays visible during the ride: blurred for the driver, clear for the navigator. Hold **B / RB** or the on-screen **Hold to look back** button for the full passenger rear view. This folds the map and shows the patrol’s distance along the route, whether it is closing, and an approximate catch time at the current pace. Release to face forward again. The driver keeps their forward view in shared-screen play.
 
 ## Two windows or two computers
 
@@ -55,7 +58,7 @@ The driver owns physics. The navigator receives 30 snapshots per second, renders
 
 For **different networks**, use the lobby name and **Drive / Navigate** buttons on the start screen. The online server is already configured as **https://blind-driver-relay.onrender.com** and is hidden under advanced settings. Names ignore case and treat spaces like hyphens: `Forest Friends` and `forest-friends` enter the same lobby. Use 3–40 letters, numbers, spaces, or hyphens. No code or link needs to be copied between rides. Follow [deployment.md](deployment.md) to update or deploy the backend. Both clients connect outward to the relay; no router port forwarding is needed. This path uses an explicit JSON protocol, while the direct LAN mode retains native Godot RPC.
 
-**This revision requires protocol 5 on Render and both clients.** Deploy the updated backend before online play; protocol 5 adds tire damage and larger ravines to the shared state; named lobbies and navigator-first joining are preserved. This change does not deploy Render. The backend retains both seats through temporary disconnects and the games automatically reconnect and resync. A server or game-process restart ends the current run, but the same locally saved name works for the next ride. Lobby names are rendezvous points, not saved games or permanent reservations. A seat from a crashed client can remain reserved for up to two minutes.
+**This revision requires protocol 6 on Render and both clients.** Deploy the updated backend before online play; protocol 6 adds the shared patrol pose, pursuit phase, gap, closing rate, siren clock, and capture progress. Existing named lobbies, hazards, and tire damage are preserved. This change does not deploy Render. The backend retains both seats through temporary disconnects and the games automatically reconnect and resync. A server or game-process restart ends the current run, but the same locally saved name works for the next ride. Lobby names are rendezvous points, not saved games or permanent reservations. A seat from a crashed client can remain reserved for up to two minutes.
 
 Press **F8** for a 75-second connection test, live latency/retry metrics, and **Open network logs folder**. The deployed server also provides `/diagnostics` for a browser-based check. Client JSONL logs and Render's structured logs record timeouts, close codes, retries, validation failures, and stalls. See [connection checks and logs](deployment.md#connection-checks-and-logs) for instructions. Browser export and browser invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
 
@@ -84,6 +87,8 @@ godot --path . -- --join=127.0.0.1
 - Dense thorn bushes start roughly 18 m from the road center, leaving room to dodge obstacles on the shoulder. Tire contact with deep-forest brambles punctures the tires, stops the car, and shows Game Over. Flat tires and the failure reason synchronize to the navigator.
 - Roof and cabin collision protect the seats when the car flips. A car resting on its roof or side for 0.65 seconds ends the run; an airborne flip can still land safely.
 - A seeded road graph with exactly one continuing safe route. Each fork has one safe branch and one permanent cliff dead end. Only the safe frontier can expand, and driving into a dead end or the forest cannot spawn extra routes. Distant sections are removed and forest tiles load incrementally. Trees use MultiMesh rendering; nearby-road queries use a spatial index.
+- A police pursuit with an 85 m initial gap and a six-second head start. The patrol follows your chosen route, turns back through junctions if you change branches, steers around obstacles, and slows for bumps and bends. Its cruising speed rises from 90 to 119 km/h over the first 2 km. Holding a lead over 300 m for five seconds loses it; it does not teleport forward.
+- Sirens grow louder with physical proximity and switch to a faster wail nearby. Being within capture range for 1.5 seconds ends the run with **The police caught you**. Driver menus and connection recovery freeze pursuit. A new ride resets it. The patrol uses route steering and proximity capture.
 - A streamlined lobby/start menu, analog 0–160 km/h speedometer, mechanical-style trip odometer, route prompts, fullscreen, gamepad support, and local networking. The trip counter shows kilometers driven in this run; it resets for a new ride. Your personal best stays visible on the start screen, dashboard, and failure screen, with a new-record callout. It is saved locally in `user://records.cfg` during the ride, on failure, on restart, and on a normal exit. Both players record the shared distance on their own computer; this is not a saved world or an online leaderboard.
 
 ## Development flow
@@ -109,7 +114,8 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/relay_client.gd`, `scripts/wire_protocol.gd` | Resumable internet rooms, diagnostics, and explicit JSON state protocol |
 | `scripts/network_log.gd` | Rotating per-process network event logs |
 | `server/`, `render.yaml` | Node relay and Render deployment configuration |
-| `scripts/engine_audio.gd` | Procedural engine/tire audio |
+| `scripts/engine_audio.gd`, `scripts/police_siren.gd` | Procedural engine/tire sound and distance-based stereo siren |
+| `scripts/police_pursuit.gd` | Driver-owned patrol navigation, obstacle avoidance, gap estimates, and capture |
 | `shaders/driver_blur.gdshader` | Driver's vision |
 
 Edit a script, save, stop the running game, and press F5 again. Start with Solo practice to tune the handling, then test the same change with two people in local co-op. Use the Debugger and Output panels for errors. Godot's generated `.godot/` cache stays out of Git; script `.uid` files belong in Git.
@@ -135,10 +141,10 @@ GODOT=/path/to/godot python3 tests/run_checks.py
 godot --headless --path . --fixed-fps 60 --script tests/drive_smoke.gd
 ```
 
-The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved lobby settings, name-based joining in either order, removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn punctures, roof clearance, rollover failure, PB persistence, single-route generation, ramp overturns, higher sustained speed, hazard serialization, and matching Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
+The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved lobby settings, name-based joining in either order, removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn punctures, roof clearance, rollover failure, PB persistence, single-route generation, patrol navigation/avoidance/capture, rear-view controls and mirrors, ramp overturns, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
 
 ## Prototype boundaries
 
-This is an early handling/cooperation sandbox. There are no traffic systems, repair mechanics, saved worlds, or finish line. Obstacle collisions can spin or overturn the car; ravines, lakes, grounded rollovers, and thorn punctures end the run. Use the pause menu to start a new ride if the car is stuck. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
+This is an early handling/cooperation sandbox. There are no traffic systems, repair mechanics, saved worlds, or finish line. Obstacle collisions can spin or overturn the car; ravines, lakes, grounded rollovers, thorn punctures, and police capture end the run. Use the pause menu to start a new ride if the car is stuck. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
 
 The next useful milestone is deploying the relay using [deployment.md](deployment.md) and testing from two different networks. Then improve handling/junctions and verify a real browser export.
