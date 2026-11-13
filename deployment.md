@@ -6,11 +6,11 @@ The existing relay is **https://blind-driver-relay.onrender.com**, now the game'
 
 ## Upgrade the existing service first
 
-This revision uses **protocol 4** for reusable named lobbies and navigator-first joining, alongside the existing synchronized hazards and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
+This revision uses **protocol 5** for synchronized punctured tires and larger ravines, alongside named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
 
 1. Push these commits to the branch linked to your existing Render service (`git push origin main` if it uses main).
 2. Open **blind-driver-relay** in Render, then **Manual Deploy → Deploy latest commit**. Auto-deploy is off in the supplied configuration.
-3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":4`.
+3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":5`.
 4. Update/restart **both games** from this same revision. Old clients and old servers cannot use the new protocol together.
 5. Both players enter the same **lobby name** on the start screen, then choose **Drive** or **Navigate**. The online server is already configured. The name is saved locally for next time.
 
@@ -104,7 +104,7 @@ https://blind-driver-relay.onrender.com/healthz
 Open that address in your browser. A ready relay returns:
 
 ```json
-{"ok":true,"protocol":4,"instance":"example-instance","uptime_seconds":123}
+{"ok":true,"protocol":5,"instance":"example-instance","uptime_seconds":123}
 ```
 
 Or check from Terminal:
@@ -152,6 +152,8 @@ Use two computers, ideally on different networks, and check:
 - The navigator receives newly generated roads on the safe branch, and sees the same rocks, trees, ramps, bumps, construction, cliffs, and lakes.
 - There is no R/gamepad recovery shortcut. **Start a new ride** in the driver’s pause menu resets both views and the trip odometer.
 - Headlights, suspension, impacts, and car rotation remain in sync.
+- Drive deep into the thorn forest: both players see punctured tires and the same failure reason. Roll onto the roof: the cabin stays above the ground and the failure screen appears after landing.
+- Each computer saves its own PB from the shared run distance. Restart and relaunch to check that the best remains while the trip resets.
 - Drive over a marked cliff: both players see the fall, Game Over, and the same distance. Reconnect a navigator during Game Over and check that the result remains. Choose Drive again on the driver and confirm both return to the start in the same room.
 - Temporarily interrupt either computer's network. The driver brakes once the outage is detected; the navigator holds the last received view. The same running games reconnect automatically and resync the road/car state.
 - A silent connection is detected after 15 seconds without application heartbeat replies. A clean socket failure is detected sooner. Let the connection return within the two-minute recovery window.

@@ -11,6 +11,7 @@ signal ride_restored
 
 const Log = preload("res://scripts/network_log.gd")
 const PORT := 18765
+var port := PORT
 const INTERPOLATION_DELAY := 0.10
 const SNAPSHOT_INTERVAL := 1.0 / 30.0
 const Relay = preload("res://scripts/relay_client.gd")
@@ -43,6 +44,10 @@ var lan_retries := 0
 var last_metrics := 0.0
 
 func _ready() -> void:
+	# Integration checks can use a free port without disrupting a running game.
+	var requested_port := OS.get_environment("BLIND_DRIVER_LAN_PORT")
+	if requested_port.is_valid_int() and int(requested_port) > 0 and int(requested_port) <= 65535:
+		port = int(requested_port)
 	multiplayer.peer_connected.connect(_peer_connected)
 	multiplayer.peer_disconnected.connect(_peer_disconnected)
 	multiplayer.connected_to_server.connect(_connected)
@@ -144,14 +149,14 @@ func _new_peer() -> WebSocketMultiplayerPeer:
 func host(bind_address: String = "*") -> Error:
 	stop()
 	peer = _new_peer()
-	var error := peer.create_server(PORT, bind_address)
+	var error := peer.create_server(port, bind_address)
 	if error != OK:
-		status_changed.emit("PORT %d BUSY / CLOSE THE OTHER HOST" % PORT)
+		status_changed.emit("PORT %d BUSY / CLOSE THE OTHER HOST" % port)
 		peer = null
 		return error
 	role = "host"
 	multiplayer.multiplayer_peer = peer
-	status_changed.emit("DRIVER / HOSTING ON PORT %d" % PORT)
+	status_changed.emit("DRIVER / HOSTING ON PORT %d" % port)
 	return OK
 
 func join(address: String) -> Error:
@@ -161,7 +166,7 @@ func join(address: String) -> Error:
 	if not url.begins_with("ws://") and not url.begins_with("wss://"):
 		url = "ws://" + url
 		if url.get_slice("://", 1).find(":") == -1:
-			url += ":%d" % PORT
+			url += ":%d" % port
 	lan_url = url
 	var error := peer.create_client(url)
 	if error != OK:
@@ -304,7 +309,7 @@ func _process(delta: float) -> void:
 			var wheels: Array = []
 			for wheel: Node3D in car.wheel_pivots:
 				wheels.append(wheel.position.y)
-			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength}
+			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength, "tires": car.punctured_tires}
 			if online:
 				relay.send_snapshot(snapshot)
 			else:
@@ -378,6 +383,8 @@ func _interpolate(delta: float) -> void:
 	car.run_id = b.run_id
 	car.on_road = b.on_road
 	car.impact_strength = b.impact
+	car.punctured_tires = b.tires
+	car.update_tire_visuals()
 	for light: SpotLight3D in car.headlights:
 		light.visible = b.lights
 	car.wheel_spin += car.signed_speed * delta / car.WHEEL_RADIUS

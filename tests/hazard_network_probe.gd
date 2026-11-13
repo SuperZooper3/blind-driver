@@ -9,6 +9,8 @@ var phase_at := 0.0
 var saw_fall := false
 var saw_over := false
 var saw_restart := false
+var saw_puncture := false
+var saw_rollover := false
 var saw_graph := false
 var saw_reconnect := false
 var finished := false
@@ -60,8 +62,31 @@ func _tick() -> void:
 			game._restart_run()
 			phase = 4
 			phase_at = elapsed
-		if phase == 4 and elapsed - phase_at > 3.0:
-			_finish(true, "driver completes fall and restart without changing room")
+		if phase == 4 and elapsed - phase_at > 1.5:
+			game.car.distance_driven = 2345.0
+			game.car.recover(game.world.ground_point(26, 12, 0.17), Vector3.FORWARD)
+			phase = 5
+		if phase == 5 and game.car.run_state == "game_over":
+			phase = 6
+			phase_at = elapsed
+		if phase == 6 and elapsed - phase_at > 2.0:
+			game._restart_run()
+			phase = 7
+			phase_at = elapsed
+		if phase == 7 and elapsed - phase_at > 1.5:
+			game.car.reset_transform = Transform3D(Basis(Vector3.FORWARD, PI), game.world.ground_point(0, 12, 4.0))
+			game.car.reset_pending = true
+			game.car.recovery_grace = 3
+			phase = 8
+		if phase == 8 and game.car.run_state == "game_over":
+			phase = 9
+			phase_at = elapsed
+		if phase == 9 and elapsed - phase_at > 2.0:
+			game._restart_run()
+			phase = 10
+			phase_at = elapsed
+		if phase == 10 and elapsed - phase_at > 2.0:
+			_finish(true, "driver completes cliff, tire puncture, rollover, and restarts in one room")
 	else:
 		if game.session.graph_received and phase == 0:
 			var record: Dictionary = game.world.roads[1].hazards[0]
@@ -84,10 +109,17 @@ func _tick() -> void:
 					game.session._schedule_lan_retry()
 			elif phase == 2 and not game.session.recovering and game.session.snapshots_received > 120:
 				saw_reconnect = true
-		if game.car.run_id == 1 and game.car.run_state == "driving":
-			saw_restart = game.car.distance_driven < 2.0 and game.world.roads[0].id > 0 and game.car.global_position.distance_to(Vector3(0, 1.6, 12)) < 2.0
-			_finish(saw_graph and saw_fall and saw_over and saw_restart and saw_reconnect, "navigator matches hazards=%s fall=%s result=%s reconnect=%s restart=%s" % [saw_graph, saw_fall, saw_over, saw_reconnect, saw_restart])
-	if elapsed > 22.0:
+		if game.car.run_id == 1 and game.car.run_state == "game_over":
+			saw_puncture = game.car.punctured_tires != 0 and game.car.crash_reason.contains("Thorns") and absf(game.car.distance_driven - 2345.0) < 1.0 and game.ui.result_panel.visible
+			for i in game.car.wheel_pivots.size():
+				if game.car.punctured_tires & (1 << i):
+					saw_puncture = saw_puncture and is_equal_approx(game.car.wheel_pivots[i].scale.y, 0.55)
+		if game.car.run_id == 2 and game.car.run_state == "game_over":
+			saw_rollover = game.car.crash_reason.contains("rolled") and game.car.punctured_tires == 0 and game.ui.result_panel.visible
+		if game.car.run_id == 3 and game.car.run_state == "driving":
+			saw_restart = game.car.distance_driven < 2.0 and game.car.punctured_tires == 0 and game.world.roads[0].id > 0 and game.car.global_position.distance_to(Vector3(0, 1.6, 12)) < 2.0 and game.records.best_distance >= 2345.0
+			_finish(saw_graph and saw_fall and saw_over and saw_restart and saw_reconnect and saw_puncture and saw_rollover, "navigator matches hazards=%s fall=%s result=%s reconnect=%s restart=%s puncture=%s rollover=%s" % [saw_graph, saw_fall, saw_over, saw_reconnect, saw_restart, saw_puncture, saw_rollover])
+	if elapsed > 38.0:
 		_finish(false, "hazard network probe timed out at phase %d" % phase)
 
 func _finish(passed: bool, message: String) -> void:

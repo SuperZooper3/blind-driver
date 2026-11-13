@@ -44,9 +44,9 @@ func _run() -> void:
 	check(not cliff.is_empty() and cliff_road.expanded, "wrong branch ends at a cliff and never extends")
 	world.update_stream(cliff.position, true)
 	await frames(3)
-	var ray := PhysicsRayQueryParameters3D.create(cliff.position + Vector3.UP * 35, cliff.position - Vector3.UP * 2)
+	var ray := PhysicsRayQueryParameters3D.create(cliff.position + Vector3.UP * 45, cliff.position - Vector3.UP * 2)
 	var hit: Dictionary = world.get_world_3d().direct_space_state.intersect_ray(ray)
-	check(not hit.is_empty() and absf(hit.position.y - cliff.position.y) < 0.1, "pit has no terrain lid and has a physical floor 24 m below the surface")
+	check(not hit.is_empty() and absf(hit.position.y - cliff.position.y) < 0.1, "pit has no terrain lid and has a physical floor 36 m below the surface")
 	car.distance_driven = 1234.0
 	var edge: Vector3 = cliff_road.points[-1]
 	car.recover(edge + Vector3(0, 0, 8), Vector3.FORWARD)
@@ -86,6 +86,7 @@ func _run() -> void:
 	var kinds: Dictionary = {}
 	var safe_clear := true
 	world.set_process(false)
+	game.started = false
 	for step in 50:
 		var newest: Dictionary = {}
 		for road: Dictionary in world.roads:
@@ -113,6 +114,7 @@ func _run() -> void:
 			if hazard.kind == "lake": lake = hazard
 	check(not lake.is_empty(), "streamed route retains a nearby lake")
 	if not lake.is_empty():
+		game.started = true
 		world.update_stream(lake.position, true)
 		car.recover(lake.position + Vector3.UP * (lake.size.y + 1.0), Vector3.FORWARD)
 		await frames(180)

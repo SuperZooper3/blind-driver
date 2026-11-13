@@ -1,6 +1,7 @@
 extends Control
 ## A live navigator's paper chart, drawn from the road graph.
 
+const Hazards = preload("res://scripts/road_hazards.gd")
 var world: Node3D
 var car: RigidBody3D
 var unfolded := false
@@ -45,7 +46,10 @@ func _draw() -> void:
 			draw_string(ThemeDB.fallback_font, end + Vector2(20, 4), "CLIFF", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, danger)
 		for hazard: Dictionary in road.hazards:
 			var at := _project(hazard.position)
-			if hazard.kind == "lake":
+			if hazard.kind == "cliff":
+				for edge in Hazards.rim_edges(hazard):
+					draw_line(_project(edge[0]), _project(edge[1]), Color("a33d32"), 4.0, true)
+			elif hazard.kind == "lake":
 				var corners := PackedVector2Array()
 				for corner in [Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(1, 0, 1), Vector3(-1, 0, 1)]:
 					corners.append(_project(hazard.position + corner * hazard.size * 0.5))

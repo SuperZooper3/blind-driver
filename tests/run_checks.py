@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -61,7 +62,7 @@ def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False, haza
                 extra.append("--relay-room=" + code)
             else:
                 wait_output(host, path, "HOST_READY")
-            client = subprocess.run(command(probe, temporary / (tag + "-client.log"), "--", "--probe-join", *extra), capture_output=True, text=True, timeout=95 if resilience else 25)
+            client = subprocess.run(command(probe, temporary / (tag + "-client.log"), "--", "--probe-join", *extra), capture_output=True, text=True, timeout=95 if resilience else (45 if hazards else 25))
             print(f"[{tag}]", client.stdout)
             host.wait(timeout=15)
             host_output = path.read_text()
@@ -97,6 +98,14 @@ def run_named_pair(temporary, relay_url):
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="blind-driver-checks-") as directory:
         temporary = Path(directory)
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            os.environ["BLIND_DRIVER_LAN_PORT"] = str(reservation.getsockname()[1])
+        os.environ["BLIND_DRIVER_RECORDS_PATH"] = str(temporary / "records.cfg")
+        survival = subprocess.run(command("tests/survival_smoke.gd", temporary / "survival.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=45)
+        print(survival.stdout)
+        if survival.returncode or "FAIL:" in survival.stdout or "SCRIPT ERROR" in survival.stderr:
+            sys.exit(survival.stderr or "Survival check failed")
         lobby_ui = subprocess.run(command("tests/lobby_ui_smoke.gd", temporary / "lobby-ui.log"), capture_output=True, text=True, timeout=15)
         print(lobby_ui.stdout)
         if lobby_ui.returncode or "FAIL:" in lobby_ui.stdout or "SCRIPT ERROR" in lobby_ui.stderr:
