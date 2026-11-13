@@ -43,7 +43,8 @@ def stop(process):
         process.wait(timeout=5)
 
 
-def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False):
+def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False, hazards=False):
+    probe = "tests/hazard_network_probe.gd" if hazards else "tests/network_probe.gd"
     host = None
     tag = "relay" if relay_url else "lan"
     extra = ["--relay-url=" + relay_url] if relay_url else []
@@ -54,13 +55,13 @@ def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False):
     path = temporary / (tag + "-host-output.txt")
     try:
         with path.open("w+") as output:
-            host = subprocess.Popen(command("tests/network_probe.gd", temporary / (tag + "-host.log"), "--", "--probe-host", *extra), stdout=output, stderr=subprocess.STDOUT)
+            host = subprocess.Popen(command(probe, temporary / (tag + "-host.log"), "--", "--probe-host", *extra), stdout=output, stderr=subprocess.STDOUT)
             if relay_url:
                 code = wait_output(host, path, r"ROOM_READY=([A-F0-9]{18})").group(1)
                 extra.append("--relay-room=" + code)
             else:
                 wait_output(host, path, "HOST_READY")
-            client = subprocess.run(command("tests/network_probe.gd", temporary / (tag + "-client.log"), "--", "--probe-join", *extra), capture_output=True, text=True, timeout=95 if resilience else 25)
+            client = subprocess.run(command(probe, temporary / (tag + "-client.log"), "--", "--probe-join", *extra), capture_output=True, text=True, timeout=95 if resilience else 25)
             print(f"[{tag}]", client.stdout)
             host.wait(timeout=15)
             host_output = path.read_text()
@@ -78,10 +79,19 @@ if __name__ == "__main__":
         print(physics.stdout)
         if physics.returncode or "FAIL:" in physics.stdout or "SCRIPT ERROR" in physics.stderr:
             sys.exit(physics.stderr or "Physics check failed")
+        gameplay = subprocess.run(command("tests/gameplay_smoke.gd", temporary / "gameplay.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=45)
+        print(gameplay.stdout)
+        if gameplay.returncode or "FAIL:" in gameplay.stdout or "SCRIPT ERROR" in gameplay.stderr:
+            sys.exit(gameplay.stderr or "Gameplay check failed")
+        obstacles = subprocess.run(command("tests/obstacle_smoke.gd", temporary / "obstacles.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=45)
+        print(obstacles.stdout)
+        if obstacles.returncode or "FAIL:" in obstacles.stdout or "SCRIPT ERROR" in obstacles.stderr:
+            sys.exit(obstacles.stderr or "Obstacle check failed")
         launcher = subprocess.run(command("tests/local_pair_smoke.gd", temporary / "launcher.log"), capture_output=True, text=True, timeout=25)
         print(launcher.stdout)
         if launcher.returncode or "FAIL:" in launcher.stdout or "SCRIPT ERROR" in launcher.stderr:
             sys.exit(launcher.stderr or "Local window launcher check failed")
+        run_pair(temporary, hazards=True)
         run_pair(temporary, lan_recovery="--resilience" in sys.argv)
         if "--relay" in sys.argv or "--resilience" in sys.argv:
             relay = None
@@ -91,6 +101,8 @@ if __name__ == "__main__":
                     relay = subprocess.Popen(["node", "../tests/relay_fault_server.mjs" if "--resilience" in sys.argv else "index.mjs"], cwd=ROOT / "server", env={**os.environ, "PORT": "0", "HOST": "127.0.0.1"}, stdout=output, stderr=subprocess.STDOUT)
                     port = wait_output(relay, relay_output, r"listening on 127\.0\.0\.1:(\d+)").group(1)
                     run_pair(temporary, f"ws://127.0.0.1:{port}/ws", "--resilience" in sys.argv)
+                    if "--resilience" not in sys.argv:
+                        run_pair(temporary, f"ws://127.0.0.1:{port}/ws", hazards=True)
                     if "--resilience" in sys.argv:
                         print("[faults]", "\n".join(line for line in relay_output.read_text().splitlines() if "FAULT:" in line))
             finally:

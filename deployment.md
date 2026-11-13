@@ -6,11 +6,11 @@ The existing relay is **https://blind-driver-relay.onrender.com**, now the game'
 
 ## Upgrade the existing service first
 
-This revision uses **protocol 2** for connection checks and resumable seats. On 2026-11-13, the public `/healthz` endpoint still returned **protocol 1**. The updated backend has been tested locally, including a 75-second drive with forced disconnects; it has not been deployed to Render by this change.
+This revision uses **protocol 3** for authoritative road hazards and shared fall, Game Over, and restart state, alongside the existing connection checks and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
 
 1. Push these commits to the branch linked to your existing Render service (`git push origin main` if it uses main).
 2. Open **blind-driver-relay** in Render, then **Manual Deploy → Deploy latest commit**. Auto-deploy is off in the supplied configuration.
-3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":2`.
+3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":3`.
 4. Update/restart **both games** from this same revision. Old clients and old servers cannot use the new protocol together.
 5. Both players choose **Play online…**. The address is already filled in. Create a new room and share its code.
 
@@ -104,7 +104,7 @@ https://blind-driver-relay.onrender.com/healthz
 Open that address in your browser. A ready relay returns:
 
 ```json
-{"ok":true,"protocol":2,"instance":"example-instance","uptime_seconds":123}
+{"ok":true,"protocol":3,"instance":"example-instance","uptime_seconds":123}
 ```
 
 Or check from Terminal:
@@ -159,9 +159,10 @@ Use a voice call or talk in person; voice chat is not built into the game.
 Use two computers, ideally on different networks, and check:
 
 - The navigator sees the car move when the driver accelerates and steers.
-- The navigator receives newly generated roads after taking either fork.
+- The navigator receives newly generated roads on the safe branch, and sees the same rocks, trees, ramps, bumps, construction, cliffs, and lakes.
 - Pressing **R** on the driver moves both views to the recovered car.
-- Headlights remain in sync.
+- Headlights, suspension, impacts, and car rotation remain in sync.
+- Drive over a marked cliff: both players see the fall, Game Over, and the same distance. Reconnect a navigator during Game Over and check that the result remains. Restart with R on the driver and confirm both return to the start in the same room.
 - Temporarily interrupt either computer's network. The driver brakes once the outage is detected; the navigator holds the last received view. The same running games reconnect automatically and resync the road/car state.
 - A silent connection is detected after 15 seconds without application heartbeat replies. A clean socket failure is detected sooner. Let the connection return within the two-minute recovery window.
 - **Back / leave online room** is intentional: the driver ends the room; the navigator releases their seat. Closing/crashing the game loses its in-memory resume credential. A reserved navigator seat expires after two minutes; a closed driver cannot recover the ride after restarting the application.

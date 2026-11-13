@@ -2,7 +2,7 @@
 
 **One drives. One sees the way.** A playable, code-built Godot prototype of a two-player road trip through an endless low-poly forest.
 
-The driver has extremely blurred vision. The navigator sits beside them, sees the road clearly, and unfolds a live map to give directions. Every approaching fork extends into more roads. Both routes work; leave the road and you'll find grass, rocks, and solid trees.
+The driver has extremely blurred vision. The navigator sits beside them, sees the road clearly, and unfolds a live map to give directions. Every approaching fork extends into more roads. One branch at each fork ends at a marked cliff. Read the map, watch the road, and survive as far as you can.
 
 ## Play it
 
@@ -23,7 +23,7 @@ Local play needs no additional packages or accounts. Models, forest, terrain, ma
 | Space | Handbrake; loosens the rear tires |
 | M / Tab | Navigator: unfold/fold map |
 | C | Navigator/solo: switch seat and chase cameras |
-| R | Recover onto the nearest road |
+| R | Recover onto the nearest road; restart after Game Over |
 | H | Headlights |
 | V | Mute/unmute motor and tire audio |
 | F | Fullscreen/windowed |
@@ -32,7 +32,7 @@ Local play needs no additional packages or accounts. Models, forest, terrain, ma
 
 Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, Back recovers, and Start opens the menu. Keyboard and gamepad can be used together. The menu has a driver-blur slider.
 
-Talk to each other in person or over your preferred voice call. The next-turn card gives the navigator a suggested route; the orange map line marks that branch. There is no penalty for choosing another road yet.
+Talk to each other in person or over your preferred voice call. The navigator sees only the top edge of a folded map at the bottom of their view. **M / Tab** slides it up to cover their entire screen (their half in shared-screen mode), so checking the map means looking away from the road. Red **X / CLIFF** marks a fatal dead end. Lakes and construction zones are mapped; small obstacles are not. The navigator must also watch the clear road view and call out rocks, trees, ramps, bumps, and cones.
 
 ## Two windows or two computers
 
@@ -54,7 +54,7 @@ The driver owns physics. The navigator receives 30 snapshots per second, renders
 
 For **different networks**, use **Play online…** and the included Render-ready room relay. The address defaults to **https://blind-driver-relay.onrender.com**. The driver creates a room and the navigator joins with its code. Follow [deployment.md](deployment.md) to update or deploy the backend. Both clients connect outward to the relay; no router port forwarding is needed. This path uses an explicit JSON protocol, while the direct LAN mode retains native Godot RPC.
 
-**This revision requires protocol 2 on Render and both clients.** Deploy the updated backend before playing: the public service still returned protocol 1 when checked on 2026-11-13. The backend retains both seats through temporary disconnects and the games automatically reconnect and resync. A server or game-process restart still requires a new room.
+**This revision requires protocol 3 on Render and both clients.** Deploy the updated backend before online play; protocol 3 adds hazard records, suspension/impact state, and shared fall/Game Over/restart state. This change does not deploy Render. The backend retains both seats through temporary disconnects and the games automatically reconnect and resync. A server or game-process restart still requires a new room.
 
 Press **F8** for a 75-second connection test, live latency/retry metrics, and **Open network logs folder**. The deployed server also provides `/diagnostics` for a browser-based check. Client JSONL logs and Render's structured logs record timeouts, close codes, retries, validation failures, and stalls. See [connection checks and logs](deployment.md#connection-checks-and-logs) for instructions. Browser export and browser invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
 
@@ -78,6 +78,8 @@ godot --path . -- --join=127.0.0.1
 - A physical 1,050 kg car with four raycast suspension springs, tire grip, rear-wheel handbrake slip, braking, reverse, aerodynamic drag, and a low center of mass. It can bounce, slide, collide, and overturn; R recovers it.
 - Gravel and off-road grip/rolling resistance, physical road surfaces, gentle hills, collidable trunks and rocks, working steering/wheel visuals, primitive occupants, headlights, and synthesized engine/tire sound.
 - Two independent seat cameras sharing one simulation, a low-resolution blurred driver render, a clear navigator render, a heading-relative map, and a solo chase view.
+- A survival run: wrong forks end in bounded 24 m pits, roadside lakes are fatal, and Game Over reports the distance driven. The driver can restart with **R** or **Drive again** without leaving the room. Recovery cannot rescue a car already over a pit.
+- Faster acceleration and a 158 km/h engine cutoff (about 111 km/h sustained on a flat test road), physical boulders, tree chicanes, half-width ramps that can overturn the car, speed bumps, and construction cones/barriers. Obstacles are static and collide; they are not independently simulated debris.
 - A seeded branching road graph. Roads grow near the car, distant sections are removed, and forest tiles load incrementally. Trees use MultiMesh rendering; nearby-road queries use a spatial index.
 - A start/pause menu, speed/distance display, route prompts, recovery, fullscreen, gamepad support, and local networking.
 
@@ -95,6 +97,7 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/main.gd` | Lighting, cameras, inputs, modes, route instructions |
 | `scripts/car.gd` | Car geometry and physical controller; spring, damping, grip, engine and steering tuning |
 | `scripts/procedural_world.gd` | Road graph, terrain, forest streaming, collision, world seed |
+| `scripts/road_hazards.gd` | Physical obstacles, bounded cliff pits, and lakes |
 | `scripts/geometry.gd` | Shared low-poly mesh/material helpers |
 | `scripts/game_ui.gd` | Menu and split-screen interface |
 | `scripts/route_map.gd` | Navigator's map |
@@ -128,10 +131,10 @@ GODOT=/path/to/godot python3 tests/run_checks.py
 godot --headless --path . --fixed-fps 60 --script tests/drive_smoke.gd
 ```
 
-The checks bind only to localhost and close their test processes afterwards. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
+The checks bind only to localhost and close their test processes afterwards. They also verify map animation and screen coverage, physical falls and lake deaths, ramp overturns, higher sustained speed, hazard serialization, and matching Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
 
 ## Prototype boundaries
 
-This is an early handling/cooperation sandbox. Roads can cross or overlap; there are no authored junction rules, traffic, goals, damage, save games, or strict route scoring. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
+This is an early handling/cooperation sandbox. Roads can cross or overlap; there are no traffic systems, car-part damage, save games, or finish line. Ordinary obstacle collisions can spin or overturn the car; fatal pits/lakes end the run. Recover overturned cars with R. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
 
 The next useful milestone is deploying the relay using [deployment.md](deployment.md) and testing from two different networks. Then improve handling/junctions and verify a real browser export.

@@ -11,7 +11,7 @@ the user requests the relevant work; unresolved details need design discussion.
 
 ## Obstacles and forest
 
-- More obstacles.
+- Static rocks, tree chicanes, ramps, bumps, construction, and lakes are implemented. Future obstacle types remain open.
 - Time-sensitive obstacles.
 - A buffer zone of trees.
 - Open details: obstacle timing, placement, and what the tree buffer should
@@ -24,8 +24,7 @@ the user requests the relevant work; unresolved details need design discussion.
 
 ## Rules and visual effects
 
-- Wrong turn = death.
+- Wrong turn = death is implemented with marked cliffs, physical falls, shared Game Over distance, and driver-controlled restart.
 - Driver blur oscillates between strong and weak.
 - Additional effects.
-- Open details: how a wrong turn is identified, how death/restarting works, blur
-  timing and strength, and which other effects to add.
+- Open details: blur timing and strength, and which other effects to add.

@@ -104,7 +104,9 @@ func grow_near(at: Vector3) -> void:
 		road.expanded = true
 		var depth: int = road.depth + 1
 		if road.depth % 2 == 0:
-			var left_safe: bool = (int(road.depth) / 2 + world_seed) % 2 == 1
+			var fork_rng := RandomNumberGenerator.new()
+			fork_rng.seed = world_seed + int(road.id) * 1531
+			var left_safe := fork_rng.randf() > 0.5
 			_add_road(end, 0.66 if left_safe else -0.66, depth, road.id)
 			_add_road(end, -0.88 if left_safe else 0.88, depth, road.id, 140.0, true)
 		else:

@@ -32,7 +32,10 @@ func _run() -> void:
 	check(car.distance_driven > 65.0, "car makes sustained forward progress")
 	check(car.global_basis.y.dot(Vector3.UP) > 0.8, "car stays upright at speed")
 	Input.action_press("reverse")
-	await frames(100)
+	for _i in 240:
+		await physics_frame
+		if car.signed_speed < 1.5:
+			break
 	Input.action_release("reverse")
 	check(absf(car.signed_speed) < 4.0, "brake input brings the car to a stop")
 	game._recover()
@@ -47,7 +50,7 @@ func _run() -> void:
 	check((-car.global_basis.z).dot(before) < 0.97, "steering changes the vehicle's heading")
 	check(car.global_position.y > -10.0, "car remains above streamed terrain")
 	var world = game.world
-	check(world.roads.size() >= 3, "initial road branches into two real roads")
+	check(world.roads.size() >= 3, "initial road branches into a safe road and a cliff")
 	var left_id: int = world.roads[1].id
 	var right_id: int = world.roads[2].id
 	world.grow_near(world.roads[1].points[-1])
@@ -55,9 +58,12 @@ func _run() -> void:
 	var parents: Array = []
 	for road: Dictionary in world.roads:
 		parents.append(road.parent)
-	check(parents.has(left_id) and parents.has(right_id), "either initial fork generates a continuation")
+	check(parents.has(left_id) and not parents.has(right_id), "only the safe branch generates a continuation")
 	for step in 32:
 		var newest: Dictionary = world.roads[-1]
+		for road: Dictionary in world.roads:
+			if not road.danger and not road.expanded:
+				newest = road
 		var point: Vector3 = newest.points[-1]
 		world.grow_near(point)
 	check(world.next_id > 30, "road generation keeps extending through many forks")
