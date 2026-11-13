@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph } from './protocol.mjs';
+import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue } from './protocol.mjs';
 
 export function createRelay(options = {}) {
   const maxRooms = options.maxRooms ?? Number(process.env.MAX_ROOMS || 100);
@@ -200,7 +200,7 @@ export function createRelay(options = {}) {
         send(room.navigator?.client, message);
       } else {
         reject(client, 'Invalid game state', { kind: ['graph', 'snapshot'].includes(message.type) ? message.type : 'unknown', bytes: raw.length,
-          validation: message.type === 'snapshot' ? 'snapshot_shape_or_bounds' : 'graph_shape_bounds_or_rate' });
+          validation: message.type === 'snapshot' ? (raw.length > 4096 ? 'snapshot_size' : snapshotIssue(message.state)) : (client.graphBudget < 0 ? 'graph_rate' : graphIssue(message.roads)) });
       }
     });
   });

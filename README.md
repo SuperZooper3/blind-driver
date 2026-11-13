@@ -27,6 +27,7 @@ Local play needs no additional packages or accounts. Models, forest, terrain, ma
 | H | Headlights |
 | V | Mute/unmute motor and tire audio |
 | F | Fullscreen/windowed |
+| F8 | Connection check, live network metrics, and logs |
 | Escape | Menu; driver applies brakes while the menu is open |
 
 Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, Back recovers, and Start opens the menu. Keyboard and gamepad can be used together. The menu has a driver-blur slider.
@@ -49,11 +50,13 @@ If Godot embeds the running game in its editor, the driver remains in that Game 
 
 The host listens on TCP port **18765**. A second host on the same port will show an error. A third player is rejected. The operating system may ask to allow Godot's local network connection. Use split-screen when sharing one keyboard; separate windows have normal desktop keyboard-focus behavior.
 
-The driver owns physics. The navigator receives 30 snapshots per second, renders with a 100 ms interpolation buffer, receives road graph changes, and snaps on recovery. Connection failures/stalls are shown on screen; a disconnected navigator can rejoin the still-running host. A lost host requires hosting/joining again. This is a local development connection, not a deployed public service.
+The driver owns physics. The navigator receives 30 snapshots per second, renders with a 100 ms interpolation buffer, receives road graph changes, and snaps on recovery. Connection failures/stalls are shown on screen. A disconnected LAN navigator automatically retries its host for up to two minutes; restarting the host creates a new world. This is a local development connection, not a deployed public service.
 
-For **different networks**, use **Play online…** and the included Render-ready room relay. Follow [deployment.md](deployment.md) to deploy it, then have the driver create a room and the navigator join with its code. Both clients connect outward to the relay; no router port forwarding is needed. This path uses an explicit JSON protocol, while the direct LAN mode retains native Godot RPC.
+For **different networks**, use **Play online…** and the included Render-ready room relay. The address defaults to **https://blind-driver-relay.onrender.com**. The driver creates a room and the navigator joins with its code. Follow [deployment.md](deployment.md) to update or deploy the backend. Both clients connect outward to the relay; no router port forwarding is needed. This path uses an explicit JSON protocol, while the direct LAN mode retains native Godot RPC.
 
-The relay and game integration are tested locally; a public Render service has not been deployed yet. Browser export and browser invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
+**This revision requires protocol 2 on Render and both clients.** Deploy the updated backend before playing: the public service still returned protocol 1 when checked on 2026-11-13. The backend retains both seats through temporary disconnects and the games automatically reconnect and resync. A server or game-process restart still requires a new room.
+
+Press **F8** for a 75-second connection test, live latency/retry metrics, and **Open network logs folder**. The deployed server also provides `/diagnostics` for a browser-based check. Client JSONL logs and Render's structured logs record timeouts, close codes, retries, validation failures, and stalls. See [connection checks and logs](deployment.md#connection-checks-and-logs) for instructions. Browser export and browser invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
 
 ### Command-line launch
 
@@ -92,7 +95,8 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/game_ui.gd` | Menu and split-screen interface |
 | `scripts/route_map.gd` | Navigator's map |
 | `scripts/session.gd` | Direct/relayed sessions and shared snapshot interpolation |
-| `scripts/relay_client.gd`, `scripts/wire_protocol.gd` | Internet rooms and explicit JSON state protocol |
+| `scripts/relay_client.gd`, `scripts/wire_protocol.gd` | Resumable internet rooms, diagnostics, and explicit JSON state protocol |
+| `scripts/network_log.gd` | Rotating per-process network event logs |
 | `server/`, `render.yaml` | Node relay and Render deployment configuration |
 | `scripts/engine_audio.gd` | Procedural engine/tire audio |
 | `shaders/driver_blur.gdshader` | Driver's vision |
@@ -109,6 +113,9 @@ python3 tests/run_checks.py
 npm --prefix server ci
 npm --prefix server test
 python3 tests/run_checks.py --relay
+
+# Sustained drive with forced failures for both seats:
+python3 tests/run_checks.py --resilience
 
 # Set the executable explicitly if needed:
 GODOT=/path/to/godot python3 tests/run_checks.py

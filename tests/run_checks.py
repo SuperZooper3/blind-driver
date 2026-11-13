@@ -43,10 +43,12 @@ def stop(process):
         process.wait(timeout=5)
 
 
-def run_pair(temporary, relay_url="", resilience=False):
+def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False):
     host = None
     tag = "relay" if relay_url else "lan"
     extra = ["--relay-url=" + relay_url] if relay_url else []
+    if lan_recovery:
+        extra += ["--probe-duration=15", "--expect-lan-recovery"]
     if resilience:
         extra += ["--probe-duration=75", "--expect-recovery"]
     path = temporary / (tag + "-host-output.txt")
@@ -69,27 +71,28 @@ def run_pair(temporary, relay_url="", resilience=False):
         stop(host)
 
 
-with tempfile.TemporaryDirectory(prefix="blind-driver-checks-") as directory:
-    temporary = Path(directory)
-    physics = subprocess.run(command("tests/drive_smoke.gd", temporary / "physics.log", "--fixed-fps", "60", "--quit-after", "1500"), capture_output=True, text=True, timeout=45)
-    print(physics.stdout)
-    if physics.returncode or "FAIL:" in physics.stdout or "SCRIPT ERROR" in physics.stderr:
-        sys.exit(physics.stderr or "Physics check failed")
-    launcher = subprocess.run(command("tests/local_pair_smoke.gd", temporary / "launcher.log"), capture_output=True, text=True, timeout=25)
-    print(launcher.stdout)
-    if launcher.returncode or "FAIL:" in launcher.stdout or "SCRIPT ERROR" in launcher.stderr:
-        sys.exit(launcher.stderr or "Local window launcher check failed")
-    run_pair(temporary)
-    if "--relay" in sys.argv or "--resilience" in sys.argv:
-        relay = None
-        try:
-            relay_output = temporary / "relay-output.txt"
-            with relay_output.open("w+") as output:
-                relay = subprocess.Popen(["node", "../tests/relay_fault_server.mjs" if "--resilience" in sys.argv else "index.mjs"], cwd=ROOT / "server", env={**os.environ, "PORT": "0", "HOST": "127.0.0.1"}, stdout=output, stderr=subprocess.STDOUT)
-                port = wait_output(relay, relay_output, r"listening on 127\.0\.0\.1:(\d+)").group(1)
-                run_pair(temporary, f"ws://127.0.0.1:{port}/ws", "--resilience" in sys.argv)
-                if "--resilience" in sys.argv:
-                    print("[faults]", "\n".join(line for line in relay_output.read_text().splitlines() if "FAULT:" in line))
-        finally:
-            stop(relay)
-print("All requested driving and network checks passed.")
+if __name__ == "__main__":
+    with tempfile.TemporaryDirectory(prefix="blind-driver-checks-") as directory:
+        temporary = Path(directory)
+        physics = subprocess.run(command("tests/drive_smoke.gd", temporary / "physics.log", "--fixed-fps", "60", "--quit-after", "1500"), capture_output=True, text=True, timeout=45)
+        print(physics.stdout)
+        if physics.returncode or "FAIL:" in physics.stdout or "SCRIPT ERROR" in physics.stderr:
+            sys.exit(physics.stderr or "Physics check failed")
+        launcher = subprocess.run(command("tests/local_pair_smoke.gd", temporary / "launcher.log"), capture_output=True, text=True, timeout=25)
+        print(launcher.stdout)
+        if launcher.returncode or "FAIL:" in launcher.stdout or "SCRIPT ERROR" in launcher.stderr:
+            sys.exit(launcher.stderr or "Local window launcher check failed")
+        run_pair(temporary, lan_recovery="--resilience" in sys.argv)
+        if "--relay" in sys.argv or "--resilience" in sys.argv:
+            relay = None
+            try:
+                relay_output = temporary / "relay-output.txt"
+                with relay_output.open("w+") as output:
+                    relay = subprocess.Popen(["node", "../tests/relay_fault_server.mjs" if "--resilience" in sys.argv else "index.mjs"], cwd=ROOT / "server", env={**os.environ, "PORT": "0", "HOST": "127.0.0.1"}, stdout=output, stderr=subprocess.STDOUT)
+                    port = wait_output(relay, relay_output, r"listening on 127\.0\.0\.1:(\d+)").group(1)
+                    run_pair(temporary, f"ws://127.0.0.1:{port}/ws", "--resilience" in sys.argv)
+                    if "--resilience" in sys.argv:
+                        print("[faults]", "\n".join(line for line in relay_output.read_text().splitlines() if "FAULT:" in line))
+            finally:
+                stop(relay)
+    print("All requested driving and network checks passed.")

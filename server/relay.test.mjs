@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { WebSocket } from 'ws';
 import { createRelay } from './index.mjs';
+import { snapshotIssue, graphIssue } from './protocol.mjs';
 
 async function setup(t, options = {}) {
   const relay = createRelay({ logger: () => {}, ...options });
@@ -189,4 +190,10 @@ test('application traffic keeps a connection alive even if control pongs are los
   const closed = await once(socket, 'close');
   assert.equal(closed[0], 1006);
   assert.ok(logs.some(x => x.event === 'heartbeat_timeout'));
+});
+
+test('validation reports the failing field without including payload contents', () => {
+  assert.equal(snapshotIssue({ ...state, rotation: [0, 0, 0, 0] }), 'rotation_normalization');
+  assert.equal(snapshotIssue({ ...state, speed: Infinity }), 'speed');
+  assert.equal(graphIssue([{ ...roads[0], points: [[0, 0, 0], [0, 0, 0]] }]), 'road[0].point[1].spacing');
 });

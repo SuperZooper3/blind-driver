@@ -38,6 +38,7 @@ static func _open() -> void:
 	file = FileAccess.open(path, FileAccess.WRITE)
 
 static func folder() -> String:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DIRECTORY))
 	return ProjectSettings.globalize_path(DIRECTORY)
 
 static func close() -> void:

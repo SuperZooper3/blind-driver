@@ -7,31 +7,39 @@ const number = (value, min = -1e7, max = 1e7) => typeof value === 'number' && Nu
 const integer = (value, min = 0, max = 2147483647) => Number.isSafeInteger(value) && value >= min && value <= max;
 const vector = (value, length) => Array.isArray(value) && value.length === length && value.every(item => number(item));
 
-export function validSnapshot(state) {
-  return isRecord(state) && integer(state.seq) && number(state.time, 0, 1e12)
-    && vector(state.position, 3) && vector(state.rotation, 4)
-    && Math.abs(state.rotation.reduce((sum, value) => sum + value * value, 0) - 1) < 0.02
-    && vector(state.velocity, 3) && number(state.speed, -200, 200)
-    && number(state.steering, -1.01, 1.01) && number(state.throttle, -1.01, 1.01)
-    && number(state.distance, 0, 1e10) && integer(state.grounded, 0, 4)
-    && integer(state.reset) && typeof state.lights === 'boolean';
+// Return only field names/reasons, never player data, for useful rejection logs.
+export function snapshotIssue(state) {
+  if (!isRecord(state)) return 'state_type';
+  for (const key of ['seq', 'reset']) if (!integer(state[key])) return key;
+  for (const [key, min, max] of [['time', 0, 1e12], ['speed', -200, 200], ['steering', -1.01, 1.01], ['throttle', -1.01, 1.01], ['distance', 0, 1e10]]) {
+    if (!number(state[key], min, max)) return key;
+  }
+  for (const [key, length] of [['position', 3], ['rotation', 4], ['velocity', 3]]) if (!vector(state[key], length)) return key;
+  if (Math.abs(state.rotation.reduce((sum, value) => sum + value * value, 0) - 1) >= 0.02) return 'rotation_normalization';
+  if (!integer(state.grounded, 0, 4)) return 'grounded';
+  if (typeof state.lights !== 'boolean') return 'lights';
+  return null;
 }
+export const validSnapshot = state => snapshotIssue(state) === null;
 
-export function validGraph(roads) {
-  if (!Array.isArray(roads) || roads.length < 1 || roads.length > 100) return false;
+export function graphIssue(roads) {
+  if (!Array.isArray(roads) || roads.length < 1 || roads.length > 100) return 'road_count';
   const ids = new Set();
-  return roads.every(road => {
-    if (!isRecord(road) || !integer(road.id) || ids.has(road.id)
-      || !integer(road.parent) || !integer(road.depth)
-      || !number(road.heading, -Math.PI * 2, Math.PI * 2)
-      || typeof road.expanded !== 'boolean' || !Array.isArray(road.points)
-      || road.points.length < 2 || road.points.length > 64
-      || !road.points.every(point => vector(point, 3))) return false;
+  for (const [index, road] of roads.entries()) {
+    const at = field => `road[${index}].${field}`;
+    if (!isRecord(road)) return at('type');
+    for (const key of ['id', 'parent', 'depth']) if (!integer(road[key])) return at(key);
+    if (ids.has(road.id)) return at('duplicate_id');
+    if (!number(road.heading, -Math.PI * 2, Math.PI * 2)) return at('heading');
+    if (typeof road.expanded !== 'boolean') return at('expanded');
+    if (!Array.isArray(road.points) || road.points.length < 2 || road.points.length > 64) return at('point_count');
+    if (!road.points.every(point => vector(point, 3))) return at('point_coordinates');
     for (let i = 1; i < road.points.length; i++) {
       const distanceSquared = road.points[i].reduce((sum, value, axis) => sum + (value - road.points[i - 1][axis]) ** 2, 0);
-      if (distanceSquared < 0.0001 || distanceSquared > 1e6) return false;
+      if (distanceSquared < 0.0001 || distanceSquared > 1e6) return at(`point[${i}].spacing`);
     }
     ids.add(road.id);
-    return true;
-  });
+  }
+  return null;
 }
+export const validGraph = roads => graphIssue(roads) === null;

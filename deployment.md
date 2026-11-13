@@ -2,7 +2,19 @@
 
 This guide gets **two people on different internet connections playing the desktop game together**. Render runs a small relay; each player runs the Godot game on their own computer.
 
-The relay, Render configuration, and the game's **Play online…** menu are implemented. They have been tested locally with two separate Godot processes going through the relay. **A public Render service has not been created or tested yet.** The remaining account-specific steps are below.
+The existing relay is **https://blind-driver-relay.onrender.com**, now the game's default address. You can override it in the menu, through the saved preference, or with `BLIND_DRIVER_RELAY_URL`.
+
+## Upgrade the existing service first
+
+This revision uses **protocol 2** for connection checks and resumable seats. On 2026-11-13, the public `/healthz` endpoint still returned **protocol 1**. The updated backend has been tested locally, including a 75-second drive with forced disconnects; it has not been deployed to Render by this change.
+
+1. Push these commits to the branch linked to your existing Render service (`git push origin main` if it uses main).
+2. Open **blind-driver-relay** in Render, then **Manual Deploy → Deploy latest commit**. Auto-deploy is off in the supplied configuration.
+3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":2`.
+4. Update/restart **both games** from this same revision. Old clients and old servers cannot use the new protocol together.
+5. Both players choose **Play online…**. The address is already filled in. Create a new room and share its code.
+
+No new service, database, router settings, or environment variables are needed. Deployment ends existing rooms, so do it between rides. The initial-service instructions below are retained for setting up another relay.
 
 ## 1. Understand what is being deployed
 
@@ -19,7 +31,7 @@ Driver's Godot game                     Navigator's Godot game
 
 Both players initiate an outbound connection to Render. Nobody needs to open a port on their router. The relay does not run Godot, render graphics, or simulate the car. It pairs one driver with one navigator and forwards the driver's updates.
 
-There are two different networking modes:
+The networking modes are:
 
 | Mode | Buttons | Address | Intended use |
 | --- | --- | --- | --- |
@@ -83,22 +95,22 @@ Node 24 is selected explicitly so a change to Render's default runtime does not 
 
 ## 4. Check that the relay is awake
 
-Replace `YOUR-SERVICE` with the actual service name:
+For the existing service, open:
 
 ```text
-https://YOUR-SERVICE.onrender.com/healthz
+https://blind-driver-relay.onrender.com/healthz
 ```
 
 Open that address in your browser. A ready relay returns:
 
 ```json
-{"ok":true,"protocol":1}
+{"ok":true,"protocol":2,"instance":"example-instance","uptime_seconds":123}
 ```
 
 Or check from Terminal:
 
 ```sh
-curl --fail https://YOUR-SERVICE.onrender.com/healthz
+curl --fail https://blind-driver-relay.onrender.com/healthz
 ```
 
 The base URL returns a small JSON service description. **That is expected: this URL is the backend, not a playable webpage.**
@@ -122,8 +134,7 @@ You can later distribute exported desktop builds instead of the source project: 
 ### Driver
 
 1. Choose **Play online…** from the game's main menu.
-2. Paste the Render service URL into **Relay address**, for example:
-   `https://YOUR-SERVICE.onrender.com`
+2. Keep the default **Relay address**: `https://blind-driver-relay.onrender.com`. Change it only when testing a different relay.
 3. Click **Create room / I am driving**.
 4. Wait for the **Room code** field to fill with an 18-character code.
 5. Click **Copy** and share the code with your navigator, along with the Render URL.
@@ -151,8 +162,9 @@ Use two computers, ideally on different networks, and check:
 - The navigator receives newly generated roads after taking either fork.
 - Pressing **R** on the driver moves both views to the recovered car.
 - Headlights remain in sync.
-- Closing the navigator applies the driver's brakes and shows a disconnect message. The navigator can rejoin using the same code while the driver stays connected.
-- Closing the driver ends the room. Start a new room to play again.
+- Temporarily interrupt either computer's network. The driver brakes once the outage is detected; the navigator holds the last received view. The same running games reconnect automatically and resync the road/car state.
+- A silent connection is detected after 15 seconds without application heartbeat replies. A clean socket failure is detected sooner. Let the connection return within the two-minute recovery window.
+- **Back / leave online room** is intentional: the driver ends the room; the navigator releases their seat. Closing/crashing the game loses its in-memory resume credential. A reserved navigator seat expires after two minutes; a closed driver cannot recover the ride after restarting the application.
 
 The driver's physics stays local and responsive. The navigator sees an interpolated view with network delay; testing from separate networks is still necessary to judge how well spoken directions work.
 
@@ -165,7 +177,7 @@ Auto-deploy is initially off so every code push does not interrupt an active dri
 3. In the Render service, choose **Manual Deploy → Deploy latest commit**.
 4. Wait for Live, check `/healthz`, and create a new room.
 
-Keep this service at **one instance**. Rooms live in that process's memory. Multiple instances would need shared room coordination, because two clients can otherwise reach different instances. A restart or deployment ends active rooms; there is no persistent session recovery. Render can also replace instances during platform maintenance. [Render WebSocket lifecycle and scaling behavior](https://render.com/docs/websocket)
+Keep this service at **one instance**. Rooms live in that process's memory. Multiple instances would need shared room coordination, because two clients can otherwise reach different instances. A restart or deployment ends active rooms; temporary connection recovery works only while the same server process and game processes remain alive. Render can also replace instances during platform maintenance. [Render WebSocket lifecycle and scaling behavior](https://render.com/docs/websocket)
 
 The supplied Blueprint requests a Free instance. Review Render's current plan, included bandwidth, and account spending settings before changing it. Relayed game traffic counts toward outbound bandwidth. A free-tier service is suitable for an initial experiment, not a guarantee of uninterrupted availability. [Render pricing](https://render.com/pricing), [free limits](https://render.com/docs/free)
 
@@ -194,11 +206,63 @@ python3 tests/run_checks.py
 
 # Also launch the Node relay and two Godot processes through a real room.
 python3 tests/run_checks.py --relay
+
+# 75-second drive with driver drop, navigator drop, and a silent traffic stall.
+python3 tests/run_checks.py --resilience
 ```
 
 If Godot isn't found automatically, set `GODOT` to its executable path. The integration checks bind only to localhost and clean up their test processes. The relay checks require `npm ci` in `server` first. Node 24 is the deployment target; the scripts also work with the existing local Node 20 installation.
 
 The relay test does not verify Render's public TLS endpoint. That is covered by the health check and two-computer playtest after deployment.
+
+## Connection checks and logs
+
+**In either game:** press **F8** (on some Macs, Fn+F8), or open **Play online… → Connection check & logs**. The panel shows live ride metrics and offers a separate **75-second connection check**. It uses the same WebSocket endpoint without occupying a room. You can run it during a ride. Keep the computer awake. Hiding the panel with F8 leaves a running check active; **Stop check / close** cancels it.
+
+**In a browser:** open [the relay diagnostics page](https://blind-driver-relay.onrender.com/diagnostics), start the 75-second check, and use **Save results** to download JSONL events. Run it from each player's computer, keeping the tab visible. This page becomes available after deploying protocol 2. `/healthz` checks the running server; `/diagnostics` tests the actual WebSocket round trips.
+
+**From a terminal**, including a server's shell or another machine with this repository and Node:
+
+```sh
+cd server
+npm ci
+npm run check -- https://blind-driver-relay.onrender.com 75
+# Save JSONL output without npm's banner:
+node check.mjs https://blind-driver-relay.onrender.com 75 > connection-check.jsonl
+```
+
+The CLI exits 0 for a completed check with sufficient replies and no missed probes, 1 for failed/interrupted checks, and 2 for invalid arguments. Run it locally against `http://127.0.0.1:10000` to test a development relay. A server checking itself does not measure a player's internet connection.
+
+Latency is round-trip time; p95 is the slower end of recent replies, and jitter measures variation between them. Missed probes are replies that did not arrive within five seconds, **not a measurement of raw IP packet loss**. A high maximum game frame gap points to the game/computer stalling. A browser timer gap includes its normal one-second sampling interval. Low local latency cannot predict internet latency. “No interruption observed” describes only that test period; it does not guarantee the next drive.
+
+### Client logs
+
+Use **F8 → Open network logs folder**. Each game process writes timestamped JSONL files under Godot's `user://network_logs/`, alongside ordinary Godot console/output logs. On this Mac:
+
+```text
+~/Library/Application Support/Godot/app_userdata/Blind Driver/network_logs/
+```
+
+Files rotate at approximately 2 MiB. Old files are pruned when another log opens; recent files from other processes are retained for 24 hours so two clients do not delete each other's active logs. Logs contain process IDs, socket close codes/reasons, retry timing, send errors, heartbeat measurements, frame stalls, and periodic snapshot/graph counters. They never intentionally record room codes, resume tokens, or game payloads. Logs stay on the computer until you choose to share them.
+
+### Server logs and interpreting a drop
+
+Open the Render service's **Logs** view. The relay writes JSON events to standard output: each has a UTC timestamp and server instance ID. Connection IDs are also reported to the client, so you can correlate both sides. Room log IDs are separate from join codes. Connection summaries appear every 30 seconds; this is a logging interval, not a disconnect deadline.
+
+| Event | Meaning / next check |
+| --- | --- |
+| `protocol_rejected` | A message failed size, rate, or state validation. The event includes the reason, message kind, and failing field; fix the offending client data. A 1008/1009 closure is shown instead of endlessly retrying invalid data. |
+| `heartbeat_timeout` | No valid client traffic or control pong for 45 seconds. Check the client log for frame stalls and network loss. |
+| `socket_closed` / `disconnected` | Actual close code. Godot -1 or WebSocket 1006 means no complete close handshake; inspect adjacent events rather than assuming a cause. |
+| `reconnect_scheduled` / `seat_reserved` | Client is retrying; the server retains that player's seat for 120 seconds after disconnect detection. |
+| `seat_resumed` / `ride_restored` | The original seat was restored and the game requests a fresh road graph and snapshots. |
+| `backpressure_close` | A receiver is too slow. New snapshots are dropped before the queue grows; sustained congestion triggers recovery. |
+| `event_loop_delay` / `client_poll_stall` | Server/game processing paused, which can resemble a bad network. |
+| `shutdown`, changed instance ID, or `resume_expired` | Deployment, process restart, expired reservation, or invalid resume credential. A restarted server has lost its rooms; create a new one. |
+
+For another unexplained drop, retain **both clients' logs** plus the Render logs from the same UTC minute. Note who was driving and whether either window froze. This distinguishes transport failures from a server rejection or a stalled game. The initial 75-second idle check against the public protocol-1 service survived; the reported active-driving drop was not conclusively reproduced, so these events are designed to capture its actual cause.
+
+Recovery uses application heartbeats every two seconds, a 15-second client reply timeout, retry delays growing from roughly 1 to 8 seconds with jitter, and a two-minute retry budget after loss detection. The relay also sends control pings every 10 seconds and counts valid game traffic as liveness. Rate limits tolerate bounded delivery bursts after network jitter. Both seats use private in-memory resume credentials. Road state is resent after either seat returns; the navigator clears its old interpolation buffer. Direct-LAN navigators also retry their existing host for up to two minutes; restarting a LAN host creates a new world.
 
 ## Troubleshooting
 
@@ -210,8 +274,8 @@ The relay test does not verify Render's public TLS endpoint. That is covered by 
 | Game immediately disconnects from the public relay | Use the public HTTPS or WSS URL, not HTTP/WS. Don't append `:10000` or `:18765`. |
 | Health check works, but joining fails | Use **Play online…**, not the direct-LAN Join navigator button. Both players need the updated game. |
 | Room not found | Both players must use the same service URL. Check the copied code. A restart or departed driver invalidates the room. |
-| Both seats are taken | Close the old navigator and wait briefly for disconnect detection, or create a new room. |
-| Navigator lost connection | Reopen Play online… and join the existing code if the driver is still connected. Otherwise create a new room. |
+| Both seats are taken | Use Back / leave online room in the old navigator; otherwise its seat remains reserved for two minutes after a drop. |
+| Navigator lost connection | Leave the running game open for automatic retry. For an expired room or a restarted game, create a new room. |
 | Root Render URL shows JSON | Correct: the relay is a backend, not the browser game. |
 | No Play online… button | Update the project/build to the revision containing the relay client and restart the game. |
 
