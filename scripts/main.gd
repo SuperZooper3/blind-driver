@@ -21,6 +21,8 @@ var route_timer := 0.0
 var blur_material: ShaderMaterial
 var session: Node
 var audio_muted := false
+var local_navigator_pid := -1
+var local_pair_deadline := 0
 
 func _ready() -> void:
 	_setup_input()
@@ -80,7 +82,11 @@ func _ready() -> void:
 	_resize_views()
 	# Useful for opening two local instances without clicking through the menus.
 	for argument in OS.get_cmdline_user_args():
-		if argument == "--host":
+		if argument == "--local-coop":
+			_start_local_windows()
+		elif argument == "--local-seat=navigator":
+			_arrange_local_window(true)
+		elif argument == "--host":
 			_host()
 		elif argument.begins_with("--join="):
 			_join(argument.trim_prefix("--join="))
@@ -139,6 +145,8 @@ func _make_camera(view: SubViewport) -> Camera3D:
 	return camera
 
 func _resize_views() -> void:
+	driver_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.driver_screen.visible else SubViewport.UPDATE_DISABLED
+	navigator_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.navigator_screen.visible else SubViewport.UPDATE_DISABLED
 	var size := get_viewport().get_visible_rect().size
 	var width := size.x * 0.5 if mode == "split" and not ui.in_menu else size.x
 	# Low resolution plus the blur pass makes the driver's vision genuinely unreadable.
@@ -151,6 +159,16 @@ func _process(delta: float) -> void:
 	motor.enabled = started and not audio_muted and not ui.in_menu
 	if ui.in_menu:
 		car.driving_enabled = false
+	if local_navigator_pid > 0:
+		_local_navigator_running()
+	if local_pair_deadline > 0:
+		if session.navigator_id != 0:
+			local_pair_deadline = 0
+		elif Time.get_ticks_msec() > local_pair_deadline:
+			_close_local_navigator()
+			ui.show_menu(true)
+			ui.status_label.text = "NAVIGATOR DID NOT CONNECT / RETRY LOCAL CO-OP"
+			_resize_views()
 	ui.speed_label.text = "%02d" % roundi(absf(car.signed_speed) * 3.6)
 	ui.distance_label.text = "%.2f\nKILOMETERS" % (car.distance_driven / 1000.0)
 	ui.surface_label.text = "GRAVEL" if car.on_road else "OFF ROAD"
@@ -218,6 +236,10 @@ func _update_route() -> void:
 	ui.map.route_id = int(children[0 if left else 1].id) if children.size() >= 2 else -1
 
 func _start(value: String) -> void:
+	if value == "local_windows":
+		_start_local_windows()
+		return
+	_close_local_navigator()
 	session.stop()
 	mode = value
 	chase_camera = mode == "solo"
@@ -239,19 +261,25 @@ func _recover() -> void:
 	car.recover(road.point, road.direction)
 	camera_initialized = false
 
-func _host() -> void:
+func _host(bind_address: String = "*") -> void:
+	_close_local_navigator()
 	mode = "host"
 	ui.set_mode(mode)
-	if session.host() != OK:
+	if session.host(bind_address) != OK:
+		car.driving_enabled = false
+		ui.show_menu(true)
+		_resize_views()
 		return
 	started = true
 	car.driving_enabled = true
 	chase_camera = false
 	ui.show_menu(false)
 	ui.status_label.text = "DRIVER / HOSTING ON PORT %d" % session.PORT
+	get_window().title = "Blind Driver — Driver"
 	_resize_views()
 
 func _join(address: String) -> void:
+	_close_local_navigator()
 	mode = "join"
 	ui.set_mode(mode)
 	if session.join(address) != OK:
@@ -260,9 +288,70 @@ func _join(address: String) -> void:
 	car.driving_enabled = false
 	chase_camera = false
 	ui.show_menu(false)
+	get_window().title = "Blind Driver — Navigator"
 	_resize_views()
 
+func _start_local_windows() -> void:
+	if OS.has_feature("web"):
+		ui.status_label.text = "TWO WINDOWS NEEDS THE DESKTOP GAME / USE SHARED SCREEN"
+		return
+	if _local_navigator_running() and session.role == "host" and session.navigator_id != 0:
+		_resume()
+		return
+	_host("127.0.0.1")
+	if session.role != "host":
+		return
+	_arrange_local_window(false)
+	car.driving_enabled = false
+	var arguments := PackedStringArray()
+	if OS.has_feature("editor"):
+		arguments.append_array(["--path", ProjectSettings.globalize_path("res://")])
+	if DisplayServer.get_name() == "headless":
+		arguments.append("--headless")
+	arguments.append_array(["--windowed", "--log-file", OS.get_user_data_dir().path_join("local-navigator.log"), "--", "--local-seat=navigator", "--join=127.0.0.1"])
+	local_navigator_pid = OS.create_instance(arguments)
+	if local_navigator_pid < 0:
+		session.stop()
+		ui.show_menu(true)
+		ui.status_label.text = "COULD NOT OPEN NAVIGATOR / TRY MANUAL HOST AND JOIN"
+	else:
+		local_pair_deadline = Time.get_ticks_msec() + 15000
+		ui.status_label.text = "LOCAL DRIVER / OPENING NAVIGATOR WINDOW"
+	_resize_views()
+
+func _arrange_local_window(navigator: bool) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var window := get_window()
+	window.content_scale_size = Vector2i(960, 720)
+	if Engine.is_embedded_in_editor():
+		return
+	var screen := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
+	window.mode = Window.MODE_WINDOWED
+	window.min_size = Vector2i(480, 420)
+	window.size = Vector2i(maxi(480, screen.size.x / 2 - 16), mini(820, screen.size.y - 56))
+	window.position = screen.position + Vector2i(screen.size.x / 2 + 8 if navigator else 8, 28)
+	_resize_views()
+
+func _close_local_navigator() -> void:
+	local_pair_deadline = 0
+	if _local_navigator_running():
+		OS.kill(local_navigator_pid)
+	local_navigator_pid = -1
+
+func _local_navigator_running() -> bool:
+	if local_navigator_pid <= 0:
+		return false
+	if not OS.is_process_running(local_navigator_pid):
+		local_navigator_pid = -1
+		return false
+	return true
+
+func _exit_tree() -> void:
+	_close_local_navigator()
+
 func _host_online(address: String) -> void:
+	_close_local_navigator()
 	mode = "host"
 	ui.set_mode(mode)
 	car.driving_enabled = false
@@ -271,6 +360,7 @@ func _host_online(address: String) -> void:
 	_resize_views()
 
 func _join_online(address: String, code: String) -> void:
+	_close_local_navigator()
 	mode = "join"
 	ui.set_mode(mode)
 	car.driving_enabled = false
@@ -288,6 +378,10 @@ func _leave_online() -> void:
 	if session.online:
 		session.stop()
 		started = false
+		mode = "split"
+		ui.set_mode(mode)
+		ui.room_field.text = ""
+		ui.online_status.text = "Enter the relay address, then create or join a room."
 	ui.set_online_busy(false)
 	ui.show_menu(true, started)
 	car.driving_enabled = false

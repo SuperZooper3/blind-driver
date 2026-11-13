@@ -199,11 +199,11 @@ func _build_menu() -> void:
 	resume_button = _button("Resume the ride   →", func(): resume_requested.emit())
 	resume_button.visible = false
 	box.add_child(resume_button)
-	box.add_child(_button("Start local co-op   →", func(): play_requested.emit("split")))
+	box.add_child(_button("Start local co-op / two windows   →", func(): play_requested.emit("local_windows")))
 	var modes := HBoxContainer.new()
 	modes.add_theme_constant_override("separation", 8)
 	box.add_child(modes)
-	for button: Button in [_button("Solo driving test", func(): play_requested.emit("solo")), _button("Play online…", show_online)]:
+	for button: Button in [_button("Shared screen", func(): play_requested.emit("split")), _button("Solo drive", func(): play_requested.emit("solo")), _button("Play online…", show_online)]:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		modes.add_child(button)
 	var row := HBoxContainer.new()

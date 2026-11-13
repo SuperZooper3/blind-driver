@@ -73,6 +73,10 @@ with tempfile.TemporaryDirectory(prefix="blind-driver-checks-") as directory:
     print(physics.stdout)
     if physics.returncode or "FAIL:" in physics.stdout or "SCRIPT ERROR" in physics.stderr:
         sys.exit(physics.stderr or "Physics check failed")
+    launcher = subprocess.run(command("tests/local_pair_smoke.gd", temporary / "launcher.log"), capture_output=True, text=True, timeout=25)
+    print(launcher.stdout)
+    if launcher.returncode or "FAIL:" in launcher.stdout or "SCRIPT ERROR" in launcher.stderr:
+        sys.exit(launcher.stderr or "Local window launcher check failed")
     run_pair(temporary)
     if "--relay" in sys.argv:
         relay = None

@@ -9,7 +9,7 @@ The driver has extremely blurred vision. The navigator sits beside them, sees th
 1. Open **Godot 4.7** (developed and tested with 4.7.2).
 2. Import this folder's `project.godot`, or open the project if it is already in your project list.
 3. Press **F6** with `scenes/main.tscn` open, or **F5** from anywhere in the project.
-4. Choose **Start local co-op** for both seats on one screen, or **Solo driving test** for a clear chase camera while tuning the car.
+4. Choose **Start local co-op / two windows** to open an independent driver host and navigator client automatically. Choose **Shared screen** for the original split-screen view, or **Solo drive** for a clear chase camera while tuning the car.
 
 Local play needs no additional packages or accounts. Models, forest, terrain, map, UI, and engine audio are generated in GDScript. The Compatibility renderer is enabled. Internet rooms use the small Node relay in `server/`.
 
@@ -35,7 +35,13 @@ Talk to each other in person or over your preferred voice call. The next-turn ca
 
 ## Two windows or two computers
 
-The prototype includes **desktop localhost/LAN multiplayer**, with one driver and one navigator:
+**One computer:** click **Start local co-op / two windows**. Your current game becomes the driver host; a second Godot process opens the navigator and joins `127.0.0.1` automatically. The two windows are placed side by side when running outside the editor. They use real WebSocket networking and separate worlds, with the driver owning physics and the navigator interpolating snapshots.
+
+Click the driver window to drive and the navigator window to use its map; keyboard focus follows the active window. Both processes keep running when unfocused. You can move either window to another monitor. Closing the driver or changing its play mode closes the navigator it automatically launched; manually opened game instances are independent. Repeating the local co-op action resumes an already-connected pair.
+
+If Godot embeds the running game in its editor, the driver remains in that Game panel while the navigator opens separately. Turn off the editor's Embed Game option if you prefer two floating windows. **Shared screen** remains available for one-keyboard play without switching window focus.
+
+**Two computers on the same network**, or manual two-instance testing:
 
 1. In the first game instance, choose **Host driver**.
 2. In the second instance, enter **127.0.0.1** and choose **Join navigator** if both run on this computer. `127.0.0.1` means “this same computer.”
@@ -57,6 +63,7 @@ Replace `godot` with your Godot executable. On this Mac it is currently `/Users/
 godot --path .
 godot --path . -- --solo
 godot --path . -- --split
+godot --path . -- --local-coop
 
 # Run these in two terminals for a local network session:
 godot --path . -- --host
@@ -90,7 +97,7 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/engine_audio.gd` | Procedural engine/tire audio |
 | `shaders/driver_blur.gdshader` | Driver's vision |
 
-Edit a script, save, stop the running game, and press F5 again. Start with Solo driving test to tune the handling, then test the same change with two people in local co-op. Use the Debugger and Output panels for errors. Godot's generated `.godot/` cache stays out of Git; script `.uid` files belong in Git.
+Edit a script, save, stop the running game, and press F5 again. Start with Solo drive to tune the handling, then test the same change with two people in local co-op. Use the Debugger and Output panels for errors. Godot's generated `.godot/` cache stays out of Git; script `.uid` files belong in Git.
 
 ### Verification
 
@@ -110,7 +117,7 @@ GODOT=/path/to/godot python3 tests/run_checks.py
 godot --headless --path . --fixed-fps 60 --script tests/drive_smoke.gd
 ```
 
-The network test binds only to localhost and closes its processes afterwards. It takes around 12 seconds. Tests assert physical behavior and real snapshot delivery, not just script loading. Manual playtesting is still necessary to judge handling and camera comfort.
+The checks bind only to localhost and close their test processes afterwards. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
 
 ## Prototype boundaries
 

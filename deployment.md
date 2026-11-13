@@ -23,10 +23,11 @@ There are two different networking modes:
 
 | Mode | Buttons | Address | Intended use |
 | --- | --- | --- | --- |
+| Automatic local pair | Start local co-op / two windows | Automatic `127.0.0.1` connection | Two independent game processes on this computer |
 | Direct local connection | Host driver / Join navigator | `127.0.0.1` or a local network IP | Same computer or same network |
 | Online room | Play online… → Create room / Join room | Your Render service URL | Different computers, including different networks |
 
-`127.0.0.1` always means **the computer you are using**. Giving that address to a friend does not connect them to your computer. For internet play, both of you use the Render URL and the same room code.
+`127.0.0.1` always means **the computer you are using**. The automatic local pair uses the same networking path as the LAN mode, but traffic stays inside your computer instead of passing through the router. Giving that address to a friend does not connect them to your computer. For internet play, both of you use the Render URL and the same room code.
 
 ## 2. Get the code onto GitHub
 
