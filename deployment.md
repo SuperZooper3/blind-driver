@@ -6,11 +6,11 @@ The existing relay is **https://blind-driver-relay.onrender.com**, now the game'
 
 ## Upgrade the existing service first
 
-This revision uses **protocol 6** for the shared police pursuit, alongside punctured tires, ravines, named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
+This revision uses **protocol 7** for ramp gaps, timed bridges, and the shared crossing clock, alongside police pursuit, punctured tires, ravines, named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
 
 1. Push these commits to the branch linked to your existing Render service (`git push origin main` if it uses main).
 2. Open **blind-driver-relay** in Render, then **Manual Deploy → Deploy latest commit**. Auto-deploy is off in the supplied configuration.
-3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":6`.
+3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":7`.
 4. Update/restart **both games** from this same revision. Old clients and old servers cannot use the new protocol together.
 5. Both players enter the same **lobby name** on the start screen, then choose **Drive** or **Navigate**. The online server is already configured. The name is saved locally for next time.
 
@@ -104,7 +104,7 @@ https://blind-driver-relay.onrender.com/healthz
 Open that address in your browser. A ready relay returns:
 
 ```json
-{"ok":true,"protocol":6,"instance":"example-instance","uptime_seconds":123}
+{"ok":true,"protocol":7,"instance":"example-instance","uptime_seconds":123}
 ```
 
 Or check from Terminal:
