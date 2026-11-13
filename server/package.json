@@ -1,0 +1,17 @@
+{
+  "name": "blind-driver-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Two-player WebSocket room relay for Blind Driver",
+  "scripts": {
+    "start": "node index.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "dependencies": {
+    "ws": "8.23.0"
+  }
+}

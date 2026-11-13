@@ -1,0 +1,21 @@
+# Import this repository as a Render Blueprint. See deployment.md.
+services:
+  - type: web
+    name: blind-driver-relay
+    runtime: node
+    region: frankfurt
+    plan: free
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: MAX_ROOMS
+        value: "100"
+      - key: MAX_CONNECTIONS
+        value: "256"
