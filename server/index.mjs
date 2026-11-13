@@ -110,7 +110,7 @@ export function createRelay(options = {}) {
       if (client.role !== 'driver') { fail(client, 'not_driver', 'Only the driver can send game state.'); return; }
       const room = rooms.get(client.room);
       if (!room) return;
-      if (message.type === 'snapshot' && validSnapshot(message.state)) {
+      if (message.type === 'snapshot' && raw.length <= 4096 && validSnapshot(message.state)) {
         send(room.navigator, message, true);
       } else if (message.type === 'graph' && ++client.graphs <= 4 && validGraph(message.roads)) {
         send(room.navigator, message);

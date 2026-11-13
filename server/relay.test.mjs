@@ -109,3 +109,18 @@ test('version, unknown rooms, capacity, and message rate limits', async t => {
   for (let i = 0; i < 55; i++) client.send({ type: 'snapshot', state });
   assert.equal((await closed)[0], 1008);
 });
+
+test('degenerate roads and oversized snapshots cannot be forwarded', async t => {
+  const { connect } = await setup(t);
+  for (const message of [
+    { type: 'graph', roads: [{ ...roads[0], points: [[0, 0, 0], [0, 0, 0]] }] },
+    { type: 'snapshot', state, padding: 'x'.repeat(4096) },
+  ]) {
+    const driver = await connect();
+    driver.send({ type: 'create', version: 1 });
+    await driver.next();
+    const closed = once(driver.socket, 'close');
+    driver.send(message);
+    assert.equal((await closed)[0], 1008);
+  }
+});

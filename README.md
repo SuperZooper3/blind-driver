@@ -11,7 +11,7 @@ The driver has extremely blurred vision. The navigator sits beside them, sees th
 3. Press **F6** with `scenes/main.tscn` open, or **F5** from anywhere in the project.
 4. Choose **Start local co-op** for both seats on one screen, or **Solo driving test** for a clear chase camera while tuning the car.
 
-There are no packages, downloaded models, accounts, or additional setup steps. Models, forest, terrain, map, UI, and engine audio are generated in GDScript. The Compatibility renderer is enabled.
+Local play needs no additional packages or accounts. Models, forest, terrain, map, UI, and engine audio are generated in GDScript. The Compatibility renderer is enabled. Internet rooms use the small Node relay in `server/`.
 
 ### Controls
 
@@ -45,7 +45,9 @@ The host listens on TCP port **18765**. A second host on the same port will show
 
 The driver owns physics. The navigator receives 30 snapshots per second, renders with a 100 ms interpolation buffer, receives road graph changes, and snaps on recovery. Connection failures/stalls are shown on screen; a disconnected navigator can rejoin the still-running host. A lost host requires hosting/joining again. This is a local development connection, not a deployed public service.
 
-**Public internet rooms, invite links, browser export, and a hosted relay are not implemented yet.** The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md). The current transport uses Godot's WebSocket multiplayer protocol; a custom Node relay would need an explicit protocol adapter or a replacement transport.
+For **different networks**, use **Play online…** and the included Render-ready room relay. Follow [deployment.md](deployment.md) to deploy it, then have the driver create a room and the navigator join with its code. Both clients connect outward to the relay; no router port forwarding is needed. This path uses an explicit JSON protocol, while the direct LAN mode retains native Godot RPC.
+
+The relay and game integration are tested locally; a public Render service has not been deployed yet. Browser export and browser invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
 
 ### Command-line launch
 
@@ -82,7 +84,9 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/geometry.gd` | Shared low-poly mesh/material helpers |
 | `scripts/game_ui.gd` | Menu and split-screen interface |
 | `scripts/route_map.gd` | Navigator's map |
-| `scripts/session.gd` | WebSocket host/join and snapshot interpolation |
+| `scripts/session.gd` | Direct/relayed sessions and shared snapshot interpolation |
+| `scripts/relay_client.gd`, `scripts/wire_protocol.gd` | Internet rooms and explicit JSON state protocol |
+| `server/`, `render.yaml` | Node relay and Render deployment configuration |
 | `scripts/engine_audio.gd` | Procedural engine/tire audio |
 | `shaders/driver_blur.gdshader` | Driver's vision |
 
@@ -93,6 +97,11 @@ Edit a script, save, stop the running game, and press F5 again. Start with Solo 
 ```sh
 # Physics, steering, braking, recovery, streaming, and real two-process networking:
 python3 tests/run_checks.py
+
+# Add the public-relay transport to the local integration checks:
+npm --prefix server ci
+npm --prefix server test
+python3 tests/run_checks.py --relay
 
 # Set the executable explicitly if needed:
 GODOT=/path/to/godot python3 tests/run_checks.py
@@ -107,4 +116,4 @@ The network test binds only to localhost and closes its processes afterwards. It
 
 This is an early handling/cooperation sandbox. Roads can cross or overlap; there are no authored junction rules, traffic, goals, damage, save games, or strict route scoring. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
 
-The next useful milestone is a two-person handling playtest, followed by improved junctions and more varied terrain. Then test a real web export and build the public room/relay flow described in the online plan.
+The next useful milestone is deploying the relay using [deployment.md](deployment.md) and testing from two different networks. Then improve handling/junctions and verify a real browser export.
