@@ -315,7 +315,8 @@ func _build_local_menu() -> void:
 	var box := _menu_box(local_panel)
 	box.add_child(_label("PLAY HERE", 30))
 	box.add_child(_label("No internet or lobby needed.", 15, muted))
-	box.add_child(_button("Two players / two windows", func(): play_requested.emit("local_windows")))
+	if not OS.has_feature("web"):
+		box.add_child(_button("Two players / two windows", func(): play_requested.emit("local_windows")))
 	box.add_child(_button("Two players / shared screen", func(): play_requested.emit("split")))
 	box.add_child(_button("Solo practice", func(): play_requested.emit("solo")))
 	box.add_child(_button("Back", func(): show_menu(true, resume_button.visible)))
@@ -345,15 +346,19 @@ func _build_settings() -> void:
 	relay_address = LineEdit.new()
 	relay_address.placeholder_text = Settings.DEFAULT_RELAY
 	advanced.add_child(relay_address)
-	var help := _label("Leave this as it is for normal online play.\nDirect LAN below is only for computers on the same Wi-Fi.", 12, muted)
+	var help := _label("This website supplies the online server automatically." if OS.has_feature("web") else "Leave this as it is for normal online play.\nDirect LAN below is only for computers on the same Wi-Fi.", 12, muted)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	advanced.add_child(help)
 	address = LineEdit.new()
 	address.text = "127.0.0.1"
 	address.placeholder_text = "Driver’s local IP address"
 	advanced.add_child(address)
-	advanced.add_child(_button("Direct LAN / host driver", func(): host_requested.emit()))
-	advanced.add_child(_button("Direct LAN / join navigator", func(): connect_requested.emit(address.text)))
+	if OS.has_feature("web"):
+		address.hide()
+		relay_address.editable = false
+	else:
+		advanced.add_child(_button("Direct LAN / host driver", func(): host_requested.emit()))
+		advanced.add_child(_button("Direct LAN / join navigator", func(): connect_requested.emit(address.text)))
 	advanced.hide()
 	box.add_child(_button("Connection check & logs / F8", toggle_diagnostics))
 	box.add_child(_button("Save & back", func():
@@ -377,6 +382,11 @@ func _load_preferences(path: String = Settings.PATH) -> void:
 		relay_address.text = saved.address
 	if relay_address.text.strip_edges().is_empty():
 		relay_address.text = Settings.DEFAULT_RELAY
+	if OS.has_feature("web"):
+		# Deployment configuration takes precedence over a browser's saved old server.
+		var browser_address: Variant = JavaScriptBridge.eval("window.BLIND_DRIVER_CONFIG && window.BLIND_DRIVER_CONFIG.relayUrl || ''")
+		if browser_address is String and not browser_address.is_empty():
+			relay_address.text = browser_address
 	_highlight_seat()
 
 func _highlight_seat() -> void:
@@ -439,7 +449,10 @@ func _build_diagnostics() -> void:
 	diagnostic_result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	diagnostic_result.custom_minimum_size = Vector2(460, 100)
 	box.add_child(diagnostic_result)
-	box.add_child(_button("Open network logs folder", func(): OS.shell_open(preload("res://scripts/network_log.gd").folder())))
+	if OS.has_feature("web"):
+		box.add_child(_button("Download network logs", func(): preload("res://scripts/network_log.gd").download()))
+	else:
+		box.add_child(_button("Open network logs folder", func(): OS.shell_open(preload("res://scripts/network_log.gd").folder())))
 	box.add_child(_button("Stop check / close   F8", func():
 		diagnostic_client.stop()
 		check_button.disabled = false

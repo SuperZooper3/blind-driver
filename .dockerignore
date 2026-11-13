@@ -1,0 +1,10 @@
+.git
+.godot
+node_modules
+**/node_modules
+build
+builds
+.env
+.env.*
+.DS_Store
+__pycache__
