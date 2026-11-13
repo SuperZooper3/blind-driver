@@ -1,14 +1,72 @@
 # Deploy Blind Driver on Render
 
-**For a playable browser frontend and Railway deployment, use
-[docs/RAILWAY.md](docs/RAILWAY.md).** The repository now includes the Web export,
-frontend Dockerfile, and Railway infrastructure blueprint. The existing Render
-relay can serve browser and desktop players together. This page retains the
-Render backend setup and operational guide.
-
-This guide gets **two people on different internet connections playing the desktop game together**. Render runs a small relay; each player runs the Godot game on their own computer.
+Render hosts two services: **blind-driver-frontend** is the playable webpage,
+and **blind-driver-relay** connects the two players. The game runs inside each
+player's browser (or in the desktop game). Both can be hosted on Render; a
+Railway account is not required. The optional Railway setup is in
+[docs/RAILWAY.md](docs/RAILWAY.md).
 
 The existing relay is **https://blind-driver-relay.onrender.com**, now the game's default address. You can override it in the menu, through the saved preference, or with `BLIND_DRIVER_RELAY_URL`.
+
+## Add the playable frontend in the Render dashboard
+
+Choose **New + → Web Service**. This implementation uses Render's **Docker**
+runtime: the Dockerfile exports Godot and starts the small Node server that
+serves the game and its deployment configuration. **Do not choose Static Site**
+for this implementation. You do not need to install Docker or Godot locally.
+
+1. On the source screen, select **Git Provider** and connect the
+   **SuperZooper3/blind-driver** repository. If it is missing, connect GitHub or
+   grant the Render GitHub integration access to this repository.
+2. Fill out the new-service form with these values:
+
+   | Field | Value |
+   | --- | --- |
+   | Name | `blind-driver-frontend` |
+   | Branch | `main` |
+   | Region | Frankfurt, matching the existing relay |
+   | Language | **Docker** |
+   | Root Directory | **Leave blank** (repository root) |
+   | Dockerfile Path | `./Dockerfile` |
+   | Docker Build Context Directory, if shown | `.` |
+   | Docker Command | Leave blank; use the Dockerfile's command |
+   | Health Check Path (under Advanced) | `/healthz` |
+
+   There is no publish-directory value or custom build/start command to enter
+   for this Docker service. Free can be used for an initial test; it has cold
+   starts and the [normal Render free-service limits](https://render.com/docs/free).
+3. Add these **Environment Variables**:
+
+   | Key | Value |
+   | --- | --- |
+   | `PORT` | `10000` |
+   | `BLIND_DRIVER_RELAY_URL` | `https://blind-driver-relay.onrender.com` |
+
+   If your relay has a different domain, use its actual public HTTPS URL.
+   Browser clients cannot use Render's internal service hostname.
+4. Click **Deploy Web Service** (or **Create Web Service**, depending on the
+   form). The first build downloads the Godot toolchain and can take several
+   minutes. Render supplies the frontend's public `https://…onrender.com` URL
+   after deployment; use the actual URL displayed on the service page.
+5. Open the frontend URL. Players click **Get in the car**, enter the same lobby
+   name, and choose **Drive** or **Navigate**. Share this frontend URL with
+   friends. Its `/healthz` verifies the exported files; the relay's `/healthz`
+   must separately report **protocol 7** for online play.
+
+Before online play, upgrade the existing relay using the next section. If you
+already created a Static Site, create the Web Service above as a separate
+service; these Docker settings do not belong in a static-site build form.
+
+The checked-in [`render.yaml`](render.yaml) now declares **both services** with
+these settings. If your relay is already managed by that Blueprint, sync the
+existing Blueprint to add the frontend. For a fresh setup, **New + → Blueprint**
+can create both services. If your relay was created manually, the frontend-only
+steps above let you reuse it. If Render assigns a different relay domain, update
+the frontend's `BLIND_DRIVER_RELAY_URL` accordingly.
+
+References: [Render Web Services](https://render.com/docs/web-services),
+[Docker on Render](https://render.com/docs/docker), and
+[Blueprint fields](https://render.com/docs/blueprint-spec).
 
 ## Upgrade the existing service first
 
@@ -20,7 +78,7 @@ This revision uses **protocol 8** for route choices, cul-de-sacs, rejoining conn
 4. Update/restart **both games** from this same revision. Old clients and old servers cannot use the new protocol together.
 5. Both players enter the same **lobby name** on the start screen, then choose **Drive** or **Navigate**. The online server is already configured. The name is saved locally for next time.
 
-No new service, database, router settings, or environment variables are needed. Deployment ends existing rooms, so do it between rides. The initial-service instructions below are retained for setting up another relay.
+Upgrading the relay alone needs no new service, database, router settings, or environment variables. Deployment ends existing rooms, so do it between rides. The initial-service instructions below are retained for setting up another relay.
 
 ## 1. Understand what is being deployed
 
@@ -62,17 +120,17 @@ The implementation commits contain the deployment files. Check that `render.yaml
 
 ## 3. Create the Render service
 
-The shortest route is a **Blueprint**: Render reads the included [`render.yaml`](render.yaml) and fills in the service settings for you. This is Render's supported configuration-file workflow. [Render Blueprint reference](https://render.com/docs/blueprint-spec)
+For a fresh frontend-and-relay setup, use a **Blueprint**: Render reads the included [`render.yaml`](render.yaml) and fills in both services' settings. This is Render's supported configuration-file workflow. [Render Blueprint reference](https://render.com/docs/blueprint-spec)
 
 1. Open the [Render dashboard](https://dashboard.render.com/) and sign in or create your account.
 2. Choose **New → Blueprint**.
 3. Connect the `SuperZooper3/blind-driver` repository and select the branch containing these commits, normally `main`.
 4. Use the repository-root `render.yaml` file.
-5. Review the proposed **blind-driver-relay** service. The supplied plan is **Free**, with **Frankfurt** as the region. Change the region before creating the service if another region is closer to both players.
+5. Review the proposed **blind-driver-relay** and **blind-driver-frontend** services. Both use the supplied **Free** plan and **Frankfurt** region. Change the region before creating them if another region is closer to both players.
 6. Create/deploy the Blueprint and wait for the service to become **Live**.
 7. Copy the actual `https://…onrender.com` address from its dashboard. Render may add a suffix to the service name; use the address Render displays.
 
-No database, disk, Docker image, Godot installation, or API key is required on Render.
+No database, persistent disk, or API key is required. Render builds the frontend's Docker image from the repository; you do not need to build or upload it yourself.
 
 ### Manual setup instead of a Blueprint
 
@@ -282,9 +340,9 @@ Recovery uses application heartbeats every two seconds, a 15-second client reply
 
 ## Browser frontend
 
-The Render Blueprint above deploys only the relay. Add the playable frontend
-with [the Railway guide](docs/RAILWAY.md), and set its `BLIND_DRIVER_RELAY_URL` to
-this Render service's public HTTPS address. The frontend's Dockerfile exports
+The Render Blueprint deploys the frontend and relay. For manual setup, follow
+[Add the playable frontend](#add-the-playable-frontend-in-the-render-dashboard)
+above. The frontend's Dockerfile exports
 the game with Godot 4.7.2; players open its URL and use the same named-lobby flow.
 The Web export uses a single thread and Stream playback for procedural audio.
 Browser-specific mode controls and downloadable logs are included. Room invite
@@ -292,7 +350,7 @@ links are not implemented.
 
 The original broader plan is in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md). The deployable files added for this step are:
 
-- `render.yaml`: one Render Node web service.
+- `render.yaml`: the Node relay and Docker frontend as two Render web services.
 - `server/`: relay, pinned dependency lockfile, protocol checks, and tests.
 - `scripts/relay_client.gd`: outbound WebSocket connection and room messages.
 - `scripts/wire_protocol.gd`: explicit JSON conversion for Godot transforms and road points.

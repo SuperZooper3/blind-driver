@@ -9,8 +9,9 @@ The driver has extremely blurred vision. The navigator sits beside them, sees th
 **Browser:** open the deployed frontend URL, click **Get in the car**, and enter
 the same lobby name as your friend. Choose **Drive** or **Navigate**. No Godot
 installation is needed. Solo and shared-screen play are also available; automatic
-two-window and direct-LAN modes are desktop-only. See [Railway browser deployment](docs/RAILWAY.md)
-to create the frontend service from this repository, alongside your relay.
+two-window and direct-LAN modes are desktop-only. See [Render browser deployment](deployment.md#add-the-playable-frontend-in-the-render-dashboard)
+to add the frontend as a **Web Service / Docker** alongside your relay. The
+[Railway setup](docs/RAILWAY.md) is also available.
 
 **Desktop / editor:**
 
@@ -160,7 +161,7 @@ The checks bind only to localhost and close their test processes afterwards. The
 
 This is an early handling/cooperation sandbox. There are no traffic systems, repair mechanics, saved worlds, or finish line. Obstacle collisions can spin or overturn the car; ravines, lakes, grounded rollovers, thorn punctures, and police capture end the run. Use the pause menu to start a new ride if the car is stuck. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
 
-Deploy the browser frontend and relay using [the Railway guide](docs/RAILWAY.md),
-or retain the existing [Render backend](deployment.md), then test the public
+Deploy the browser frontend and relay using [the Render guide](deployment.md)
+or [the Railway guide](docs/RAILWAY.md), then test the public
 frontend from two different computers/networks. Keep game tabs visible during a
 ride; browsers throttle background tabs and the driver owns the simulation.

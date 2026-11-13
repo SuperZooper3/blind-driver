@@ -1,4 +1,4 @@
-# Railway's frontend service builds the game; the final image only serves files.
+# Render/Railway build the game here; the final image only serves files.
 FROM debian:bookworm-slim AS export
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip libfontconfig1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libgl1 libasound2 libpulse0 nodejs && rm -rf /var/lib/apt/lists/*
 WORKDIR /tmp/godot
