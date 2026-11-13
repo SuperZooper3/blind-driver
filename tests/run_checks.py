@@ -102,6 +102,10 @@ if __name__ == "__main__":
             reservation.bind(("127.0.0.1", 0))
             os.environ["BLIND_DRIVER_LAN_PORT"] = str(reservation.getsockname()[1])
         os.environ["BLIND_DRIVER_RECORDS_PATH"] = str(temporary / "records.cfg")
+        police = subprocess.run(command("tests/police_smoke.gd", temporary / "police.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=45)
+        print(police.stdout)
+        if police.returncode or "FAIL:" in police.stdout or "SCRIPT ERROR" in police.stderr:
+            sys.exit(police.stderr or "Police check failed")
         survival = subprocess.run(command("tests/survival_smoke.gd", temporary / "survival.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=45)
         print(survival.stdout)
         if survival.returncode or "FAIL:" in survival.stdout or "SCRIPT ERROR" in survival.stderr:

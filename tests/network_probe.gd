@@ -103,7 +103,8 @@ func _tick() -> void:
 			var session = game.session
 			var latest: Dictionary = session.snapshots.back() if not session.snapshots.is_empty() else {}
 			var follows_host: bool = not latest.is_empty() and game.car.global_position.distance_to(latest.transform.origin) < 4.0
-			var passed: bool = session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and game.car.headlights[0].visible
+			var patrol_matches: bool = not latest.is_empty() and game.police.global_position.distance_to(Vector3(latest.police.position[0], latest.police.position[1], latest.police.position[2])) < 5.0 and game.police.phase == latest.police.phase
+			var passed: bool = patrol_matches and session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and game.car.headlights[0].visible
 			if cut_before_driver:
 				passed = passed and waiting_cut and game.started and not game.ui.in_menu and session.relay.reconnects >= 1
 			if expect_lan_recovery:
