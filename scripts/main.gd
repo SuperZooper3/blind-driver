@@ -51,6 +51,9 @@ func _ready() -> void:
 	ui.recover_requested.connect(_recover)
 	ui.host_requested.connect(_host)
 	ui.connect_requested.connect(_join)
+	ui.online_create_requested.connect(_host_online)
+	ui.online_join_requested.connect(_join_online)
+	ui.online_cancel_requested.connect(_leave_online)
 	ui.show_menu(true, false)
 	motor = Audio.new()
 	motor.car = car
@@ -62,7 +65,17 @@ func _ready() -> void:
 	add_child(session)
 	session.status_changed.connect(func(message: String): ui.status_label.text = message)
 	session.connection_lost.connect(func(): car.driving_enabled = false)
-	session.navigator_joined.connect(func(): car.driving_enabled = not ui.in_menu)
+	session.navigator_joined.connect(func():
+		if session.online:
+			_online_ready()
+		car.driving_enabled = not ui.in_menu)
+	session.room_created.connect(ui.display_room_code)
+	session.online_joined.connect(_online_ready)
+	session.online_error.connect(func(message: String):
+		ui.show_online()
+		ui.set_online_busy(false)
+		ui.online_status.text = message
+		_resize_views())
 	get_viewport().size_changed.connect(_resize_views)
 	_resize_views()
 	# Useful for opening two local instances without clicking through the menus.
@@ -136,6 +149,8 @@ func _process(delta: float) -> void:
 	world.focus = car.global_position
 	_update_cameras(delta)
 	motor.enabled = started and not audio_muted and not ui.in_menu
+	if ui.in_menu:
+		car.driving_enabled = false
 	ui.speed_label.text = "%02d" % roundi(absf(car.signed_speed) * 3.6)
 	ui.distance_label.text = "%.2f\nKILOMETERS" % (car.distance_driven / 1000.0)
 	ui.surface_label.text = "GRAVEL" if car.on_road else "OFF ROAD"
@@ -214,7 +229,7 @@ func _start(value: String) -> void:
 
 func _resume() -> void:
 	ui.show_menu(false)
-	car.driving_enabled = mode != "join"
+	car.driving_enabled = mode != "join" and session.role != "disconnected"
 	_resize_views()
 
 func _recover() -> void:
@@ -247,10 +262,41 @@ func _join(address: String) -> void:
 	ui.show_menu(false)
 	_resize_views()
 
+func _host_online(address: String) -> void:
+	mode = "host"
+	ui.set_mode(mode)
+	car.driving_enabled = false
+	chase_camera = false
+	session.host_online(address)
+	_resize_views()
+
+func _join_online(address: String, code: String) -> void:
+	mode = "join"
+	ui.set_mode(mode)
+	car.driving_enabled = false
+	chase_camera = false
+	session.join_online(address, code)
+	_resize_views()
+
+func _online_ready() -> void:
+	started = true
+	ui.show_menu(false)
+	car.driving_enabled = mode == "host"
+	_resize_views()
+
+func _leave_online() -> void:
+	if session.online:
+		session.stop()
+		started = false
+	ui.set_online_busy(false)
+	ui.show_menu(true, started)
+	car.driving_enabled = false
+	_resize_views()
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("menu") and started:
 		ui.show_menu(not ui.in_menu)
-		car.driving_enabled = not ui.in_menu and mode != "join"
+		car.driving_enabled = not ui.in_menu and mode != "join" and session.role != "disconnected"
 		_resize_views()
 	if event.is_action_pressed("fullscreen"):
 		var full := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN

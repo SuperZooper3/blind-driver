@@ -1,14 +1,17 @@
 extends Node
-## Desktop localhost/LAN co-op. The driver owns physics; navigator interpolates.
-## This is Godot's WebSocket RPC protocol, not the future public Node relay protocol.
+## Driver-authoritative co-op, over direct LAN RPC or an outbound public relay.
 
 signal status_changed(message: String)
 signal connection_lost
 signal navigator_joined
+signal room_created(code: String)
+signal online_joined
+signal online_error(message: String)
 
 const PORT := 18765
 const INTERPOLATION_DELAY := 0.10
 const SNAPSHOT_INTERVAL := 1.0 / 30.0
+const Relay = preload("res://scripts/relay_client.gd")
 var car: RigidBody3D
 var world: Node3D
 var peer: WebSocketMultiplayerPeer
@@ -27,6 +30,9 @@ var last_received_at := 0.0
 var stale := false
 var snapshots_received := 0
 var graph_received := false
+var relay: Node
+var online := false
+var room_code := ""
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_peer_connected)
@@ -34,6 +40,54 @@ func _ready() -> void:
 	multiplayer.connected_to_server.connect(_connected)
 	multiplayer.connection_failed.connect(_failed)
 	multiplayer.server_disconnected.connect(_failed)
+	relay = Relay.new()
+	relay.name = "Relay"
+	add_child(relay)
+	relay.room_created.connect(func(code: String):
+		room_code = code
+		status_changed.emit("ROOM READY / SHARE THE CODE WITH YOUR NAVIGATOR")
+		room_created.emit(code))
+	relay.joined.connect(func(): online_joined.emit())
+	relay.navigator_joined.connect(_online_peer_joined)
+	relay.navigator_left.connect(func():
+		navigator_id = 0
+		car.driving_enabled = false
+		status_changed.emit("NAVIGATOR LEFT / REJOIN WITH THE SAME ROOM CODE"))
+	relay.graph_received.connect(_receive_graph)
+	relay.snapshot_received.connect(_receive_snapshot)
+	relay.failed.connect(func(message: String):
+		role = "disconnected"
+		navigator_id = 0
+		car.driving_enabled = false
+		status_changed.emit("ONLINE CONNECTION LOST / OPEN ONLINE MENU")
+		connection_lost.emit()
+		online_error.emit(message))
+
+func host_online(address: String) -> Error:
+	stop()
+	online = true
+	role = "host"
+	car.driving_enabled = false
+	status_changed.emit("CONNECTING TO RELAY / CREATING ROOM")
+	return relay.start(address, "create")
+
+func join_online(address: String, code: String) -> Error:
+	stop()
+	online = true
+	role = "join"
+	car.remote = true
+	car.freeze = true
+	car.collision_layer = 0
+	car.collision_mask = 0
+	world.allow_generation = false
+	status_changed.emit("CONNECTING TO RELAY / JOINING ROOM")
+	return relay.start(address, "join", code)
+
+func _online_peer_joined() -> void:
+	navigator_id = 1 # Presence marker; relay mode does not send native RPCs.
+	last_graph_revision = -1
+	navigator_joined.emit()
+	status_changed.emit("ONLINE DRIVER / NAVIGATOR CONNECTED")
 
 func _new_peer() -> WebSocketMultiplayerPeer:
 	var socket := WebSocketMultiplayerPeer.new()
@@ -62,8 +116,8 @@ func join(address: String) -> Error:
 	var url := address.strip_edges()
 	if not url.begins_with("ws://") and not url.begins_with("wss://"):
 		url = "ws://" + url
-	if url.get_slice("://", 1).find(":") == -1:
-		url += ":%d" % PORT
+		if url.get_slice("://", 1).find(":") == -1:
+			url += ":%d" % PORT
 	var error := peer.create_client(url)
 	if error != OK:
 		status_changed.emit("COULD NOT CONNECT / CHECK HOST ADDRESS")
@@ -80,6 +134,10 @@ func join(address: String) -> Error:
 	return OK
 
 func stop() -> void:
+	if relay != null:
+		relay.stop()
+	online = false
+	room_code = ""
 	if peer != null:
 		peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
@@ -133,19 +191,26 @@ func _process(delta: float) -> void:
 	if role == "host" and navigator_id != 0:
 		snapshot_timer += delta
 		graph_timer += delta
-		var socket := peer.get_peer(navigator_id)
 		# Do not pile new snapshots behind a slow connection.
-		if socket.get_current_outbound_buffered_amount() > 32768:
+		var buffered: int = relay.buffered_bytes() if online else peer.get_peer(navigator_id).get_current_outbound_buffered_amount()
+		if buffered > 32768:
 			return
 		if world.graph_revision != last_graph_revision and graph_timer > 0.25:
 			graph_timer = 0.0
-			_receive_graph.rpc_id(navigator_id, world.export_graph())
+			if online:
+				relay.send_graph(world.export_graph())
+			else:
+				_receive_graph.rpc_id(navigator_id, world.export_graph())
 			last_graph_revision = world.graph_revision
 		if snapshot_timer >= SNAPSHOT_INTERVAL:
 			snapshot_timer = fmod(snapshot_timer, SNAPSHOT_INTERVAL)
 			sequence += 1
 			reset_serial = car.recovery_serial
-			_receive_snapshot.rpc_id(navigator_id, {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible})
+			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible}
+			if online:
+				relay.send_snapshot(snapshot)
+			else:
+				_receive_snapshot.rpc_id(navigator_id, snapshot)
 	elif role == "join":
 		_interpolate(delta)
 

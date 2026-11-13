@@ -15,6 +15,21 @@ func _run() -> void:
 	game = load("res://scenes/main.tscn").instantiate()
 	root.add_child(game)
 	is_host = OS.get_cmdline_user_args().has("--probe-host")
+	var relay_url := ""
+	var room := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--relay-url="):
+			relay_url = argument.trim_prefix("--relay-url=")
+		elif argument.begins_with("--relay-room="):
+			room = argument.trim_prefix("--relay-room=")
+	if not relay_url.is_empty():
+		if is_host:
+			game.session.room_created.connect(func(code: String): print("ROOM_READY=", code))
+			game._host_online(relay_url)
+		else:
+			game._join_online(relay_url, room)
+		process_frame.connect(_tick)
+		return
 	if is_host:
 		game.mode = "host"
 		game.started = true

@@ -6,6 +6,9 @@ signal recover_requested
 signal connect_requested(address: String)
 signal host_requested
 signal leave_requested
+signal online_create_requested(address: String)
+signal online_join_requested(address: String, code: String)
+signal online_cancel_requested
 
 const Map = preload("res://scripts/route_map.gd")
 var ink := Color("142f2c")
@@ -36,6 +39,12 @@ var hint_label: Label
 var in_menu := true
 var map_open := false
 var mode := "split"
+var online_panel: PanelContainer
+var relay_address: LineEdit
+var room_field: LineEdit
+var online_status: Label
+var create_online_button: Button
+var join_online_button: Button
 
 func _ready() -> void:
 	root = Control.new()
@@ -57,6 +66,7 @@ func _ready() -> void:
 	_build_views()
 	_build_hud()
 	_build_menu()
+	_build_online_menu()
 	root.resized.connect(_layout)
 	_layout()
 
@@ -190,7 +200,12 @@ func _build_menu() -> void:
 	resume_button.visible = false
 	box.add_child(resume_button)
 	box.add_child(_button("Start local co-op   →", func(): play_requested.emit("split")))
-	box.add_child(_button("Solo driving test", func(): play_requested.emit("solo")))
+	var modes := HBoxContainer.new()
+	modes.add_theme_constant_override("separation", 8)
+	box.add_child(modes)
+	for button: Button in [_button("Solo driving test", func(): play_requested.emit("solo")), _button("Play online…", show_online)]:
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		modes.add_child(button)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	box.add_child(row)
@@ -215,6 +230,70 @@ func _build_menu() -> void:
 	blur_row.add_child(blur_slider)
 	box.add_child(_label("WASD  drive  ·  SPACE  handbrake  ·  M  navigator map\nC  camera  ·  R  recover  ·  H  lights  ·  F  fullscreen\nV  mute  ·  Gamepad: left stick + triggers, A brake, Y map", 12, muted))
 
+func _build_online_menu() -> void:
+	online_panel = PanelContainer.new()
+	online_panel.add_theme_stylebox_override("panel", _style(ink, 14))
+	root.add_child(online_panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 16)
+	online_panel.add_child(box)
+	box.add_child(_label("TWO SEATS / ANY TWO COMPUTERS", 12, amber))
+	box.add_child(_label("Take the long way.", 34))
+	box.add_child(_label("Both players use the same relay address.\nThe driver creates a room and shares its code.", 16, muted))
+	box.add_child(_label("Relay address", 13, cream))
+	relay_address = LineEdit.new()
+	relay_address.placeholder_text = "https://your-service.onrender.com"
+	relay_address.text = OS.get_environment("BLIND_DRIVER_RELAY_URL")
+	var preferences := ConfigFile.new()
+	if relay_address.text.is_empty() and preferences.load("user://network.cfg") == OK:
+		relay_address.text = preferences.get_value("relay", "address", "")
+	box.add_child(relay_address)
+	create_online_button = _button("Create room / I am driving", func():
+		_save_relay_address()
+		set_online_busy(true)
+		online_status.text = "Connecting… A sleeping free server can take about a minute."
+		online_create_requested.emit(relay_address.text))
+	box.add_child(create_online_button)
+	box.add_child(_label("Room code", 13, cream))
+	var code_row := HBoxContainer.new()
+	box.add_child(code_row)
+	room_field = LineEdit.new()
+	room_field.placeholder_text = "Paste the driver's room code"
+	room_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	code_row.add_child(room_field)
+	code_row.add_child(_button("Copy", func(): DisplayServer.clipboard_set(room_field.text)))
+	join_online_button = _button("Join room / I am navigating", func():
+		_save_relay_address()
+		set_online_busy(true)
+		online_status.text = "Connecting to the driver…"
+		online_join_requested.emit(relay_address.text, room_field.text))
+	box.add_child(join_online_button)
+	online_status = _label("Deploy your relay first: instructions are in deployment.md.", 13, amber)
+	online_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	online_status.custom_minimum_size = Vector2(480, 50)
+	box.add_child(online_status)
+	box.add_child(_button("Back / leave online room", func(): online_cancel_requested.emit()))
+	online_panel.visible = false
+
+func _save_relay_address() -> void:
+	var preferences := ConfigFile.new()
+	preferences.set_value("relay", "address", relay_address.text.strip_edges())
+	preferences.save("user://network.cfg")
+
+func set_online_busy(busy: bool) -> void:
+	create_online_button.disabled = busy
+	join_online_button.disabled = busy
+
+func show_online() -> void:
+	show_menu(true)
+	menu.visible = false
+	online_panel.visible = true
+	_layout()
+
+func display_room_code(code: String) -> void:
+	room_field.text = code
+	online_status.text = "Room ready. Copy this code to your navigator. The ride starts when they join."
+
 func _button(text: String, action: Callable) -> Button:
 	var button := Button.new()
 	button.text = text
@@ -228,6 +307,9 @@ func _layout() -> void:
 	var height := root.size.y
 	menu.position = Vector2(40, maxf(94, (height - 680) * 0.5))
 	menu.size = Vector2(530, 0)
+	if online_panel != null:
+		online_panel.position = Vector2(40, maxf(98, (height - 580) * 0.5))
+		online_panel.size = Vector2(530, 0)
 	views.offset_top = 78
 	views.offset_bottom = -94
 	navigator_tag.position = Vector2(width * 0.5 + 28 if mode == "split" else 28, 100)
@@ -256,6 +338,12 @@ func set_mode(value: String) -> void:
 func show_menu(value: bool, can_resume: bool = true) -> void:
 	in_menu = value
 	menu.visible = value
+	if online_panel != null:
+		online_panel.visible = false
+	if not value:
+		var focused := root.get_viewport().gui_get_focus_owner()
+		if focused != null:
+			focused.release_focus()
 	resume_button.visible = can_resume
 	map_panel.visible = not value and mode != "host"
 	hud.get_node("RouteCard").visible = not value and mode != "host"
