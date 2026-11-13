@@ -168,6 +168,10 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 			var center := points[16] + Vector3(28, 0, 0)
 			center.x = roundf(center.x / 8.0) * 8.0
 			center.z = roundf(center.z / 8.0) * 8.0
+			# Keep the whole shoulder clear, even when a curve and grid rounding move toward the lake.
+			for point: Vector3 in points:
+				if absf(point.z - center.z) < 24.0:
+					center.x = maxf(center.x, ceilf((point.x + 24.0) / 8.0) * 8.0)
 			center.y = height_at(center.x, center.z) - 14.0
 			hazards.append({"kind": "lake", "position": center, "size": Vector3(32, 14, 32), "yaw": 0.0})
 	var road := {"id": next_id, "parent": parent_id, "depth": depth, "heading": heading, "points": points, "expanded": danger, "danger": danger, "hazards": hazards}
