@@ -95,7 +95,7 @@ export function createRelay(options = {}) {
   const replySeat = (client, type) => {
     const room = rooms.get(client.room);
     send(client, { type, room: client.room, version: VERSION, token: room[client.role].token,
-      role: client.role, peer_connected: !!room[otherRole(client.role)]?.client, grace_seconds: grace / 1000 });
+      role: client.role, connection: client.id, instance, peer_connected: !!room[otherRole(client.role)]?.client, grace_seconds: grace / 1000 });
   };
   const notifyReady = (room, role) => {
     if (role === 'navigator') send(room.driver?.client, { type: 'navigator_joined' });

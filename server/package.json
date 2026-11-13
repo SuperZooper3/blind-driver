@@ -6,7 +6,8 @@
   "description": "Two-player WebSocket room relay for Blind Driver",
   "scripts": {
     "start": "node index.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "check": "node check.mjs"
   },
   "engines": {
     "node": ">=20 <25"

@@ -43,10 +43,12 @@ def stop(process):
         process.wait(timeout=5)
 
 
-def run_pair(temporary, relay_url=""):
+def run_pair(temporary, relay_url="", resilience=False):
     host = None
     tag = "relay" if relay_url else "lan"
     extra = ["--relay-url=" + relay_url] if relay_url else []
+    if resilience:
+        extra += ["--probe-duration=75", "--expect-recovery"]
     path = temporary / (tag + "-host-output.txt")
     try:
         with path.open("w+") as output:
@@ -56,7 +58,7 @@ def run_pair(temporary, relay_url=""):
                 extra.append("--relay-room=" + code)
             else:
                 wait_output(host, path, "HOST_READY")
-            client = subprocess.run(command("tests/network_probe.gd", temporary / (tag + "-client.log"), "--", "--probe-join", *extra), capture_output=True, text=True, timeout=25)
+            client = subprocess.run(command("tests/network_probe.gd", temporary / (tag + "-client.log"), "--", "--probe-join", *extra), capture_output=True, text=True, timeout=95 if resilience else 25)
             print(f"[{tag}]", client.stdout)
             host.wait(timeout=15)
             host_output = path.read_text()
@@ -78,14 +80,16 @@ with tempfile.TemporaryDirectory(prefix="blind-driver-checks-") as directory:
     if launcher.returncode or "FAIL:" in launcher.stdout or "SCRIPT ERROR" in launcher.stderr:
         sys.exit(launcher.stderr or "Local window launcher check failed")
     run_pair(temporary)
-    if "--relay" in sys.argv:
+    if "--relay" in sys.argv or "--resilience" in sys.argv:
         relay = None
         try:
             relay_output = temporary / "relay-output.txt"
             with relay_output.open("w+") as output:
-                relay = subprocess.Popen(["node", "index.mjs"], cwd=ROOT / "server", env={**os.environ, "PORT": "0", "HOST": "127.0.0.1"}, stdout=output, stderr=subprocess.STDOUT)
+                relay = subprocess.Popen(["node", "../tests/relay_fault_server.mjs" if "--resilience" in sys.argv else "index.mjs"], cwd=ROOT / "server", env={**os.environ, "PORT": "0", "HOST": "127.0.0.1"}, stdout=output, stderr=subprocess.STDOUT)
                 port = wait_output(relay, relay_output, r"listening on 127\.0\.0\.1:(\d+)").group(1)
-                run_pair(temporary, f"ws://127.0.0.1:{port}/ws")
+                run_pair(temporary, f"ws://127.0.0.1:{port}/ws", "--resilience" in sys.argv)
+                if "--resilience" in sys.argv:
+                    print("[faults]", "\n".join(line for line in relay_output.read_text().splitlines() if "FAULT:" in line))
         finally:
             stop(relay)
 print("All requested driving and network checks passed.")

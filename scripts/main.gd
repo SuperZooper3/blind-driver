@@ -70,9 +70,11 @@ func _ready() -> void:
 	session.navigator_joined.connect(func():
 		if session.online:
 			_online_ready()
-		car.driving_enabled = not ui.in_menu)
+		car.driving_enabled = not ui.in_menu and session.can_drive())
 	session.room_created.connect(ui.display_room_code)
 	session.online_joined.connect(_online_ready)
+	session.ride_restored.connect(func(): car.driving_enabled = not ui.in_menu and session.can_drive())
+	ui.network_session = session
 	session.online_error.connect(func(message: String):
 		ui.show_online()
 		ui.set_online_busy(false)
@@ -157,7 +159,7 @@ func _process(delta: float) -> void:
 	world.focus = car.global_position
 	_update_cameras(delta)
 	motor.enabled = started and not audio_muted and not ui.in_menu
-	if ui.in_menu:
+	if ui.in_menu or (session.online and not session.can_drive()):
 		car.driving_enabled = false
 	if local_navigator_pid > 0:
 		_local_navigator_running()
@@ -251,7 +253,7 @@ func _start(value: String) -> void:
 
 func _resume() -> void:
 	ui.show_menu(false)
-	car.driving_enabled = mode != "join" and session.role != "disconnected"
+	car.driving_enabled = mode != "join" and session.can_drive()
 	_resize_views()
 
 func _recover() -> void:
@@ -349,6 +351,7 @@ func _local_navigator_running() -> bool:
 
 func _exit_tree() -> void:
 	_close_local_navigator()
+	preload("res://scripts/network_log.gd").close()
 
 func _host_online(address: String) -> void:
 	_close_local_navigator()
@@ -369,9 +372,11 @@ func _join_online(address: String, code: String) -> void:
 	_resize_views()
 
 func _online_ready() -> void:
+	var first_connection: bool = not started or ui.online_panel.visible
 	started = true
-	ui.show_menu(false)
-	car.driving_enabled = mode == "host"
+	if first_connection:
+		ui.show_menu(false)
+	car.driving_enabled = mode == "host" and session.can_drive()
 	_resize_views()
 
 func _leave_online() -> void:
@@ -388,9 +393,11 @@ func _leave_online() -> void:
 	_resize_views()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F8:
+		ui.toggle_diagnostics()
 	if event.is_action_pressed("menu") and started:
 		ui.show_menu(not ui.in_menu)
-		car.driving_enabled = not ui.in_menu and mode != "join" and session.role != "disconnected"
+		car.driving_enabled = not ui.in_menu and mode != "join" and session.can_drive()
 		_resize_views()
 	if event.is_action_pressed("fullscreen"):
 		var full := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN

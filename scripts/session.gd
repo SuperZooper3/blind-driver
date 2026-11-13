@@ -7,7 +7,9 @@ signal navigator_joined
 signal room_created(code: String)
 signal online_joined
 signal online_error(message: String)
+signal ride_restored
 
+const Log = preload("res://scripts/network_log.gd")
 const PORT := 18765
 const INTERPOLATION_DELAY := 0.10
 const SNAPSHOT_INTERVAL := 1.0 / 30.0
@@ -33,6 +35,12 @@ var graph_received := false
 var relay: Node
 var online := false
 var room_code := ""
+var recovering := false
+var lan_url := ""
+var lan_retry_at := 0.0
+var lan_outage_at := -1.0
+var lan_retries := 0
+var last_metrics := 0.0
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_peer_connected)
@@ -48,6 +56,21 @@ func _ready() -> void:
 		status_changed.emit("ROOM READY / SHARE THE CODE WITH YOUR NAVIGATOR")
 		room_created.emit(code))
 	relay.joined.connect(func(): online_joined.emit())
+	relay.recovering.connect(func(message: String):
+		recovering = true
+		navigator_id = 0
+		car.driving_enabled = false
+		status_changed.emit(message)
+		connection_lost.emit())
+	relay.restored.connect(_online_restored)
+	relay.peer_waiting.connect(func():
+		navigator_id = 0
+		car.driving_enabled = false
+		status_changed.emit("PARTNER RECONNECTING / HOLDING THE RIDE"))
+	relay.peer_restored.connect(func():
+		snapshots.clear()
+		last_sequence = -1
+		status_changed.emit("DRIVER RETURNED / SYNCING THE RIDE"))
 	relay.navigator_joined.connect(_online_peer_joined)
 	relay.navigator_left.connect(func():
 		navigator_id = 0
@@ -83,7 +106,23 @@ func join_online(address: String, code: String) -> Error:
 	status_changed.emit("CONNECTING TO RELAY / JOINING ROOM")
 	return relay.start(address, "join", code)
 
+func _online_restored(peer_connected: bool) -> void:
+	recovering = false
+	snapshots.clear()
+	last_sequence = -1
+	last_graph_revision = -1
+	Log.event("ride_restored", {"role": role, "peer_connected": peer_connected})
+	if role == "host" and peer_connected:
+		_online_peer_joined()
+	else:
+		status_changed.emit("CONNECTION RESTORED / WAITING FOR DRIVER" if role == "join" else "CONNECTED / WAITING FOR NAVIGATOR")
+		ride_restored.emit()
+
+func can_drive() -> bool:
+	return role == "local" or (role == "host" and navigator_id != 0 and not recovering and (not online or relay.is_ready))
+
 func _online_peer_joined() -> void:
+	recovering = false
 	navigator_id = 1 # Presence marker; relay mode does not send native RPCs.
 	last_graph_revision = -1
 	navigator_joined.emit()
@@ -94,7 +133,7 @@ func _new_peer() -> WebSocketMultiplayerPeer:
 	socket.inbound_buffer_size = 1048576
 	socket.outbound_buffer_size = 1048576
 	socket.max_queued_packets = 128
-	socket.handshake_timeout = 5.0
+	socket.handshake_timeout = 15.0
 	return socket
 
 func host(bind_address: String = "*") -> Error:
@@ -118,6 +157,7 @@ func join(address: String) -> Error:
 		url = "ws://" + url
 		if url.get_slice("://", 1).find(":") == -1:
 			url += ":%d" % PORT
+	lan_url = url
 	var error := peer.create_client(url)
 	if error != OK:
 		status_changed.emit("COULD NOT CONNECT / CHECK HOST ADDRESS")
@@ -137,6 +177,11 @@ func stop() -> void:
 	if relay != null:
 		relay.stop()
 	online = false
+	recovering = false
+	lan_url = ""
+	lan_retry_at = 0.0
+	lan_outage_at = -1.0
+	lan_retries = 0
 	room_code = ""
 	if peer != null:
 		peer.close()
@@ -167,6 +212,7 @@ func _peer_connected(id: int) -> void:
 	if navigator_id != 0:
 		peer.disconnect_peer(id)
 		return
+	Log.event("lan_navigator_joined")
 	navigator_id = id
 	peer.get_peer(id).set_no_delay(true)
 	last_graph_revision = -1
@@ -175,19 +221,59 @@ func _peer_connected(id: int) -> void:
 
 func _peer_disconnected(id: int) -> void:
 	if role == "host" and id == navigator_id:
+		Log.event("lan_navigator_disconnected")
 		navigator_id = 0
 		car.driving_enabled = false
-		status_changed.emit("NAVIGATOR LEFT / ESC TO RESUME OR REHOST")
+		status_changed.emit("NAVIGATOR DISCONNECTED / WAITING FOR REJOIN")
 
 func _connected() -> void:
+	recovering = false
+	lan_outage_at = -1.0
+	lan_retries = 0
+	lan_retry_at = 0.0
+	snapshots.clear()
+	last_sequence = -1
+	Log.event("lan_connected")
 	status_changed.emit("NAVIGATOR / RECEIVING WORLD")
 
 func _failed() -> void:
-	role = "disconnected"
-	status_changed.emit("CONNECTION LOST / ESC TO RECONNECT")
+	if role != "join" or online:
+		return
+	call_deferred("_schedule_lan_retry")
+
+func _schedule_lan_retry() -> void:
+	if role != "join" or online or lan_url.is_empty():
+		return
+	recovering = true
+	if peer != null:
+		peer.close()
+	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
+	peer = null
+	var time := Time.get_ticks_msec() / 1000.0
+	if lan_outage_at < 0.0:
+		lan_outage_at = time
+	lan_retries += 1
+	lan_retry_at = time + minf(8.0, pow(2.0, mini(lan_retries - 1, 3)))
+	Log.event("lan_reconnect_scheduled", {"attempt": lan_retries})
+	status_changed.emit("LAN CONNECTION LOST / RETRYING AUTOMATICALLY")
 	connection_lost.emit()
 
 func _process(delta: float) -> void:
+	var time := Time.get_ticks_msec() / 1000.0
+	if not online and role == "join" and recovering:
+		if time - lan_outage_at >= 120.0:
+			role = "disconnected"
+			status_changed.emit("LAN RECOVERY TIMED OUT / JOIN THE HOST AGAIN")
+		elif lan_retry_at > 0.0 and time >= lan_retry_at:
+			lan_retry_at = 0.0
+			peer = _new_peer()
+			if peer.create_client(lan_url) == OK:
+				multiplayer.multiplayer_peer = peer
+			else:
+				_schedule_lan_retry()
+	if role in ["host", "join"] and time - last_metrics > 10.0:
+		last_metrics = time
+		Log.event("game_network_summary", {"role": role, "online": online, "recovering": recovering, "snapshots_received": snapshots_received, "snapshot_age_ms": roundi((time - last_received_at) * 1000) if last_received_at > 0.0 else -1, "graph_revision": world.graph_revision, "last_sequence": last_sequence})
 	if role == "host" and navigator_id != 0:
 		snapshot_timer += delta
 		graph_timer += delta
@@ -198,10 +284,11 @@ func _process(delta: float) -> void:
 		if world.graph_revision != last_graph_revision and graph_timer > 0.25:
 			graph_timer = 0.0
 			if online:
-				relay.send_graph(world.export_graph())
+				if relay.send_graph(world.export_graph()):
+					last_graph_revision = world.graph_revision
 			else:
 				_receive_graph.rpc_id(navigator_id, world.export_graph())
-			last_graph_revision = world.graph_revision
+				last_graph_revision = world.graph_revision
 		if snapshot_timer >= SNAPSHOT_INTERVAL:
 			snapshot_timer = fmod(snapshot_timer, SNAPSHOT_INTERVAL)
 			sequence += 1
@@ -245,6 +332,7 @@ func _receive_snapshot(data: Dictionary) -> void:
 	if snapshots.size() > 20:
 		snapshots.pop_front()
 	if stale:
+		Log.event("snapshot_stream_restored")
 		stale = false
 		status_changed.emit("NAVIGATOR / CONNECTION RESTORED")
 
@@ -255,6 +343,7 @@ func _interpolate(delta: float) -> void:
 	if now - last_received_at > 1.0:
 		if not stale:
 			stale = true
+			Log.event("snapshot_stream_stalled", {"age_ms": roundi((now - last_received_at) * 1000)})
 			status_changed.emit("CONNECTION STALLED / WAITING FOR DRIVER")
 		return
 	var render_time := now - clock_offset - INTERPOLATION_DELAY

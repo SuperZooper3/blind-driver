@@ -10,6 +10,7 @@ signal online_create_requested(address: String)
 signal online_join_requested(address: String, code: String)
 signal online_cancel_requested
 
+const DEFAULT_RELAY_URL := "https://blind-driver-relay.onrender.com"
 const Map = preload("res://scripts/route_map.gd")
 var ink := Color("142f2c")
 var cream := Color("f0ead5")
@@ -45,6 +46,14 @@ var room_field: LineEdit
 var online_status: Label
 var create_online_button: Button
 var join_online_button: Button
+var network_session: Node
+var diagnostic_client: Node
+var diagnostics_panel: PanelContainer
+var diagnostic_address: LineEdit
+var diagnostic_result: Label
+var live_network: Label
+var check_button: Button
+var diagnostic_timer := 0.0
 
 func _ready() -> void:
 	root = Control.new()
@@ -67,6 +76,7 @@ func _ready() -> void:
 	_build_hud()
 	_build_menu()
 	_build_online_menu()
+	_build_diagnostics()
 	root.resized.connect(_layout)
 	_layout()
 
@@ -228,7 +238,7 @@ func _build_menu() -> void:
 	blur_slider.value = 0.028
 	blur_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	blur_row.add_child(blur_slider)
-	box.add_child(_label("WASD  drive  ·  SPACE  handbrake  ·  M  navigator map\nC  camera  ·  R  recover  ·  H  lights  ·  F  fullscreen\nV  mute  ·  Gamepad: left stick + triggers, A brake, Y map", 12, muted))
+	box.add_child(_label("WASD  drive  ·  SPACE  handbrake  ·  M  navigator map\nC  camera  ·  R  recover  ·  H  lights  ·  F  fullscreen\nV  mute  ·  F8  connection & logs\nGamepad: left stick + triggers, A brake, Y map", 12, muted))
 
 func _build_online_menu() -> void:
 	online_panel = PanelContainer.new()
@@ -242,11 +252,13 @@ func _build_online_menu() -> void:
 	box.add_child(_label("Both players use the same relay address.\nThe driver creates a room and shares its code.", 16, muted))
 	box.add_child(_label("Relay address", 13, cream))
 	relay_address = LineEdit.new()
-	relay_address.placeholder_text = "https://your-service.onrender.com"
+	relay_address.placeholder_text = DEFAULT_RELAY_URL
 	relay_address.text = OS.get_environment("BLIND_DRIVER_RELAY_URL")
 	var preferences := ConfigFile.new()
 	if relay_address.text.is_empty() and preferences.load("user://network.cfg") == OK:
 		relay_address.text = preferences.get_value("relay", "address", "")
+	if relay_address.text.is_empty():
+		relay_address.text = DEFAULT_RELAY_URL
 	box.add_child(relay_address)
 	create_online_button = _button("Create room / I am driving", func():
 		_save_relay_address()
@@ -272,8 +284,67 @@ func _build_online_menu() -> void:
 	online_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	online_status.custom_minimum_size = Vector2(480, 50)
 	box.add_child(online_status)
+	box.add_child(_button("Connection check & logs   /   F8", toggle_diagnostics))
 	box.add_child(_button("Back / leave online room", func(): online_cancel_requested.emit()))
 	online_panel.visible = false
+
+func _build_diagnostics() -> void:
+	diagnostic_client = preload("res://scripts/relay_client.gd").new()
+	add_child(diagnostic_client)
+	diagnostic_client.check_updated.connect(func(message: String): diagnostic_result.text = message)
+	diagnostic_client.check_finished.connect(func(message: String):
+		diagnostic_result.text = message
+		check_button.disabled = false)
+	diagnostics_panel = PanelContainer.new()
+	diagnostics_panel.add_theme_stylebox_override("panel", _style(ink, 12, amber))
+	root.add_child(diagnostics_panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	diagnostics_panel.add_child(box)
+	box.add_child(_label("CONNECTION & LOGS", 24))
+	live_network = _label("No network session.", 13, muted)
+	live_network.custom_minimum_size = Vector2(460, 75)
+	live_network.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(live_network)
+	box.add_child(_label("Test this computer's connection to the relay", 14))
+	diagnostic_address = LineEdit.new()
+	diagnostic_address.placeholder_text = "https://your-service.onrender.com"
+	box.add_child(diagnostic_address)
+	check_button = _button("Start 75-second connection check", func():
+		check_button.disabled = true
+		diagnostic_result.text = "Connecting… Allow up to 90 seconds for a sleeping server."
+		diagnostic_client.start(diagnostic_address.text, "check"))
+	box.add_child(check_button)
+	diagnostic_result = _label("Checks the same connection used by the game.\nNo room needed. Results describe this test period only.", 13, amber)
+	diagnostic_result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	diagnostic_result.custom_minimum_size = Vector2(460, 100)
+	box.add_child(diagnostic_result)
+	box.add_child(_button("Open network logs folder", func(): OS.shell_open(preload("res://scripts/network_log.gd").folder())))
+	box.add_child(_button("Stop check / close   F8", func():
+		diagnostic_client.stop()
+		check_button.disabled = false
+		diagnostics_panel.visible = false))
+	diagnostics_panel.visible = false
+
+func toggle_diagnostics() -> void:
+	diagnostics_panel.visible = not diagnostics_panel.visible
+	if diagnostics_panel.visible:
+		if not diagnostic_client.active:
+			diagnostic_address.text = relay_address.text
+		_layout()
+
+func _process(delta: float) -> void:
+	diagnostic_timer += delta
+	if not diagnostics_panel.visible or diagnostic_timer < 0.5:
+		return
+	diagnostic_timer = 0.0
+	if network_session == null or network_session.role == "local":
+		live_network.text = "No network ride active. Start a check below."
+	elif network_session.online:
+		var data: Dictionary = network_session.relay.metrics()
+		live_network.text = "%s · %s\nLatency %d ms · p95 %d ms · missed probes %d\nReconnects %d · queued %d bytes · last close %d" % [network_session.role.to_upper(), "CONNECTED" if data.ready else "WAITING / RECONNECTING", data.rtt_ms, data.p95_ms, data.missed, data.reconnects, data.buffered_bytes, data.last_close_code]
+	else:
+		live_network.text = "DIRECT LAN · %s\nReceived snapshots: %d · %s" % [network_session.role.to_upper(), network_session.snapshots_received, "reconnecting" if network_session.recovering else "connected / waiting for partner"]
 
 func _save_relay_address() -> void:
 	var preferences := ConfigFile.new()
@@ -310,6 +381,9 @@ func _layout() -> void:
 	if online_panel != null:
 		online_panel.position = Vector2(40, maxf(98, (height - 580) * 0.5))
 		online_panel.size = Vector2(530, 0)
+	if diagnostics_panel != null:
+		diagnostics_panel.position = Vector2(maxf(16, width - 540), 98)
+		diagnostics_panel.size = Vector2(510, 0)
 	views.offset_top = 78
 	views.offset_bottom = -94
 	navigator_tag.position = Vector2(width * 0.5 + 28 if mode == "split" else 28, 100)
