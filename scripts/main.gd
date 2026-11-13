@@ -5,6 +5,10 @@ const Car = preload("res://scripts/car.gd")
 const UI = preload("res://scripts/game_ui.gd")
 const Audio = preload("res://scripts/engine_audio.gd")
 const Session = preload("res://scripts/session.gd")
+const Records = preload("res://scripts/run_records.gd")
+var records := Records.new()
+var record_timer := 0.0
+var record_run_id := -1
 var world: Node3D
 var car: RigidBody3D
 var ui: CanvasLayer
@@ -25,6 +29,7 @@ var local_navigator_pid := -1
 var local_pair_deadline := 0
 
 func _ready() -> void:
+	records.load_record()
 	_setup_input()
 	_setup_environment()
 	world = World.new()
@@ -176,6 +181,17 @@ func _process(delta: float) -> void:
 			ui.show_menu(true)
 			ui.status_label.text = "NAVIGATOR DID NOT CONNECT / RETRY LOCAL CO-OP"
 			_resize_views()
+	if started:
+		if record_run_id != car.run_id:
+			records.begin_run()
+			record_run_id = car.run_id
+		records.observe(car.distance_driven)
+		record_timer += delta
+		if record_timer >= 5.0 or car.run_state == "game_over":
+			records.save_record()
+			record_timer = 0.0
+	ui.personal_best_label.text = "PERSONAL BEST   %.2f km" % (records.best_distance / 1000.0)
+	ui.dashboard.best_km = records.best_distance / 1000.0
 	ui.dashboard.speed_kmh = absf(car.signed_speed) * 3.6
 	ui.dashboard.distance_km = car.distance_driven / 1000.0
 	ui.surface_label.text = "GRAVEL" if car.on_road else "OFF ROAD"
@@ -187,10 +203,12 @@ func _process(delta: float) -> void:
 		_update_route()
 		if not car.remote:
 			car.on_road = world.road_distance(car.global_position) < 4.6
-	ui.show_run_result(car.run_state, car.crash_reason, car.distance_driven, mode == "join")
-	ui.hint_label.text = "Overturned. Open the menu to start a new ride." if car.run_state == "driving" and car.global_basis.y.dot(Vector3.UP) < 0.35 else ""
+	ui.show_run_result(car.run_state, car.crash_reason, car.distance_driven, mode == "join", records.best_distance, records.new_best)
+	ui.hint_label.text = "Thorn thickets ahead — stay near the road" if car.run_state == "driving" and world.road_distance(car.global_position) > 12.0 else ""
+	if car.punctured_tires != 0:
+		ui.surface_label.text = "TIRES PUNCTURED"
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if not started or car.remote or car.reset_pending or car.recovery_grace > 0:
 		return
 	var hole: Dictionary = world.void_at(car.global_position)
@@ -198,17 +216,26 @@ func _physics_process(_delta: float) -> void:
 		var rim: float = hole.position.y + hole.size.y
 		if car.global_position.y < rim - 1.5:
 			car.begin_fall("The road ended at a cliff" if hole.kind == "cliff" else "You plunged into the lake")
-		if car.run_state == "falling" and (car.global_position.y < hole.position.y + 1.2 or (hole.kind == "lake" and car.global_position.y < rim - 3.0)):
+		if car.run_state == "falling" and (car.global_position.y < hole.position.y + 2.5 or (hole.kind == "lake" and car.global_position.y < rim - 3.0)):
 			car.finish_run()
-	if car.global_position.y < -45.0 and car.run_state != "game_over":
+	if car.run_state == "driving":
+		car.check_rollover(delta)
+		car.puncture_tires(world.puncture_mask(car))
+	if car.global_position.y < -55.0 and car.run_state != "game_over":
 		car.begin_fall("You fell into the valley")
 		car.finish_run()
 
 func _restart_run() -> void:
 	if mode == "join":
 		return
+	records.observe(car.distance_driven)
+	records.save_record()
+	records.begin_run()
 	world.reset_world()
 	car.run_id += 1
+	car.punctured_tires = 0
+	car.rollover_time = 0.0
+	car.update_tire_visuals()
 	car.run_state = "driving"
 	car.crash_reason = ""
 	car.distance_driven = 0.0
@@ -221,6 +248,8 @@ func _update_cameras(delta: float) -> void:
 	var car_basis := car.global_basis.orthonormalized()
 	var flat_forward := -car_basis.z
 	flat_forward.y = 0.0
+	if flat_forward.length_squared() < 0.001:
+		flat_forward = Vector3.FORWARD
 	flat_forward = flat_forward.normalized()
 	var stable := Basis.looking_at(flat_forward)
 	var seat_basis := stable.slerp(car_basis, 0.35)
@@ -382,6 +411,7 @@ func _local_navigator_running() -> bool:
 	return true
 
 func _exit_tree() -> void:
+	records.save_record()
 	_close_local_navigator()
 	preload("res://scripts/network_log.gd").close()
 

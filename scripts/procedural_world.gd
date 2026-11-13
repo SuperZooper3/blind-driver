@@ -9,6 +9,8 @@ const TILE_RADIUS := 3
 const ROAD_WIDTH := 8.0
 const KEEP_DISTANCE := 720.0
 const MAX_ROADS := 100
+const THORN_DISTANCE := 18.0
+const THORN_CELL := 4.0
 var world_seed := 72419
 var roads: Array[Dictionary] = []
 var tiles: Dictionary = {}
@@ -29,6 +31,7 @@ var last_tile := Vector2i(99999, 99999)
 var tree_mesh: ArrayMesh
 var trunk_mesh: CylinderMesh
 var rock_mesh: SphereMesh
+var thorn_mesh: ArrayMesh
 var road_cells: Dictionary = {}
 const ROAD_CELL_SIZE := 48.0
 
@@ -92,33 +95,37 @@ func update_stream(at: Vector3, immediate: bool = false) -> void:
 			_build_tile(pending_tiles.pop_front())
 
 func grow_near(at: Vector3) -> void:
-	var expanded := 0
-	for road: Dictionary in roads.duplicate():
-		if road.expanded or road.danger or roads.size() >= MAX_ROADS:
-			continue
-		var end: Vector3 = road.points[-1]
-		if end.distance_to(at) > 235.0:
-			continue
-		if road.depth % 2 == 0 and roads.size() > MAX_ROADS - 2:
-			continue
-		road.expanded = true
-		var depth: int = road.depth + 1
-		if road.depth % 2 == 0:
-			var fork_rng := RandomNumberGenerator.new()
-			fork_rng.seed = world_seed + int(road.id) * 1531
-			var left_safe := fork_rng.randf() > 0.5
-			_add_road(end, 0.66 if left_safe else -0.66, depth, road.id)
-			_add_road(end, -0.88 if left_safe else 0.88, depth, road.id, 140.0, true)
-		else:
-			_add_road(end, 0.0, depth, road.id, 180.0)
-		expanded += 1
-		if expanded >= 3:
-			break
+	# Only the single safe frontier may grow. Visiting an abandoned fork or the
+	# forest must never create another route (or repeatedly expand an old junction).
+	var frontier: Dictionary = {}
+	for road: Dictionary in roads:
+		if not road.danger and not road.expanded:
+			if frontier.is_empty() or road.depth > frontier.depth:
+				frontier = road
+	var nearest := nearest_road(at)
+	var on_safe_route := false
+	for road: Dictionary in roads:
+		if road.id == nearest.road_id:
+			on_safe_route = not road.danger and nearest.distance < 12.0
+	if not frontier.is_empty() and on_safe_route and roads.size() < MAX_ROADS - 2:
+		var end: Vector3 = frontier.points[-1]
+		if end.distance_to(at) < 235.0:
+			frontier.expanded = true
+			var depth: int = frontier.depth + 1
+			if frontier.depth % 2 == 0:
+				var fork_rng := RandomNumberGenerator.new()
+				fork_rng.seed = world_seed + int(frontier.id) * 1531
+				var left_safe := fork_rng.randf() > 0.5
+				_add_road(end, 0.66 if left_safe else -0.66, depth, frontier.id)
+				_add_road(end, -0.88 if left_safe else 0.88, depth, frontier.id, 140.0, true)
+			else:
+				_add_road(end, 0.0, depth, frontier.id, 180.0)
 	var removed := false
 	for road: Dictionary in roads.duplicate():
 		var points: PackedVector3Array = road.points
-		if at.distance_to(points[0]) > KEEP_DISTANCE and at.distance_to(points[-1]) > KEEP_DISTANCE:
+		if at.distance_to(points[0]) > KEEP_DISTANCE and at.distance_to(points[-1]) > KEEP_DISTANCE and road.expanded:
 			_invalidate_hazard_tiles(road)
+			_invalidate_road_tiles(road.points)
 			road.node.queue_free()
 			roads.erase(road)
 			graph_revision += 1
@@ -144,9 +151,10 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 		for i in points.size():
 			points[i].z += shift * float(i) / (points.size() - 1)
 			points[i].y = height_at(points[i].x, points[i].z) + 0.17
-		var center := Vector3(roundf(points[-1].x / 8.0) * 8.0, 0, lip - 24.0)
-		center.y = height_at(center.x, center.z) - 24.0
-		hazards.append({"kind": "cliff", "position": center, "size": Vector3(48, 24, 48), "yaw": 0.0})
+		var center := Vector3(roundf(points[-1].x / 8.0) * 8.0, 0, lip - 56.0)
+		center.x += signf(points[-1].x - start.x) * 32.0
+		center.y = height_at(center.x, center.z) - 36.0
+		hazards.append({"kind": "cliff", "position": center, "size": Vector3(160, 36, 112), "yaw": 0.0})
 	else:
 		# The first stretch teaches driving; every later road has a readable obstacle rhythm.
 		if depth > 0:
@@ -213,14 +221,22 @@ func _invalidate_hazard_tiles(road: Dictionary) -> void:
 		if not Hazards.is_void(hazard):
 			continue
 		var p: Vector3 = hazard.position
-		var extent: Vector3 = hazard.size * 0.5
-		_invalidate_road_tiles(PackedVector3Array([p - extent, p, p + extent, p + Vector3(-extent.x, 0, extent.z), p + Vector3(extent.x, 0, -extent.z)]))
+		var extent: Vector3 = hazard.size * 0.5 + Vector3(9, 0, 9)
+		# Large ravines can cover whole tiles between their corners.
+		for x in range(floori((p.x - extent.x) / TILE_SIZE), floori((p.x + extent.x) / TILE_SIZE) + 1):
+			for z in range(floori((p.z - extent.z) / TILE_SIZE), floori((p.z + extent.z) / TILE_SIZE) + 1):
+				var key := Vector2i(x, z)
+				if tiles.has(key):
+					tiles[key].queue_free()
+					tiles.erase(key)
+					if not pending_tiles.has(key):
+						pending_tiles.append(key)
 
 func _invalidate_road_tiles(points: PackedVector3Array) -> void:
 	var dirty: Dictionary = {}
 	for point: Vector3 in points:
-		for dx in [-9.0, 9.0]:
-			for dz in [-9.0, 9.0]:
+		for dx in [-24.0, 0.0, 24.0]:
+			for dz in [-24.0, 0.0, 24.0]:
 				dirty[Vector2i(floori((point.x + dx) / TILE_SIZE), floori((point.z + dz) / TILE_SIZE))] = true
 	for key: Vector2i in dirty:
 		if tiles.has(key):
@@ -311,6 +327,21 @@ func recovery_spot(at: Vector3) -> Dictionary:
 			if clear and distance < best.distance:
 				best = {"distance": distance, "point": point, "direction": (points[i + 1] - point).normalized()}
 	return best
+
+func thorn_at(at: Vector3) -> bool:
+	# The same global grid defines the visible thicket and tire contact on both peers.
+	var center := Vector3((floorf(at.x / THORN_CELL) + 0.5) * THORN_CELL, 0, (floorf(at.z / THORN_CELL) + 0.5) * THORN_CELL)
+	return road_distance(center) >= THORN_DISTANCE and void_at(center).is_empty() and void_at(at).is_empty()
+
+func puncture_mask(car: RigidBody3D) -> int:
+	if car.grounded_wheels == 0 or car.global_basis.y.dot(Vector3.UP) < 0.4:
+		return 0
+	var result := 0
+	for i in car.wheel_pivots.size():
+		var contact: Vector3 = car.wheel_pivots[i].global_position - car.global_basis.y * car.WHEEL_RADIUS
+		if absf(contact.y - height_at(contact.x, contact.z)) < 0.8 and thorn_at(contact):
+			result |= 1 << i
+	return result
 
 func road_distance(at: Vector3) -> float:
 	# Decoration and tire queries only need nearby roads. Avoid scanning the entire
@@ -406,6 +437,15 @@ func _build_tile(key: Vector2i) -> void:
 		body.position = p
 		body.add_child(shape)
 		root.add_child(body)
+	var thorns: Array[Transform3D] = []
+	for x in int(TILE_SIZE / THORN_CELL):
+		for z in int(TILE_SIZE / THORN_CELL):
+			var p := ground_point(origin.x + (x + 0.5) * THORN_CELL, origin.y + (z + 0.5) * THORN_CELL)
+			if not thorn_at(p):
+				continue
+			var rotation := fposmod(p.x * 7.13 + p.z * 3.71, TAU)
+			thorns.append(Transform3D(Basis(Vector3.UP, rotation), p))
+	_multimesh(root, thorn_mesh, leaf_material, thorns)
 	_multimesh(root, tree_mesh, leaf_material, trees)
 	_multimesh(root, trunk_mesh, trunk_material, trunks)
 	_multimesh(root, rock_mesh, rock_material, rocks)
@@ -435,6 +475,7 @@ func _build_tree_mesh() -> void:
 	rock_mesh.height = 1.5
 	rock_mesh.radial_segments = 5
 	rock_mesh.rings = 3
+	thorn_mesh = Hazards.make_thorn_mesh()
 
 func _multimesh(root: Node3D, mesh: Mesh, mat: Material, transforms: Array[Transform3D]) -> void:
 	var node := MultiMeshInstance3D.new()
@@ -467,6 +508,7 @@ func import_graph(data: Array) -> void:
 			updated.append(previous)
 		else:
 			if not previous.is_empty():
+				_invalidate_road_tiles(previous.points)
 				_invalidate_hazard_tiles(previous)
 				previous.node.queue_free()
 			_render_road(record)
@@ -475,6 +517,7 @@ func import_graph(data: Array) -> void:
 			_invalidate_hazard_tiles(record)
 		next_id = maxi(next_id, int(record.id) + 1)
 	for road: Dictionary in existing.values():
+		_invalidate_road_tiles(road.points)
 		_invalidate_hazard_tiles(road)
 		road.node.queue_free()
 	roads = updated

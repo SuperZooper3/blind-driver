@@ -28,6 +28,7 @@ var map: Control
 var map_panel: PanelContainer
 var map_clip: Control
 var dashboard: Control
+var personal_best_label: Label
 var surface_label: Label
 var route_label: Label
 var route_distance: Label
@@ -201,7 +202,7 @@ func _build_hud() -> void:
 	map_panel.add_child(map)
 	hint_label = _label("", 16, amber)
 	hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	hint_label.position = Vector2(28, -135)
+	hint_label.position = Vector2(28, -FOOTER_HEIGHT - 90)
 	hud.add_child(hint_label)
 
 func _menu_box(panel: PanelContainer) -> VBoxContainer:
@@ -222,6 +223,8 @@ func _build_menu() -> void:
 	box.add_child(_label("A COOPERATIVE WRONG TURN", 11, amber))
 	box.add_child(_label("BLIND DRIVER", 42))
 	box.add_child(_label("One drives. One sees the way.", 17, muted))
+	personal_best_label = _label("PERSONAL BEST   0.00 km", 13, amber)
+	box.add_child(personal_best_label)
 	resume_button = _button("Resume the ride   →", func(): resume_requested.emit())
 	resume_button.hide()
 	box.add_child(resume_button)
@@ -487,11 +490,11 @@ func _build_run_result() -> void:
 	box.add_child(restart_button)
 	result_panel.hide()
 
-func show_run_result(state: String, reason: String, distance: float, navigator: bool) -> void:
+func show_run_result(state: String, reason: String, distance: float, navigator: bool, best: float = 0.0, new_best: bool = false) -> void:
 	result_panel.visible = state == "game_over" and not in_menu
 	if state != "game_over":
 		return
-	result_detail.text = "%s.\nYou made it %.2f km.%s" % [reason, distance / 1000.0, "\nWaiting for the driver to restart." if navigator else ""]
+	result_detail.text = "%s.\nYou made it %.2f km.\n%s: %.2f km%s" % [reason, distance / 1000.0, "NEW PERSONAL BEST" if new_best else "Personal best", best / 1000.0, "\nWaiting for the driver to restart." if navigator else ""]
 	restart_button.visible = not navigator
 
 func set_mode(value: String) -> void:

@@ -2,6 +2,7 @@ extends Control
 ## Analog speed dial and a mechanical-style trip odometer, fed by authoritative car state.
 var speed_kmh := 0.0
 var distance_km := 0.0
+var best_km := 0.0
 var displayed_speed := 0.0
 const MAX_KMH := 160.0
 const CREAM := Color("f0ead5")
@@ -52,4 +53,4 @@ func _draw() -> void:
 		_text(digits[i], Vector2(x + 10, 75), 22, Color("142f2c") if i >= 5 else CREAM)
 		draw_line(Vector2(x + 1, 67), Vector2(x + 19, 67), Color(0, 0, 0, 0.12), 1.0)
 	_text(".", Vector2(269, 78), 18, CREAM)
-	_text("THIS RIDE", Vector2(241, 103), 10, MUTED)
+	_text("BEST  %.2f km" % best_km, Vector2(241, 103), 10, AMBER)

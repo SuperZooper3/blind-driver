@@ -19,6 +19,8 @@ var handbrake := false
 var run_state := "driving"
 var crash_reason := ""
 var run_id := 0
+var punctured_tires := 0
+var rollover_time := 0.0
 var driving_enabled := false
 var remote := false
 var on_road := true
@@ -38,6 +40,8 @@ func _ready() -> void:
 	mass = 1050.0
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = Vector3(0, -0.26, 0.12)
+	# A light cabin protects occupants without treating its empty volume as heavy metal.
+	inertia = Vector3(1450, 1750, 400)
 	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
 	linear_damp = 0.02
 	angular_damp = 1.5
@@ -55,6 +59,21 @@ func _ready() -> void:
 	shape.shape = box
 	shape.position.y = 0.1
 	add_child(shape)
+	# The old chassis-only collider let the entire cabin sink through the ground.
+	var roof := CollisionShape3D.new()
+	roof.name = "RoofCollision"
+	var roof_box := BoxShape3D.new()
+	roof_box.size = Vector3(1.94, 0.24, 2.35)
+	roof.shape = roof_box
+	roof.position = Vector3(0, 1.62, 0.38)
+	add_child(roof)
+	for x in [-0.88, 0.88]:
+		var side := CollisionShape3D.new()
+		var side_box := BoxShape3D.new()
+		side_box.size = Vector3(0.18, 1.35, 2.25)
+		side.shape = side_box
+		side.position = Vector3(x, 0.98, 0.38)
+		add_child(side)
 	_build_model()
 	body_entered.connect(func(_body: Node):
 		impact_strength = clampf(linear_velocity.length() / 12.0, 0.0, 1.0))
@@ -157,6 +176,7 @@ func _physics_process(delta: float) -> void:
 	for i in wheel_pivots.size():
 		wheel_pivots[i].rotation.y = steering_angle() if i < 2 else 0.0
 		wheel_meshes[i].rotation.x = -wheel_spin
+	update_tire_visuals()
 
 func steering_angle() -> float:
 	return steering * lerpf(0.53, 0.23, clampf(absf(signed_speed) / MAX_SPEED, 0.0, 1.0))
@@ -177,7 +197,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	for i in suspension_points.size():
 		var local: Vector3 = suspension_points[i]
 		var origin := state.transform * local
-		var query := PhysicsRayQueryParameters3D.create(origin, origin - up * (SPRING_LENGTH + WHEEL_RADIUS))
+		var radius := WHEEL_RADIUS * (0.55 if punctured_tires & (1 << i) else 1.0)
+		var query := PhysicsRayQueryParameters3D.create(origin, origin - up * (SPRING_LENGTH + radius))
 		query.exclude = [get_rid()]
 		var hit := state.get_space_state().intersect_ray(query)
 		if hit.is_empty():
@@ -185,12 +206,12 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			continue
 		grounded_wheels += 1
 		var distance: float = origin.distance_to(hit.position)
-		var compression := clampf(SPRING_LENGTH - (distance - WHEEL_RADIUS), 0.0, SPRING_LENGTH)
+		var compression := clampf(SPRING_LENGTH - (distance - radius), 0.0, SPRING_LENGTH)
 		var offset: Vector3 = origin - state.transform.origin
 		var velocity := state.linear_velocity + state.angular_velocity.cross(offset - state.transform.basis * center_of_mass)
 		var spring_force := clampf(compression * SPRING_STRENGTH - velocity.dot(up) * SPRING_DAMPING, 0.0, 14000.0)
 		state.apply_force(up * spring_force, offset)
-		wheel_pivots[i].position.y = -(distance - WHEEL_RADIUS)
+		wheel_pivots[i].position.y = -(distance - radius)
 		var tire_forward := forward.rotated(up, steering_angle() if i < 2 else 0.0)
 		tire_forward = tire_forward.slide(hit.normal).normalized()
 		var tire_side := tire_forward.cross(hit.normal).normalized()
@@ -209,6 +230,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var rolling := -speed * (16.0 if on_road else 100.0)
 		var traction := clampf(drive + brake_force + rolling, -spring_force * 1.3, spring_force * 1.3)
 		state.apply_force(tire_forward * traction, tire_offset)
+	if punctured_tires != 0 and grounded_wheels > 0:
+		# Flat tires and tangled brambles bring the wreck to a halt, without cancelling gravity.
+		state.apply_central_force(-Vector3(state.linear_velocity.x, 0, state.linear_velocity.z) * mass * 7.0)
 	# Aerodynamic drag and gentle roll damping; never lock pitch/roll or erase collisions.
 	state.apply_central_force(-state.linear_velocity * state.linear_velocity.length() * 0.8)
 	if grounded_wheels > 1:
@@ -222,12 +246,38 @@ func begin_fall(reason: String) -> void:
 	crash_reason = reason
 	driving_enabled = false
 
-func finish_run() -> void:
-	if remote:
+func finish_run(reason: String = "") -> void:
+	if remote or run_state == "game_over":
 		return
+	if not reason.is_empty():
+		crash_reason = reason
 	run_state = "game_over"
 	driving_enabled = false
+	throttle = 0.0
+	brake_input = 1.0
 	impact_strength = 1.0
+
+func check_rollover(delta: float) -> void:
+	if run_state != "driving":
+		return
+	# Let airborne tricks finish; fail once the body has landed on its roof/side.
+	if global_basis.y.dot(Vector3.UP) < 0.25 and get_contact_count() > 0:
+		rollover_time += delta
+	else:
+		rollover_time = 0.0
+	if rollover_time >= 0.65:
+		finish_run("You rolled the car")
+
+func puncture_tires(mask: int) -> void:
+	if remote or run_state != "driving" or mask == 0:
+		return
+	punctured_tires |= mask & 15
+	update_tire_visuals()
+	finish_run("Thorns punctured your tires")
+
+func update_tire_visuals() -> void:
+	for i in wheel_pivots.size():
+		wheel_pivots[i].scale.y = 0.55 if punctured_tires & (1 << i) else 1.0
 
 func recover(point: Vector3, direction: Vector3) -> void:
 	if run_state != "driving":

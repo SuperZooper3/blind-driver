@@ -17,7 +17,7 @@ signal check_finished(message: String)
 
 const Wire = preload("res://scripts/wire_protocol.gd")
 const Log = preload("res://scripts/network_log.gd")
-const VERSION := 4
+const VERSION := 5
 const RECOVERY_SECONDS := 120.0
 var socket: WebSocketPeer
 var active := false

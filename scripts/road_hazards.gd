@@ -7,7 +7,16 @@ static func is_void(hazard: Dictionary) -> bool:
 	return hazard.kind in ["cliff", "lake"]
 
 static func contains(hazard: Dictionary, point: Vector3, margin: float = 0.0) -> bool:
-	return absf(point.x - hazard.position.x) < hazard.size.x * 0.5 + margin and absf(point.z - hazard.position.z) < hazard.size.z * 0.5 + margin
+	if absf(point.x - hazard.position.x) >= hazard.size.x * 0.5 + margin or absf(point.z - hazard.position.z) >= hazard.size.z * 0.5 + margin:
+		return false
+	if hazard.kind != "cliff" or margin > 0:
+		return true
+	# Chipped, chamfered edges share the terrain's 8 m grid: no invisible lids or gaps.
+	var row := floori((point.z - hazard.position.z + hazard.size.z * 0.5) / 8.0)
+	var rows := roundi(hazard.size.z / 8.0)
+	var end_distance := mini(row, rows - row - 1)
+	var inset := 24.0 if end_distance == 0 else (16.0 if end_distance == 1 else (8.0 if end_distance % 3 == 2 else 0.0))
+	return absf(point.x - hazard.position.x) < hazard.size.x * 0.5 - inset
 
 static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh) -> void:
 	if is_void(hazard):
@@ -63,36 +72,101 @@ static func _wedge(parent: Node3D, at: Vector3, width: float, length: float, hei
 	var vertices := PackedVector3Array([a, b, c, b, d, c, c, d, e, d, f, e, a, c, e, b, f, d])
 	Geo.instance(parent, Geo.mesh_from_triangles(vertices), Vector3.ZERO, mat).create_trimesh_collision()
 
+static func rim_edges(hazard: Dictionary) -> Array:
+	var edges: Array = []
+	var half: Vector3 = hazard.size * 0.5
+	var start: Vector3 = hazard.position - half
+	var directions := [Vector3.RIGHT, Vector3.BACK, Vector3.LEFT, Vector3.FORWARD]
+	for x in roundi(hazard.size.x / 8.0):
+		for z in roundi(hazard.size.z / 8.0):
+			var center := Vector3(start.x + x * 8 + 4, 0, start.z + z * 8 + 4)
+			if not contains(hazard, center):
+				continue
+			for direction: Vector3 in directions:
+				if contains(hazard, center + direction * 8):
+					continue
+				var side := direction.cross(Vector3.UP) * 4
+				var a := center + direction * 4 - side
+				var b := center + direction * 4 + side
+				a.y = terrain_height(a.x, a.z)
+				b.y = terrain_height(b.x, b.z)
+				edges.append([a, b])
+	return edges
+
 static func _render_void(parent: Node3D, hazard: Dictionary) -> void:
 	var p: Vector3 = hazard.position
 	var size: Vector3 = hazard.size
-	var earth := Geo.material(Color("655b4a"))
-	Geo.box(parent, Vector3(size.x, 1, size.z), p - Vector3.UP * 0.5, earth).create_convex_collision()
+	var earth := Geo.material(Color("514b40"))
+	var floor_mesh := Geo.box(parent, Vector3(size.x, 1, size.z), p - Vector3.UP * 0.5, earth)
+	floor_mesh.name = "RavineFloor" if hazard.kind == "cliff" else "LakeBed"
+	floor_mesh.create_convex_collision()
 	var vertices := PackedVector3Array()
-	var corners := [Vector2(p.x - size.x / 2, p.z - size.z / 2), Vector2(p.x + size.x / 2, p.z - size.z / 2), Vector2(p.x + size.x / 2, p.z + size.z / 2), Vector2(p.x - size.x / 2, p.z + size.z / 2)]
-	for edge in 4:
-		var a: Vector2 = corners[edge]
-		var b: Vector2 = corners[(edge + 1) % 4]
-		var steps := roundi(a.distance_to(b) / 8.0)
-		for i in steps:
-			var x := a.lerp(b, float(i) / steps)
-			var y := a.lerp(b, float(i + 1) / steps)
-			var top_a := Vector3(x.x, terrain_height(x.x, x.y), x.y)
-			var top_b := Vector3(y.x, terrain_height(y.x, y.y), y.y)
-			var bottom_a := Vector3(x.x, p.y, x.y)
-			var bottom_b := Vector3(y.x, p.y, y.y)
+	var colors := PackedColorArray()
+	var rim_vertices := PackedVector3Array()
+	var edges := rim_edges(hazard)
+	for edge in edges:
+		var a: Vector3 = edge[0]
+		var b: Vector3 = edge[1]
+		var inward := (b - a).cross(Vector3.UP).normalized()
+		# Continuous stone faces all the way around, with broken shelves and dark strata.
+		for layer in 3:
+			var t0 := layer / 3.0
+			var t1 := (layer + 1) / 3.0
+			var top_a := a.lerp(Vector3(a.x, p.y, a.z), t0) + inward * sin(t0 * PI) * 2.0
+			var top_b := b.lerp(Vector3(b.x, p.y, b.z), t0) + inward * sin(t0 * PI) * 2.0
+			var bottom_a := a.lerp(Vector3(a.x, p.y, a.z), t1) + inward * sin(t1 * PI) * 2.0
+			var bottom_b := b.lerp(Vector3(b.x, p.y, b.z), t1) + inward * sin(t1 * PI) * 2.0
 			vertices.append_array(PackedVector3Array([top_a, bottom_a, top_b, top_b, bottom_a, bottom_b]))
-	var walls := Geo.instance(parent, Geo.mesh_from_triangles(vertices), Vector3.ZERO, earth)
-	walls.material_override.cull_mode = BaseMaterial3D.CULL_DISABLED
+			var shade := Color("756b55").lerp(Color("3e453f"), t0 + fposmod(a.x * 0.21 + a.z * 0.13, 0.18))
+			for _i in 6:
+				colors.append(shade)
+		var outer_a := a - inward * 1.1 + Vector3.UP * 0.025
+		var outer_b := b - inward * 1.1 + Vector3.UP * 0.025
+		rim_vertices.append_array(PackedVector3Array([a + Vector3.UP * 0.03, b + Vector3.UP * 0.03, outer_a, b + Vector3.UP * 0.03, outer_b, outer_a]))
+	var rock := Geo.material(Color.WHITE)
+	rock.vertex_color_use_as_albedo = true
+	rock.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var walls := Geo.instance(parent, Geo.mesh_from_triangles(vertices, colors), Vector3.ZERO, rock)
+	walls.name = "RavineWalls"
 	walls.create_trimesh_collision()
+	Geo.instance(parent, Geo.mesh_from_triangles(rim_vertices), Vector3.ZERO, Geo.material(Color("a29a73")))
 	if hazard.kind == "lake":
 		var water := Geo.material(Color("488c96"), 0.25)
 		Geo.box(parent, Vector3(size.x - 0.1, 0.1, size.z - 0.1), p + Vector3.UP * (size.y - 3.0), water)
 	else:
-		# Broken edge markers frame the opening; the center remains driveable.
-		for offset in [-8.0, 8.0]:
-			var marker := Vector3(p.x + offset, terrain_height(p.x + offset, p.z + size.z / 2), p.z + size.z / 2 + 1.0)
-			Geo.cylinder(parent, 0.12, 1.4, marker + Vector3.UP * 0.7, Geo.material(Color("e7b566")))
+		for i in 18:
+			var at := p + Vector3(sin(i * 7.3) * size.x * 0.32, 0.0, cos(i * 4.7) * size.z * 0.32)
+			var rubble := Geo.sphere(parent, 1.0 + fposmod(i * 0.73, 2.3), at, earth)
+			rubble.scale = Vector3(1.6, 0.7, 1.1)
+
+static func make_thorn_mesh() -> ArrayMesh:
+	var vertices := PackedVector3Array()
+	var colors := PackedColorArray()
+	# Broad low foliage and pale, crossed thorn stems read clearly from a car seat.
+	for clump in 3:
+		var at := Vector3(sin(clump * 2.1) * 1.0, 0, cos(clump * 2.1) * 1.0)
+		for side in 6:
+			var angle := side * TAU / 6.0
+			var a := at + Vector3(cos(angle) * 1.8, 0.2, sin(angle) * 1.8)
+			var b := at + Vector3(cos(angle + TAU / 6.0) * 1.8, 0.2, sin(angle + TAU / 6.0) * 1.8)
+			vertices.append_array(PackedVector3Array([a, at + Vector3(0, 0.85 + clump * 0.12, 0), b]))
+			for _i in 3:
+				colors.append(Color("4d5840") if (side + clump) % 2 else Color("6a7046"))
+	for stem in 5:
+		var angle := stem * TAU / 5.0
+		var direction := Vector3(cos(angle), 0.28, sin(angle))
+		var side := direction.cross(Vector3.UP).normalized() * 0.065
+		var base := Vector3(0, 0.45, 0)
+		var tip := base + direction * 2.6
+		vertices.append_array(PackedVector3Array([base - side, base + side, tip, base - Vector3.UP * 0.065, tip, base + Vector3.UP * 0.065]))
+		for _i in 6:
+			colors.append(Color("b2a57b"))
+		for thorn in 3:
+			var at := base.lerp(tip, 0.3 + thorn * 0.23)
+			vertices.append_array(PackedVector3Array([at - side * 2, at + Vector3.UP * 0.42, at + side * 2]))
+			for _i in 3:
+				colors.append(Color("d0bc85"))
+	return Geo.mesh_from_triangles(vertices, colors)
 
 static func terrain_height(x: float, z: float) -> float:
 	return sin(x * 0.018) * 1.6 + sin(z * 0.014) * 2.2 + sin((x + z) * 0.037) * 0.45
