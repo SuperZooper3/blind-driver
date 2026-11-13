@@ -213,7 +213,7 @@ func _build_menu() -> void:
 	blur_slider.value = 0.028
 	blur_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	blur_row.add_child(blur_slider)
-	box.add_child(_label("WASD  drive  ·  SPACE  handbrake  ·  M  navigator map\nC  camera  ·  R  recover  ·  H  lights  ·  F  fullscreen\nGamepad: left stick + triggers, A handbrake, Y map", 12, muted))
+	box.add_child(_label("WASD  drive  ·  SPACE  handbrake  ·  M  navigator map\nC  camera  ·  R  recover  ·  H  lights  ·  F  fullscreen\nV  mute  ·  Gamepad: left stick + triggers, A brake, Y map", 12, muted))
 
 func _button(text: String, action: Callable) -> Button:
 	var button := Button.new()
@@ -265,7 +265,9 @@ func show_menu(value: bool, can_resume: bool = true) -> void:
 		driver_screen.visible = false
 		navigator_screen.visible = true
 	else:
+		var current_status := status_label.text
 		set_mode(mode)
+		status_label.text = current_status
 
 func toggle_map() -> void:
 	map_open = not map_open

@@ -28,6 +28,8 @@ var last_tile := Vector2i(99999, 99999)
 var tree_mesh: ArrayMesh
 var trunk_mesh: CylinderMesh
 var rock_mesh: SphereMesh
+var road_cells: Dictionary = {}
+const ROAD_CELL_SIZE := 48.0
 
 func _ready() -> void:
 	road_material = Geo.material(Color("726b57"))
@@ -35,9 +37,11 @@ func _ready() -> void:
 	stripe_material = Geo.material(Color("dbcb91"))
 	terrain_material = Geo.material(Color.WHITE)
 	terrain_material.vertex_color_use_as_albedo = true
+	terrain_material.vertex_color_is_srgb = true
 	trunk_material = Geo.material(Color("4a4234"))
 	leaf_material = Geo.material(Color.WHITE)
 	leaf_material.vertex_color_use_as_albedo = true
+	leaf_material.vertex_color_is_srgb = true
 	rock_material = Geo.material(Color("838a7e"))
 	_build_tree_mesh()
 	if allow_generation:
@@ -94,6 +98,8 @@ func grow_near(at: Vector3) -> void:
 		var end: Vector3 = road.points[-1]
 		if end.distance_to(at) > 235.0:
 			continue
+		if road.depth % 2 == 0 and roads.size() > MAX_ROADS - 2:
+			continue
 		road.expanded = true
 		var depth: int = road.depth + 1
 		if road.depth % 2 == 0:
@@ -104,12 +110,16 @@ func grow_near(at: Vector3) -> void:
 		expanded += 1
 		if expanded >= 3:
 			break
+	var removed := false
 	for road: Dictionary in roads.duplicate():
 		var points: PackedVector3Array = road.points
 		if at.distance_to(points[0]) > KEEP_DISTANCE and at.distance_to(points[-1]) > KEEP_DISTANCE:
 			road.node.queue_free()
 			roads.erase(road)
 			graph_revision += 1
+			removed = true
+	if removed:
+		_rebuild_road_index()
 
 func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, length: float = 155.0) -> void:
 	var rng := RandomNumberGenerator.new()
@@ -127,6 +137,9 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 	roads.append(road)
 	graph_revision += 1
 	# Newly chosen branches may enter an existing forest tile. Rebuild only those tiles.
+	_invalidate_road_tiles(points)
+
+func _invalidate_road_tiles(points: PackedVector3Array) -> void:
 	var dirty: Dictionary = {}
 	for point: Vector3 in points:
 		for dx in [-9.0, 9.0]:
@@ -140,6 +153,7 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 				pending_tiles.append(key)
 
 func _render_road(road: Dictionary) -> void:
+	_index_road(road)
 	var root := Node3D.new()
 	root.name = "Road_%d" % road.id
 	add_child(root)
@@ -178,7 +192,8 @@ func _make_ribbon(parent: Node3D, points: PackedVector3Array, width: float, lift
 		var bl := ground_point(b.x - side.x, b.z - side.z, 0.17 + lift)
 		var br := ground_point(b.x + side.x, b.z + side.z, 0.17 + lift)
 		vertices.append_array(PackedVector3Array([al, ar, bl, ar, br, bl]))
-	Geo.instance(parent, Geo.mesh_from_triangles(vertices), Vector3.ZERO, mat)
+	var ribbon := Geo.instance(parent, Geo.mesh_from_triangles(vertices), Vector3.ZERO, mat)
+	ribbon.create_trimesh_collision()
 
 func nearest_road(at: Vector3) -> Dictionary:
 	var best := {"distance": INF, "point": Vector3.ZERO, "direction": Vector3.FORWARD, "road_id": 0}
@@ -196,7 +211,34 @@ func nearest_road(at: Vector3) -> Dictionary:
 	return best
 
 func road_distance(at: Vector3) -> float:
-	return nearest_road(at).distance
+	# Decoration and tire queries only need nearby roads. Avoid scanning the entire
+	# retained graph for every single tree as the run gets longer.
+	var key := Vector2i(floori(at.x / ROAD_CELL_SIZE), floori(at.z / ROAD_CELL_SIZE))
+	var point := Vector2(at.x, at.z)
+	var closest := INF
+	for x in range(-1, 2):
+		for z in range(-1, 2):
+			for segment: Array in road_cells.get(key + Vector2i(x, z), []):
+				var a: Vector2 = segment[0]
+				var b: Vector2 = segment[1]
+				var t := clampf((point - a).dot(b - a) / (b - a).length_squared(), 0.0, 1.0)
+				closest = minf(closest, point.distance_to(a.lerp(b, t)))
+	return closest
+
+func _index_road(road: Dictionary) -> void:
+	var points: PackedVector3Array = road.points
+	for i in range(points.size() - 1):
+		var a := Vector2(points[i].x, points[i].z)
+		var b := Vector2(points[i + 1].x, points[i + 1].z)
+		var key := Vector2i(floori(a.x / ROAD_CELL_SIZE), floori(a.y / ROAD_CELL_SIZE))
+		if not road_cells.has(key):
+			road_cells[key] = []
+		road_cells[key].append([a, b])
+
+func _rebuild_road_index() -> void:
+	road_cells.clear()
+	for road: Dictionary in roads:
+		_index_road(road)
 
 func _build_tile(key: Vector2i) -> void:
 	if tiles.has(key):
@@ -314,18 +356,18 @@ func import_graph(data: Array) -> void:
 		var found := false
 		for road: Dictionary in roads:
 			if road.id == record.id:
+				road.expanded = record.expanded
 				found = true
 				break
 		if not found:
 			_render_road(record)
 			roads.append(record)
+			_invalidate_road_tiles(record.points)
+		next_id = maxi(next_id, int(record.id) + 1)
 	for road: Dictionary in roads.duplicate():
 		if not incoming.has(road.id):
 			road.node.queue_free()
 			roads.erase(road)
-	# Rebuild decor after a graph update to keep trees off newly received roads.
-	for key: Vector2i in tiles:
-		tiles[key].queue_free()
-	tiles.clear()
-	last_tile = Vector2i(99999, 99999)
-	update_stream(focus, true)
+	_rebuild_road_index()
+	graph_revision += 1
+	update_stream(focus)

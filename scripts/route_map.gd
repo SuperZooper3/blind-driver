@@ -37,7 +37,7 @@ func _draw() -> void:
 			points.append(_project(p))
 		draw_polyline(points, Color("b7b99c"), 11.0 if large else 8.0, true)
 		draw_polyline(points, ink, 3.0, true)
-		if int(road.parent) == route_id and int(road.id) % 2 == (route_id % 2):
+		if int(road.id) == route_id:
 			draw_polyline(points, Color("c17a3f"), 5.0, true)
 	var pos := _project(car.global_position)
 	draw_circle(pos, 16.0, Color(0.18, 0.33, 0.28, 0.12))

@@ -25,6 +25,7 @@ var distance_driven := 0.0
 var wheel_spin := 0.0
 var reset_transform := Transform3D.IDENTITY
 var reset_pending := false
+var recovery_serial := 0
 var impact_strength := 0.0
 var steering_wheel: Node3D
 var headlights: Array[SpotLight3D] = []
@@ -154,6 +155,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		state.linear_velocity = Vector3.ZERO
 		state.angular_velocity = Vector3.ZERO
 		reset_pending = false
+		recovery_serial += 1
 		return
 	if remote:
 		return

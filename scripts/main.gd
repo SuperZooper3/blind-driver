@@ -4,6 +4,7 @@ const World = preload("res://scripts/procedural_world.gd")
 const Car = preload("res://scripts/car.gd")
 const UI = preload("res://scripts/game_ui.gd")
 const Audio = preload("res://scripts/engine_audio.gd")
+const Session = preload("res://scripts/session.gd")
 var world: Node3D
 var car: RigidBody3D
 var ui: CanvasLayer
@@ -18,6 +19,8 @@ var chase_camera := false
 var camera_initialized := false
 var route_timer := 0.0
 var blur_material: ShaderMaterial
+var session: Node
+var audio_muted := false
 
 func _ready() -> void:
 	_setup_input()
@@ -52,8 +55,25 @@ func _ready() -> void:
 	motor = Audio.new()
 	motor.car = car
 	add_child(motor)
+	session = Session.new()
+	session.name = "Session"
+	session.car = car
+	session.world = world
+	add_child(session)
+	session.status_changed.connect(func(message: String): ui.status_label.text = message)
+	session.connection_lost.connect(func(): car.driving_enabled = false)
 	get_viewport().size_changed.connect(_resize_views)
 	_resize_views()
+	# Useful for opening two local instances without clicking through the menus.
+	for argument in OS.get_cmdline_user_args():
+		if argument == "--host":
+			_host()
+		elif argument.begins_with("--join="):
+			_join(argument.trim_prefix("--join="))
+		elif argument == "--solo":
+			_start("solo")
+		elif argument == "--split":
+			_start("split")
 
 func _setup_environment() -> void:
 	var env := Environment.new()
@@ -69,7 +89,7 @@ func _setup_environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("c5d6ca")
-	env.ambient_light_energy = 0.65
+	env.ambient_light_energy = 0.45
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.fog_enabled = true
 	env.fog_light_color = Color("b7c7b1")
@@ -80,7 +100,7 @@ func _setup_environment() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-38, -35, 0)
 	sun.light_color = Color("ffe0ad")
-	sun.light_energy = 1.25
+	sun.light_energy = 0.95
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 130.0
 	add_child(sun)
@@ -114,6 +134,7 @@ func _resize_views() -> void:
 func _process(delta: float) -> void:
 	world.focus = car.global_position
 	_update_cameras(delta)
+	motor.enabled = started and not audio_muted and not ui.in_menu
 	ui.speed_label.text = "%02d" % roundi(absf(car.signed_speed) * 3.6)
 	ui.distance_label.text = "%.2f\nKILOMETERS" % (car.distance_driven / 1000.0)
 	ui.surface_label.text = "GRAVEL" if car.on_road else "OFF ROAD"
@@ -126,6 +147,7 @@ func _process(delta: float) -> void:
 		car.on_road = world.road_distance(car.global_position) < 4.6
 	if car.global_position.y < -35:
 		_recover()
+	ui.hint_label.text = "UPSIDE DOWN?  Press R to recover." if car.global_basis.y.dot(Vector3.UP) < 0.35 else ""
 
 func _update_cameras(delta: float) -> void:
 	var car_basis := car.global_basis.orthonormalized()
@@ -136,7 +158,7 @@ func _update_cameras(delta: float) -> void:
 	var seat_basis := stable.slerp(car_basis, 0.35)
 	var driver_target := Transform3D(seat_basis, car.global_transform * Vector3(-0.43, 1.23, -0.05))
 	var nav_target := Transform3D(seat_basis, car.global_transform * Vector3(0.43, 1.23, -0.05))
-	var chase: bool = ui.in_menu or chase_camera or mode == "solo"
+	var chase: bool = ui.in_menu or chase_camera
 	navigator_camera.cull_mask = 3 if chase else 1
 	if chase:
 		var offset := Vector3(5.8, 3.8, 7.0) if ui.in_menu else Vector3(0, 3.5, 7.8)
@@ -173,10 +195,16 @@ func _update_route() -> void:
 	var left: bool = int(nearest.id) % 2 == 0
 	ui.route_label.text = "↖  Take the left fork" if left else "Take the right fork  ↗"
 	ui.route_distance.text = "%d m to junction   /   M to unfold map" % (roundi(distance / 5.0) * 5)
-	ui.map.route_id = nearest.id
+	var children: Array[Dictionary] = []
+	for road: Dictionary in world.roads:
+		if int(road.parent) == int(nearest.id) and int(road.depth) > int(nearest.depth):
+			children.append(road)
+	ui.map.route_id = int(children[0 if left else 1].id) if children.size() >= 2 else -1
 
 func _start(value: String) -> void:
+	session.stop()
 	mode = value
+	chase_camera = mode == "solo"
 	started = true
 	car.driving_enabled = true
 	ui.set_mode(mode)
@@ -196,10 +224,27 @@ func _recover() -> void:
 	camera_initialized = false
 
 func _host() -> void:
-	ui.status_label.text = "CONNECTION MODE IS BEING BUILT"
+	mode = "host"
+	ui.set_mode(mode)
+	if session.host() != OK:
+		return
+	started = true
+	car.driving_enabled = true
+	chase_camera = false
+	ui.show_menu(false)
+	ui.status_label.text = "DRIVER / HOSTING ON PORT %d" % session.PORT
+	_resize_views()
 
-func _join(_address: String) -> void:
-	ui.status_label.text = "CONNECTION MODE IS BEING BUILT"
+func _join(address: String) -> void:
+	mode = "join"
+	ui.set_mode(mode)
+	if session.join(address) != OK:
+		return
+	started = true
+	car.driving_enabled = false
+	chase_camera = false
+	ui.show_menu(false)
+	_resize_views()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("menu") and started:
@@ -219,9 +264,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		_recover()
 	if event.is_action_pressed("lights"):
 		car.toggle_lights()
+	if event.is_action_pressed("mute"):
+		audio_muted = not audio_muted
 
 func _setup_input() -> void:
-	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "recover": [KEY_R], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F]}
+	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "recover": [KEY_R], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F], "mute": [KEY_V]}
 	for action: String in bindings:
 		InputMap.add_action(action)
 		for key: int in bindings[action]:
