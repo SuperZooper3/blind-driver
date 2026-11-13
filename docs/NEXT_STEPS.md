@@ -5,9 +5,9 @@ the user requests the relevant work; unresolved details need design discussion.
 
 ## Car
 
-- Modular car parts.
-- Parts can take damage, with associated debuffs.
-- Open details: which parts, damage sources, effects, and repair behavior.
+- Modular, damageable car parts are implemented (see README, "Car damage").
+- Open details: whether to add repairs during a ride, and other damage sources
+  such as hard landings beyond the current wheel damage.
 
 ## Obstacles and forest
 

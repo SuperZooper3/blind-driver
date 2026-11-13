@@ -34,6 +34,20 @@ Gamepad: left stick steers, right trigger accelerates, left trigger brakes/rever
 
 Talk to each other in person or over your preferred voice call. The next-turn card gives the navigator a suggested route; the orange map line marks that branch. There is no penalty for choosing another road yet.
 
+### Car damage
+
+Crashes break the car. Gentle bumps are harmless (under about 13 km/h of closing speed). Harder hits wear parts down, and a part breaks once its health runs out. Broken parts fly off as debris. The damage line above the speedometer lists what is hurt.
+
+| Part | Damaged | Broken / lost |
+| --- | --- | --- |
+| Wheels (4) | Wobbles, loses grip and toes out, so the car drifts and pulls toward that side | Falls off. That corner drags on the ground, and a missing front wheel halves steering |
+| Hood | Dents upward | Falls off. Less engine power, lower top speed, rough engine sound |
+| Front bumper | Sags; soaks up most of a frontal hit | Falls off. Front hits reach the hood, windshield and wheels at full strength, and the headlights break |
+| Rear bumper | Sags; soaks up most of a rear hit | Falls off. Rear hits reach the rear wheels at full strength |
+| Windshield | Cracks spread across both seat views | Shatters into a hazy web; it stays in place |
+
+Damage lasts for the whole ride. **R** puts the car back on the road but does not repair it. Starting a new ride from the menu gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot.
+
 ## Two windows or two computers
 
 **One computer:** click **Start local co-op / two windows**. Your current game becomes the driver host; a second Godot process opens the navigator and joins `127.0.0.1` automatically. The two windows are placed side by side when running outside the editor. They use real WebSocket networking and separate worlds, with the driver owning physics and the navigator interpolating snapshots.
@@ -77,6 +91,7 @@ godot --path . -- --join=127.0.0.1
 
 - A physical 1,050 kg car with four raycast suspension springs, tire grip, rear-wheel handbrake slip, braking, reverse, aerodynamic drag, and a low center of mass. It can bounce, slide, collide, and overturn; R recovers it.
 - Gravel and off-road grip/rolling resistance, physical road surfaces, gentle hills, collidable trunks and rocks, working steering/wheel visuals, primitive occupants, headlights, and synthesized engine/tire sound.
+- Breakable wheels, hood, bumpers and windshield. Each one has health, its own handling penalty, and debris when it breaks.
 - Two independent seat cameras sharing one simulation, a low-resolution blurred driver render, a clear navigator render, a heading-relative map, and a solo chase view.
 - A seeded branching road graph. Roads grow near the car, distant sections are removed, and forest tiles load incrementally. Trees use MultiMesh rendering; nearby-road queries use a spatial index.
 - A start/pause menu, speed/distance display, route prompts, recovery, fullscreen, gamepad support, and local networking.
@@ -103,6 +118,8 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/network_log.gd` | Rotating per-process network event logs |
 | `server/`, `render.yaml` | Node relay and Render deployment configuration |
 | `scripts/engine_audio.gd` | Procedural engine/tire audio |
+| `scripts/car_damage.gd` | Part health, impact zones, damage penalties, debris; `SAFE_SPEED` and `RATE` tune how fragile the car is |
+| `scripts/windshield_cracks.gd` | Crack overlay drawn over both seat views |
 | `shaders/driver_blur.gdshader` | Driver's vision |
 
 Edit a script, save, stop the running game, and press F5 again. Start with Solo drive to tune the handling, then test the same change with two people in local co-op. Use the Debugger and Output panels for errors. Godot's generated `.godot/` cache stays out of Git; script `.uid` files belong in Git.
@@ -132,6 +149,6 @@ The checks bind only to localhost and close their test processes afterwards. The
 
 ## Prototype boundaries
 
-This is an early handling/cooperation sandbox. Roads can cross or overlap; there are no authored junction rules, traffic, goals, damage, save games, or strict route scoring. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
+This is an early handling/cooperation sandbox. Roads can cross or overlap; there are no authored junction rules, traffic, goals, repairs, save games, or strict route scoring. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
 
 The next useful milestone is deploying the relay using [deployment.md](deployment.md) and testing from two different networks. Then improve handling/junctions and verify a real browser export.
