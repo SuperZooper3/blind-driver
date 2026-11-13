@@ -46,6 +46,18 @@ func _run() -> void:
 	check(loaded.best_distance >= 2468.0, "a shorter run cannot replace the best distance")
 	game.started = false
 	world.set_process(false)
+	var hole: Dictionary = world.roads[2].hazards[0]
+	var original_position: Vector3 = hole.position
+	hole.position = Vector3(1000, -36, 1000)
+	var void_tile := Vector2i(12, 12)
+	world._build_tile(void_tile)
+	var has_terrain := false
+	for child in world.tiles[void_tile].get_children():
+		has_terrain = has_terrain or child is MeshInstance3D
+	check(not has_terrain, "a tile wholly inside the ravine has no terrain lid or empty collider")
+	world.tiles[void_tile].queue_free()
+	world.tiles.erase(void_tile)
+	hole.position = original_position
 	var valid_chain := true
 	var safe_clear := true
 	var no_branch_growth := true

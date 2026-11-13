@@ -400,8 +400,10 @@ func _build_tile(key: Vector2i) -> void:
 			var color := Color("435c42").lerp(Color("71845c"), rng.randf() * 0.65)
 			for _j in 6:
 				colors.append(color)
-	var terrain := Geo.instance(root, Geo.mesh_from_triangles(vertices, colors), Vector3.ZERO, terrain_material)
-	terrain.create_trimesh_collision()
+	# A broad ravine can consume an entire tile; its floor/walls already provide collision.
+	if not vertices.is_empty():
+		var terrain := Geo.instance(root, Geo.mesh_from_triangles(vertices, colors), Vector3.ZERO, terrain_material)
+		terrain.create_trimesh_collision()
 	var trees: Array[Transform3D] = []
 	var trunks: Array[Transform3D] = []
 	var rocks: Array[Transform3D] = []
