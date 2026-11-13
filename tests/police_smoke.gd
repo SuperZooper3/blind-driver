@@ -160,7 +160,7 @@ func check_rubberband(cop: Node3D, car: RigidBody3D) -> void:
 			var replica = load("res://scripts/police_pursuit.gd").new()
 			root.add_child(replica)
 			replica.apply_snapshot(snapshot, snapshot, 1)
-			check(Wire._police_state(snapshot) and is_equal_approx(replica.speed, cop.speed) and is_equal_approx(replica.gap, cop.gap), "boosted pursuit stays within protocol 6 and shares its speed and gap")
+			check(Wire._police_state(snapshot) and is_equal_approx(replica.speed, cop.speed) and is_equal_approx(replica.gap, cop.gap), "boosted pursuit stays within the shared protocol and shares its speed and gap")
 			replica.queue_free()
 	check(cop.gap < 300 and cop.closing_speed > 0.5 and smooth_motion, "rubberbanding reels in a fast driver continuously without jumping the patrol")
 	var before_pause: Vector3 = cop.global_position

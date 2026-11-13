@@ -241,14 +241,19 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not car.remote:
-		police.advance(delta, started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive())
+		var running: bool = started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive()
+		if running:
+			world.set_challenge_time(world.challenge_time + delta)
+			world.assist_jump(car)
+		police.advance(delta, running)
 	if not started or car.remote or car.reset_pending or car.recovery_grace > 0:
 		return
 	var hole: Dictionary = world.void_at(car.global_position)
 	if not hole.is_empty():
 		var rim: float = hole.position.y + hole.size.y
 		if car.global_position.y < rim - 1.5:
-			car.begin_fall("The road ended at a cliff" if hole.kind == "cliff" else "You plunged into the lake")
+			var reasons := {"cliff": "The road ended at a cliff", "lake": "You plunged into the lake", "jump_gap": "You didn't clear the jump", "timed_bridge": "You missed the timed bridge"}
+			car.begin_fall(reasons[hole.kind])
 		if car.run_state == "falling" and (car.global_position.y < hole.position.y + 2.5 or (hole.kind == "lake" and car.global_position.y < rim - 3.0)):
 			car.finish_run()
 	if car.run_state == "driving":
@@ -311,6 +316,20 @@ func _update_cameras(delta: float) -> void:
 	navigator_camera.fov = lerpf(navigator_camera.fov, 76.0 + absf(car.signed_speed) * 0.24, delta * 2.0)
 
 func _update_route() -> void:
+	# The navigator can read the approaching challenge while watching the road.
+	for road: Dictionary in world.roads:
+		for hazard: Dictionary in road.hazards:
+			if not World.Challenge.is_challenge(hazard): continue
+			var relative: Vector3 = hazard.position - car.global_position
+			if relative.dot(-car.global_basis.z) < -12 or relative.length() > 100: continue
+			if hazard.kind == "jump_gap":
+				ui.route_label.text = "Jump gap ahead"
+				ui.route_distance.text = "Line up on the ramp / 65+ km/h"
+			else:
+				var state := World.Challenge.bridge_state(hazard, world.challenge_time)
+				ui.route_label.text = "Bridge closing" if state.warning else ("Bridge open" if state.open else "Wait for the bridge")
+				ui.route_distance.text = ("Closes in %d s" if state.open else "Opens in %d s") % maxi(1, ceili(state.remaining))
+			return
 	var nearest: Dictionary = {}
 	var distance := INF
 	for road: Dictionary in world.roads:

@@ -83,12 +83,12 @@ func _run() -> void:
 			for point: Vector3 in road.points:
 				for other: Dictionary in world.roads:
 					for hazard: Dictionary in other.hazards:
-						if Hazards.is_void(hazard) and Hazards.contains(hazard, point, 8):
+						if Hazards.is_void(hazard) and (not hazard.kind in ["jump_gap", "timed_bridge"] or other.id != road.id) and Hazards.contains(hazard, point, 8):
 							safe_clear = false
 		if not frontier.is_empty(): world.grow_near(frontier.points[-1])
 		await process_frame
 	check(valid_chain and no_branch_growth, "80 extensions retain exactly one safe frontier; dead ends never generate more paths")
-	check(safe_clear, "enlarged ravines never intersect the safe road or its shoulder")
+	check(safe_clear, "ravines and crossing gaps never intersect an unrelated safe road or shoulder")
 	game.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

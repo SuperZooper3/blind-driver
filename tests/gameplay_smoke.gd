@@ -100,13 +100,13 @@ func _run() -> void:
 			for point: Vector3 in road.points:
 				for other: Dictionary in world.roads:
 					for hazard: Dictionary in other.hazards:
-						if Hazards.is_void(hazard) and Hazards.contains(hazard, point, 6.0):
+						if Hazards.is_void(hazard) and (not hazard.kind in ["jump_gap", "timed_bridge"] or other.id != road.id) and Hazards.contains(hazard, point, 6.0):
 							safe_clear = false
 		if not newest.is_empty():
 			world.grow_near(newest.points[-1])
 		await process_frame
-	check(safe_clear, "cliffs and lakes do not cut through any safe route or shoulder over 50 extensions")
-	check(kinds.size() == Hazards.KINDS.size(), "long run includes rocks, trees, ramps, bumps, construction, cliffs, and lakes")
+	check(safe_clear, "voids never cut another safe route; jump and bridge gaps stay on their own road")
+	check(kinds.size() == Hazards.KINDS.size(), "long run includes every obstacle, jump gap, timed bridge, cliff, and lake")
 	check(world.roads.size() <= world.MAX_ROADS, "hazards unload with their bounded road graph")
 	var lake: Dictionary = {}
 	for road: Dictionary in world.roads:

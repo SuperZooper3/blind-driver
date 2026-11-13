@@ -4,6 +4,7 @@ extends Node3D
 
 const Geo = preload("res://scripts/geometry.gd")
 const Hazards = preload("res://scripts/road_hazards.gd")
+const Challenge = preload("res://scripts/road_challenge.gd")
 const TILE_SIZE := 80.0
 const TILE_RADIUS := 3
 const ROAD_WIDTH := 8.0
@@ -17,6 +18,8 @@ var tiles: Dictionary = {}
 var pending_tiles: Array[Vector2i] = []
 var next_id := 0
 var graph_revision := 0
+var challenge_time := 0.0
+var jumped_gaps: Dictionary = {}
 var allow_generation := true
 var focus := Vector3.ZERO
 var road_material: StandardMaterial3D
@@ -128,6 +131,7 @@ func grow_near(at: Vector3) -> void:
 			_invalidate_road_tiles(road.points)
 			road.node.queue_free()
 			roads.erase(road)
+			jumped_gaps.erase(road.id)
 			graph_revision += 1
 			removed = true
 	if removed:
@@ -137,6 +141,13 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 	var rng := RandomNumberGenerator.new()
 	rng.seed = world_seed + next_id * 7919
 	var bend := rng.randf_range(-0.23, 0.23) if depth > 0 else 0.0
+	# Straight connector roads give a clear run-up and keep grid-aligned pits away
+	# from forks. A set piece replaces ordinary clutter on this entire stretch.
+	var challenge_kind := ""
+	if not danger and depth > 0 and is_zero_approx(heading):
+		if depth % 6 == 2: challenge_kind = "jump_gap"
+		elif depth % 6 == 4: challenge_kind = "timed_bridge"
+	if not challenge_kind.is_empty(): bend = 0.0
 	var points := PackedVector3Array()
 	var pos := start
 	for i in range(33):
@@ -157,7 +168,13 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 		hazards.append({"kind": "cliff", "position": center, "size": Vector3(160, 36, 112), "yaw": 0.0})
 	else:
 		# The first stretch teaches driving; every later road has a readable obstacle rhythm.
-		if depth > 0:
+		if not challenge_kind.is_empty():
+			var center := Vector3(roundf(points[16].x / 8.0) * 8.0, 0, roundf(points[16].z / 8.0) * 8.0)
+			center.y = height_at(center.x, center.z) - 18.0
+			# Keep the ramp/deck centered on the actual road; the wider grid-aligned
+			# terrain cut is separate from its narrow crossing surface.
+			hazards.append({"kind": challenge_kind, "position": center, "size": Vector3(64, 18, 16), "yaw": 0.0, "lane_x": points[16].x})
+		elif depth > 0:
 			var kinds := ["rock", "tree", "ramp", "bumps", "construction"]
 			for slot in 2:
 				var index := 11 + slot * 12
@@ -192,6 +209,8 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 	_invalidate_hazard_tiles(road)
 
 func reset_world() -> void:
+	set_challenge_time(0.0)
+	jumped_gaps.clear()
 	for road: Dictionary in roads:
 		road.node.queue_free()
 	roads.clear()
@@ -215,6 +234,29 @@ func void_at(at: Vector3) -> Dictionary:
 func surface_height(at: Vector3) -> float:
 	var hole := void_at(at)
 	return float(hole.position.y) if not hole.is_empty() else height_at(at.x, at.z)
+
+func set_challenge_time(value: float) -> void:
+	challenge_time = value
+	for road: Dictionary in roads:
+		for challenge: Node3D in road.node.get_meta("challenges", []):
+			challenge.set_clock(value)
+
+func assist_jump(car: RigidBody3D) -> void:
+	if car.remote or car.run_state != "driving" or car.global_basis.y.dot(Vector3.UP) < 0.6:
+		return
+	for road: Dictionary in roads:
+		if jumped_gaps.has(road.id): continue
+		for hazard: Dictionary in road.hazards:
+			if hazard.kind != "jump_gap": continue
+			var lip: float = hazard.position.z + hazard.size.z * 0.5
+			var lead: float = car.global_position.z - lip
+			if lead < 0.5 or lead > 3.0 or absf(car.global_position.x - hazard.lane_x) > 3.0: continue
+			if -car.linear_velocity.z < Challenge.JUMP_SPEED or car.global_position.y < height_at(hazard.lane_x, lip) + 1.0: continue
+			# A forgiving launch impulse keeps the wide ramp fun with the real
+			# suspension; gravity, steering, collisions, and landing remain physical.
+			car.linear_velocity.y = maxf(car.linear_velocity.y, 7.0)
+			car.angular_velocity *= 0.2
+			jumped_gaps[road.id] = true
 
 func _invalidate_hazard_tiles(road: Dictionary) -> void:
 	for hazard: Dictionary in road.hazards:
@@ -252,14 +294,26 @@ func _render_road(road: Dictionary) -> void:
 	add_child(root)
 	road.node = root
 	root.set_meta("hazards", road.hazards)
+	var challenges: Array[Node3D] = []
 	var points: PackedVector3Array = road.points
 	for hazard: Dictionary in road.hazards:
 		Hazards.render(root, hazard, tree_mesh)
+		if Challenge.is_challenge(hazard):
+			var challenge := Challenge.new()
+			root.add_child(challenge)
+			challenge.setup(hazard)
+			challenge.set_clock(challenge_time)
+			challenges.append(challenge)
+	root.set_meta("challenges", challenges)
 	_make_ribbon(root, points, ROAD_WIDTH + 2.2, -0.035, shoulder_material)
 	_make_ribbon(root, points, ROAD_WIDTH, 0.0, road_material)
 	for i in range(1, points.size() - 1, 3):
 		var a := points[i]
 		var b := points[i + 1]
+		var over_gap := false
+		for hazard: Dictionary in road.hazards:
+			if Challenge.is_challenge(hazard) and Hazards.contains(hazard, (a + b) * 0.5, 6.0): over_gap = true
+		if over_gap: continue
 		var stripe := Geo.box(root, Vector3(0.12, 0.012, a.distance_to(b) * 0.55), (a + b) * 0.5 + Vector3.UP * 0.022, stripe_material)
 		stripe.look_at(b)
 	if int(road.depth) % 2 == 0:
@@ -282,6 +336,11 @@ func _make_ribbon(parent: Node3D, points: PackedVector3Array, width: float, lift
 	for i in range(points.size() - 1):
 		var a := points[i]
 		var b := points[i + 1]
+		var over_gap := false
+		for hazard: Dictionary in parent.get_meta("hazards", []):
+			if Challenge.is_challenge(hazard) and minf(a.z, b.z) < hazard.position.z + hazard.size.z * 0.5 and maxf(a.z, b.z) > hazard.position.z - hazard.size.z * 0.5:
+				over_gap = true
+		if over_gap: continue
 		# Widen and wiggle around a tree, leaving a rough shoulder escape on both sides.
 		var local_width := width
 		for hazard: Dictionary in parent.get_meta("hazards", []):
