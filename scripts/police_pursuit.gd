@@ -3,8 +3,13 @@ extends Node3D
 const Geo = preload("res://scripts/geometry.gd")
 const HEAD_START := 6.0
 const START_GAP := 85.0
-const ESCAPE_GAP := 300.0
+const BOOST_FULL_GAP := 240.0
+const CATCH_UP_SPEED := 40.0
+const BRAKING := 9.0
 const CATCH_SECONDS := 1.5
+const CAPTURE_RADIUS := 24.0
+const CAPTURE_ROUTE_REACH := 14.0
+const CAPTURE_HEIGHT_REACH := 4.0
 var world: Node3D
 var car: RigidBody3D
 var phase := "waiting"
@@ -20,7 +25,6 @@ var lateral := 0.0
 var cache: Dictionary = {}
 var revision := -1
 var last_gap := START_GAP
-var escape_time := 0.0
 var wheels: Array[Node3D] = []
 var lamps: Array[MeshInstance3D] = []
 var beacons: Array[OmniLight3D] = []
@@ -37,7 +41,6 @@ func reset() -> void:
 	last_gap = gap
 	closing_speed = 0.0
 	catch_time = 0.0
-	escape_time = 0.0
 	lateral = 0.0
 	paused = true
 	cache.clear()
@@ -103,7 +106,8 @@ func _route_gap(target_id: int, target_station: float) -> float:
 		if theirs.has(id):
 			var junction: float = cache[id].offset + cache[id].length
 			return maxf(0, own + target - junction * 2)
-	return ESCAPE_GAP + 1.0
+	# A missing connecting road must not turn physical proximity into a capture.
+	return maxf(BOOST_FULL_GAP, global_position.distance_to(car.global_position))
 
 func advance(delta: float, running: bool) -> void:
 	paused = not running
@@ -132,11 +136,16 @@ func advance(delta: float, running: bool) -> void:
 	var direction := 1 if theirs.has(road_id) else -1
 	if road_id == target_id:
 		direction = 1 if target.station >= station else -1
-	var guidance := _guidance(direction)
 	var cruise := 25.0 + clampf(car.distance_driven / 2000.0, 0, 1) * 8.0
+	# Earned space gives breathing room, then the patrol gradually reels it back in.
+	# Fade the boost out before capture range; never jump the patrol toward the car.
+	var boost := smoothstep(START_GAP, BOOST_FULL_GAP, gap)
+	var pace := lerpf(1.0, 1.8, boost)
+	var guidance := _guidance(direction, pace)
+	cruise = lerpf(cruise, CATCH_UP_SPEED, boost)
 	var desired_speed: float = minf(cruise, guidance.speed_limit)
-	speed = move_toward(speed, desired_speed, delta * (3.2 if desired_speed > speed else 9.0))
-	lateral = move_toward(lateral, guidance.lateral, delta * 2.0)
+	speed = move_toward(speed, desired_speed, delta * (lerpf(3.2, 6.0, boost) if desired_speed > speed else BRAKING * pace * pace))
+	lateral = move_toward(lateral, guidance.lateral, delta * 2.0 * pace)
 	var step := minf(speed * delta, maxf(0, _route_gap(target_id, target.station) - 6.0))
 	speed = minf(speed, step / maxf(delta, 0.001))
 	station += step * direction
@@ -164,46 +173,60 @@ func advance(delta: float, running: bool) -> void:
 	var measured := clampf(change / maxf(delta, 0.001), -60, 60) if absf(change) < 8.0 else 0.0
 	closing_speed = lerpf(closing_speed, measured, 1.0 - exp(-delta * 2.0))
 	last_gap = gap
-	escape_time = escape_time + delta if gap > ESCAPE_GAP else 0.0
-	if escape_time >= 5.0:
-		phase = "escaped"
-		visible = false
-		return
-	# Capture requires sustained, physical proximity on the same stretch, not distance
-	# through a forest shortcut or to a car at the bottom of a ravine.
-	var nearby := global_position.distance_to(car.global_position) < 11.0 and gap < 14.0
+	# Police control the shoulder alongside them as well as the asphalt. Check
+	# progress along the road separately from lateral offset, so parking beside
+	# the road is not a safe spot. Route and height checks protect other branches
+	# and cars falling into a ravine from capture through the terrain.
+	var separation := car.global_position - global_position
+	var nearby := Vector2(separation.x, separation.z).length() < CAPTURE_RADIUS and absf(separation.y) < CAPTURE_HEIGHT_REACH and _route_gap(target_id, target.station) < CAPTURE_ROUTE_REACH
 	catch_time = catch_time + delta if nearby else maxf(0, catch_time - delta * 2.0)
 	if catch_time >= CATCH_SECONDS:
 		phase = "caught"
 		car.finish_run("The police caught you")
 
-func _guidance(direction: int) -> Dictionary:
+func _guidance(direction: int, pace: float = 1.0) -> Dictionary:
 	var sample := _sample(road_id, station)
 	var forward: Vector3 = sample.direction * direction
 	var side: Vector3 = sample.direction.cross(Vector3.UP).normalized()
 	var desired := 0.0
-	var speed_limit := 40.0
+	var speed_limit := CATCH_UP_SPEED
 	var strongest := 0.0
+	# Scale braking and dodging with pursuit pace, so bends and obstacles still
+	# slow it down without erasing the catch-up boost throughout a busy route.
+	var braking := BRAKING * pace * pace
+	var bump_speed := 13.0 * pace
+	var obstacle_speed := 18.0 * pace
+	var turn_speed := 20.0 * pace
+	var junction_speed := 19.0 * pace
+	var braking_lookahead := maxf(35.0, (speed * speed - bump_speed * bump_speed) / (2.0 * braking) + 16.0)
 	# Inspect the next road too, so a turn or an obstacle just beyond a junction is anticipated.
 	for record: Dictionary in cache.values():
 		for hazard: Dictionary in record.hazards:
 			if hazard.kind in ["cliff", "lake"]: continue
 			var relative: Vector3 = hazard.position - sample.point
 			var ahead := relative.dot(forward)
-			if ahead < -9 or ahead > 35 or absf(relative.dot(side)) > 7: continue
+			if ahead < -9 or ahead > braking_lookahead or absf(relative.dot(side)) > 7: continue
 			var strength := clampf((35.0 - ahead) / 22.0, 0, 1) * clampf((ahead + 9.0) / 7.0, 0, 1)
+			# At catch-up pace, begin braking earlier while retaining the same dodge.
+			if ahead > 0:
+				var crossing_speed := bump_speed if hazard.kind == "bumps" else obstacle_speed
+				speed_limit = minf(speed_limit, sqrt(crossing_speed * crossing_speed + 2.0 * braking * maxf(0, ahead - 16.0)))
 			if hazard.kind == "bumps":
-				speed_limit = minf(speed_limit, lerpf(40, 13, strength))
+				speed_limit = minf(speed_limit, lerpf(CATCH_UP_SPEED, bump_speed, strength))
 			else:
-				speed_limit = minf(speed_limit, lerpf(40, 18, strength))
+				speed_limit = minf(speed_limit, lerpf(CATCH_UP_SPEED, obstacle_speed, strength))
 				if strength > strongest:
 					strongest = strength
 					desired = (-2.6 if relative.dot(side) >= 0 else 2.6) * strength
-	var look := _sample(road_id, station + 18 * direction)
-	if sample.direction.dot(look.direction) < 0.985:
-		speed_limit = minf(speed_limit, 20.0)
+	var turn_lookahead := maxf(18.0, (speed * speed - turn_speed * turn_speed) / (2.0 * braking) + 18.0)
+	for distance in range(18, ceili(turn_lookahead) + 1, 9):
+		var look := _sample(road_id, station + distance * direction)
+		if sample.direction.dot(look.direction) < 0.985:
+			speed_limit = minf(speed_limit, sqrt(turn_speed * turn_speed + 2.0 * braking * maxf(0, distance - 18.0)))
+	var junction_distance: float = cache[road_id].length - station if direction > 0 else station
+	speed_limit = minf(speed_limit, sqrt(junction_speed * junction_speed + 2.0 * braking * maxf(0, junction_distance - 16.0)))
 	if cache[road_id].length - station < 16 or station < 12:
-		speed_limit = minf(speed_limit, 19.0)
+		speed_limit = minf(speed_limit, junction_speed)
 	return {"lateral": desired, "speed_limit": speed_limit}
 
 func _place(direction: int, weight: float) -> void:
