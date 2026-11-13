@@ -18,6 +18,8 @@ export function snapshotIssue(state) {
   if (Math.abs(state.rotation.reduce((sum, value) => sum + value * value, 0) - 1) >= 0.02) return 'rotation_normalization';
   if (!integer(state.grounded, 0, 4)) return 'grounded';
   if (typeof state.lights !== 'boolean') return 'lights';
+  // Optional per-part car health (0..1); absent from clients older than car damage.
+  if (state.damage !== undefined && !(Array.isArray(state.damage) && state.damage.length === 8 && state.damage.every(item => number(item, 0, 1)))) return 'damage';
   return null;
 }
 export const validSnapshot = state => snapshotIssue(state) === null;

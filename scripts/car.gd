@@ -3,6 +3,7 @@ extends RigidBody3D
 ## The body remains fully physical: gravity, pitching, roll, collisions and jumps.
 
 const Geo = preload("res://scripts/geometry.gd")
+const Damage = preload("res://scripts/car_damage.gd")
 const SPRING_LENGTH := 0.62
 const WHEEL_RADIUS := 0.36
 const SPRING_STRENGTH := 28000.0
@@ -29,8 +30,16 @@ var recovery_serial := 0
 var impact_strength := 0.0
 var steering_wheel: Node3D
 var headlights: Array[SpotLight3D] = []
+var lamp_material: StandardMaterial3D
+var damage: Damage
+## Velocity before this physics step's collisions, for impact speeds.
+var prev_linear_velocity := Vector3.ZERO
+var prev_angular_velocity := Vector3.ZERO
+var touching: Dictionary = {}
+var sim_time := 0.0
 
 func _ready() -> void:
+	damage = Damage.new(self)
 	mass = 1050.0
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = Vector3(0, -0.26, 0.12)
@@ -39,7 +48,7 @@ func _ready() -> void:
 	continuous_cd = true
 	can_sleep = false
 	contact_monitor = true
-	max_contacts_reported = 4
+	max_contacts_reported = 8
 	var physics_mat := PhysicsMaterial.new()
 	physics_mat.friction = 0.35
 	physics_mat.bounce = 0.07
@@ -51,6 +60,7 @@ func _ready() -> void:
 	shape.position.y = 0.1
 	add_child(shape)
 	_build_model()
+	damage.part_broken.connect(_on_part_broken)
 	body_entered.connect(func(_body: Node): impact_strength = clampf(linear_velocity.length() / 12.0, 0.0, 1.0))
 
 func _build_model() -> void:
@@ -60,10 +70,18 @@ func _build_model() -> void:
 	var trim := Geo.material(Color("c3c4a9"))
 	var seat := Geo.material(Color("55645a"))
 	Geo.box(self, Vector3(1.9, 0.55, 3.9), Vector3(0, 0.05, 0), paint)
-	Geo.box(self, Vector3(1.84, 0.26, 1.15), Vector3(0, 0.43, -1.28), paint)
+	damage.register(Damage.HOOD, Geo.box(self, Vector3(1.84, 0.26, 1.15), Vector3(0, 0.43, -1.28), paint))
 	Geo.box(self, Vector3(1.8, 0.14, 0.66), Vector3(0, 0.64, -0.58), dark)
-	Geo.box(self, Vector3(1.94, 0.19, 0.16), Vector3(0, -0.13, -2.03), trim)
-	Geo.box(self, Vector3(1.94, 0.19, 0.16), Vector3(0, -0.13, 2.03), trim)
+	damage.register(Damage.FRONT_BUMPER, Geo.box(self, Vector3(1.94, 0.19, 0.16), Vector3(0, -0.13, -2.03), trim))
+	damage.register(Damage.REAR_BUMPER, Geo.box(self, Vector3(1.94, 0.19, 0.16), Vector3(0, -0.13, 2.03), trim))
+	# Glass is drawn for the chase view only; seat views get the 2D crack overlay.
+	var glass_mat := Geo.material(Color(0.75, 0.86, 0.86, 0.18), 0.1)
+	glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var glass := Geo.box(self, Vector3(1.68, 0.98, 0.02), Vector3(0, 1.15, -0.7), glass_mat)
+	glass.rotation.x = 0.3
+	glass.layers = 2
+	damage.register(Damage.WINDSHIELD, glass)
 	Geo.box(self, Vector3(1.9, 0.14, 2.25), Vector3(0, 1.65, 0.38), paint)
 	for x in [-0.88, 0.88]:
 		Geo.box(self, Vector3(0.08, 1.1, 0.10), Vector3(x, 1.12, -0.68), paint)
@@ -101,11 +119,12 @@ func _build_model() -> void:
 		var hub := Geo.cylinder(wheel, 0.19, 0.255, Vector3.ZERO, trim, -1, 8)
 		hub.rotation.z = PI / 2.0
 		pivot.position = suspension_points[i] - Vector3.UP * 0.3
-	var lamp := Geo.material(Color("f8e6ae"))
-	lamp.emission_enabled = true
-	lamp.emission = Color("f4d692")
+		damage.register(i, wheel)
+	lamp_material = Geo.material(Color("f8e6ae"))
+	lamp_material.emission_enabled = true
+	lamp_material.emission = Color("f4d692")
 	for x in [-0.66, 0.66]:
-		Geo.box(self, Vector3(0.34, 0.23, 0.06), Vector3(x, 0.23, -1.98), lamp)
+		Geo.box(self, Vector3(0.34, 0.23, 0.06), Vector3(x, 0.23, -1.98), lamp_material)
 		var light := SpotLight3D.new()
 		light.position = Vector3(x, 0.35, -2.05)
 		light.light_color = Color("ffe4ac")
@@ -142,12 +161,19 @@ func _physics_process(delta: float) -> void:
 	impact_strength = move_toward(impact_strength, 0.0, delta * 2.0)
 	wheel_spin += signed_speed * delta / WHEEL_RADIUS
 	steering_wheel.rotation.z = steering * 1.9
+	update_wheel_visuals()
+
+## Shared by the driver and the navigator's interpolated copy.
+func update_wheel_visuals() -> void:
 	for i in wheel_pivots.size():
-		wheel_pivots[i].rotation.y = steering_angle() if i < 2 else 0.0
+		var wear := 1.0 - damage.health[i]
+		wheel_pivots[i].rotation.y = (steering_angle() if i < 2 else 0.0) + damage.wheel_toe(i)
 		wheel_meshes[i].rotation.x = -wheel_spin
+		# A bent wheel wobbles as it turns.
+		wheel_meshes[i].rotation.z = sin(wheel_spin) * wear * 0.18
 
 func steering_angle() -> float:
-	return steering * lerpf(0.53, 0.23, clampf(absf(signed_speed) / MAX_SPEED, 0.0, 1.0))
+	return steering * lerpf(0.53, 0.23, clampf(absf(signed_speed) / MAX_SPEED, 0.0, 1.0)) * damage.steer_scale()
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if reset_pending:
@@ -156,9 +182,12 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		state.angular_velocity = Vector3.ZERO
 		reset_pending = false
 		recovery_serial += 1
+		prev_linear_velocity = Vector3.ZERO
+		prev_angular_velocity = Vector3.ZERO
 		return
 	if remote:
 		return
+	_detect_impacts(state)
 	grounded_wheels = 0
 	var up := state.transform.basis.y
 	var forward := -state.transform.basis.z
@@ -167,6 +196,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var origin := state.transform * local
 		var query := PhysicsRayQueryParameters3D.create(origin, origin - up * (SPRING_LENGTH + WHEEL_RADIUS))
 		query.exclude = [get_rid()]
+		if not damage.alive(i):
+			_scrape(state, origin, up)
+			continue
 		var hit := state.get_space_state().intersect_ray(query)
 		if hit.is_empty():
 			wheel_pivots[i].position.y = -SPRING_LENGTH
@@ -179,11 +211,11 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var spring_force := clampf(compression * SPRING_STRENGTH - velocity.dot(up) * SPRING_DAMPING, 0.0, 14000.0)
 		state.apply_force(up * spring_force, offset)
 		wheel_pivots[i].position.y = -(distance - WHEEL_RADIUS)
-		var tire_forward := forward.rotated(up, steering_angle() if i < 2 else 0.0)
+		var tire_forward := forward.rotated(up, (steering_angle() if i < 2 else 0.0) + damage.wheel_toe(i))
 		tire_forward = tire_forward.slide(hit.normal).normalized()
 		var tire_side := tire_forward.cross(hit.normal).normalized()
 		var lateral := velocity.dot(tire_side)
-		var grip := 1.15 if on_road else 0.68
+		var grip := (1.15 if on_road else 0.68) * damage.wheel_grip(i)
 		if handbrake and i >= 2:
 			grip *= 0.24
 		var side_force := clampf(-lateral * mass * 3.0, -spring_force * grip, spring_force * grip)
@@ -191,8 +223,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var tire_offset := offset - up * 0.18
 		state.apply_force(tire_side * side_force, tire_offset)
 		var speed := velocity.dot(tire_forward)
-		var speed_limit := MAX_SPEED if throttle >= 0.0 else 9.0
-		var drive := throttle * ENGINE_FORCE / 4.0 * clampf(1.0 - absf(speed) / speed_limit, 0.0, 1.0)
+		var speed_limit := MAX_SPEED * damage.speed_scale() if throttle >= 0.0 else 9.0
+		var drive := throttle * ENGINE_FORCE * damage.engine_scale() / 4.0 * clampf(1.0 - absf(speed) / speed_limit, 0.0, 1.0)
 		var brake_force := -speed * (1700.0 * brake_input + (700.0 if handbrake else 0.0))
 		var rolling := -speed * (16.0 if on_road else 100.0)
 		var traction := clampf(drive + brake_force + rolling, -spring_force * 1.3, spring_force * 1.3)
@@ -202,6 +234,61 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if grounded_wheels > 1:
 		var roll_rate := state.angular_velocity.dot(forward)
 		state.apply_torque(-forward * roll_rate * 850.0)
+	prev_linear_velocity = state.linear_velocity
+	prev_angular_velocity = state.angular_velocity
+
+## A missing wheel leaves its hub dragging along the ground.
+func _scrape(state: PhysicsDirectBodyState3D, origin: Vector3, up: Vector3) -> void:
+	var query := PhysicsRayQueryParameters3D.create(origin, origin - up * 0.75)
+	query.exclude = [get_rid()]
+	var hit := state.get_space_state().intersect_ray(query)
+	if hit.is_empty():
+		return
+	var offset: Vector3 = hit.position - state.transform.origin
+	var velocity := state.linear_velocity + state.angular_velocity.cross(offset)
+	var slide: Vector3 = velocity.slide(hit.normal)
+	# Weak support stops the hub sinking through; strong friction drags that corner back.
+	var depth: float = 0.75 - origin.distance_to(hit.position)
+	state.apply_force(hit.normal * clampf(depth * 9000.0 - velocity.dot(hit.normal) * 900.0, 0.0, 5000.0), offset)
+	state.apply_force(-slide.limit_length(12.0) * 520.0, offset)
+
+func _detect_impacts(state: PhysicsDirectBodyState3D) -> void:
+	# One collision reports several contact points and may bounce for a few frames;
+	# count each object once until it has been clear of the car for a moment.
+	sim_time += state.step
+	var time := sim_time
+	var to_local := state.transform.affine_inverse()
+	for c in state.get_contact_count():
+		var id := state.get_contact_collider_id(c)
+		var recent: bool = touching.has(id) and time - float(touching[id]) < 0.35
+		touching[id] = time
+		if recent:
+			continue
+		# Contact positions and normals are reported in global space.
+		var point := state.get_contact_local_position(c)
+		var normal := state.get_contact_local_normal(c)
+		var r := point - state.transform.origin
+		var closing := absf((prev_linear_velocity + prev_angular_velocity.cross(r)).dot(normal))
+		if normal.dot(Vector3.UP) > 0.7 and state.transform.basis.y.dot(Vector3.UP) > 0.3:
+			# Ground under the floor: only a hard landing hurts.
+			damage.apply_landing(closing)
+		else:
+			damage.apply_impact(to_local * point, closing)
+	if touching.size() > 32:
+		for id in touching.keys():
+			if time - float(touching[id]) > 1.0:
+				touching.erase(id)
+
+func _on_part_broken(part: int) -> void:
+	if part == Damage.FRONT_BUMPER:
+		lamp_material.emission_enabled = false
+		lamp_material.albedo_color = Color("4a4a42")
+		for light in headlights:
+			light.visible = false
+
+func _damage_reset() -> void:
+	lamp_material.emission_enabled = true
+	lamp_material.albedo_color = Color("f8e6ae")
 
 func recover(point: Vector3, direction: Vector3) -> void:
 	var flat := Vector3(direction.x, 0.0, direction.z).normalized()
@@ -209,5 +296,7 @@ func recover(point: Vector3, direction: Vector3) -> void:
 	reset_pending = true
 
 func toggle_lights() -> void:
+	if not damage.headlights_ok():
+		return
 	for light in headlights:
 		light.visible = not light.visible

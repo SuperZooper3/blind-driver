@@ -195,5 +195,8 @@ test('application traffic keeps a connection alive even if control pongs are los
 test('validation reports the failing field without including payload contents', () => {
   assert.equal(snapshotIssue({ ...state, rotation: [0, 0, 0, 0] }), 'rotation_normalization');
   assert.equal(snapshotIssue({ ...state, speed: Infinity }), 'speed');
+  assert.equal(snapshotIssue({ ...state, damage: [1, 1, 0.5, 1, 0, 1, 1, 0.2] }), null);
+  assert.equal(snapshotIssue({ ...state, damage: [1, 1, 1] }), 'damage');
+  assert.equal(snapshotIssue({ ...state, damage: [1, 1, 1, 1, 1, 1, 1, 2] }), 'damage');
   assert.equal(graphIssue([{ ...roads[0], points: [[0, 0, 0], [0, 0, 0]] }]), 'road[0].point[1].spacing');
 });

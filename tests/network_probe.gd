@@ -14,6 +14,7 @@ var saw_braking := false
 var lan_cut := false
 var expect_lan_recovery := false
 var lan_recovered := false
+var damaged := false
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -69,6 +70,10 @@ func _tick() -> void:
 			Input.action_press("accelerate")
 		else:
 			Input.action_release("accelerate")
+		if elapsed > 2.5 and not damaged:
+			damaged = true
+			game.car.damage.set_part(game.car.damage.HOOD, 0.0)
+			game.car.damage.set_part(game.car.damage.WINDSHIELD, 0.35)
 		if elapsed > 3.0 and not streamed_fork:
 			streamed_fork = true
 			var points: PackedVector3Array = game.world.roads[1].points
@@ -93,6 +98,11 @@ func _tick() -> void:
 			var latest: Dictionary = session.snapshots.back() if not session.snapshots.is_empty() else {}
 			var follows_host: bool = not latest.is_empty() and game.car.global_position.distance_to(latest.transform.origin) < 4.0
 			var passed: bool = session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and game.car.headlights[0].visible
+			var damage = game.car.damage
+			var mirrored: bool = not damage.alive(damage.HOOD) and is_equal_approx(damage.health[damage.WINDSHIELD], 0.35) and damage.alive(damage.WHEEL_FL)
+			if not mirrored:
+				print("FAIL: navigator mirrors host car damage ", damage.health_array())
+			passed = passed and mirrored
 			if expect_lan_recovery:
 				passed = passed and lan_recovered and not session.recovering and not session.stale
 			if expect_recovery:

@@ -12,6 +12,7 @@ signal online_cancel_requested
 
 const DEFAULT_RELAY_URL := "https://blind-driver-relay.onrender.com"
 const Map = preload("res://scripts/route_map.gd")
+const Cracks = preload("res://scripts/windshield_cracks.gd")
 var ink := Color("142f2c")
 var cream := Color("f0ead5")
 var muted := Color("a6b7a3")
@@ -37,6 +38,9 @@ var resume_button: Button
 var address: LineEdit
 var blur_slider: HSlider
 var hint_label: Label
+var damage_label: Label
+var driver_cracks: Control
+var navigator_cracks: Control
 var in_menu := true
 var map_open := false
 var mode := "split"
@@ -115,6 +119,21 @@ func _build_views() -> void:
 	navigator_screen.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	navigator_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	views.add_child(navigator_screen)
+	# The same crack seen from each seat: the driver sits left, so it appears further right.
+	driver_screen.clip_contents = true
+	navigator_screen.clip_contents = true
+	driver_cracks = Cracks.new()
+	driver_cracks.origin = Vector2(0.64, 0.3)
+	driver_screen.add_child(driver_cracks)
+	navigator_cracks = Cracks.new()
+	navigator_cracks.origin = Vector2(0.4, 0.3)
+	navigator_screen.add_child(navigator_cracks)
+
+func set_windshield_crack(value: float, chase_view: bool) -> void:
+	driver_cracks.crack = value
+	navigator_cracks.crack = value
+	# The chase camera shows the 3D glass instead.
+	navigator_cracks.visible = not chase_view
 
 func _build_hud() -> void:
 	hud = Control.new()
@@ -186,6 +205,11 @@ func _build_hud() -> void:
 	hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	hint_label.position = Vector2(28, -135)
 	hud.add_child(hint_label)
+	damage_label = _label("", 13, Color("e58a6a"))
+	damage_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	damage_label.offset_top = -122
+	damage_label.offset_left = 28
+	hud.add_child(damage_label)
 
 func _build_menu() -> void:
 	menu = PanelContainer.new()

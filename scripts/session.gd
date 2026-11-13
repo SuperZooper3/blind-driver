@@ -293,7 +293,7 @@ func _process(delta: float) -> void:
 			snapshot_timer = fmod(snapshot_timer, SNAPSHOT_INTERVAL)
 			sequence += 1
 			reset_serial = car.recovery_serial
-			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible}
+			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "damage": car.damage.health_array()}
 			if online:
 				relay.send_snapshot(snapshot)
 			else:
@@ -362,9 +362,9 @@ func _interpolate(delta: float) -> void:
 	car.grounded_wheels = b.grounded
 	for light: SpotLight3D in car.headlights:
 		light.visible = b.lights
+	if b.has("damage"):
+		car.damage.set_health_array(b.damage)
 	car.wheel_spin += car.signed_speed * delta / car.WHEEL_RADIUS
 	car.steering_wheel.rotation.z = car.steering * 1.9
-	for i in car.wheel_pivots.size():
-		car.wheel_pivots[i].rotation.y = car.steering_angle() if i < 2 else 0.0
-		car.wheel_meshes[i].rotation.x = -car.wheel_spin
+	car.update_wheel_visuals()
 

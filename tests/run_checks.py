@@ -74,7 +74,7 @@ def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False):
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="blind-driver-checks-") as directory:
         temporary = Path(directory)
-        physics = subprocess.run(command("tests/drive_smoke.gd", temporary / "physics.log", "--fixed-fps", "60", "--quit-after", "1500"), capture_output=True, text=True, timeout=45)
+        physics = subprocess.run(command("tests/drive_smoke.gd", temporary / "physics.log", "--fixed-fps", "60", "--quit-after", "2600"), capture_output=True, text=True, timeout=45)
         print(physics.stdout)
         if physics.returncode or "FAIL:" in physics.stdout or "SCRIPT ERROR" in physics.stderr:
             sys.exit(physics.stderr or "Physics check failed")

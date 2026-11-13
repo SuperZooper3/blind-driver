@@ -184,6 +184,9 @@ func _process(delta: float) -> void:
 	if car.global_position.y < -35:
 		_recover()
 	ui.hint_label.text = "UPSIDE DOWN?  Press R to recover." if car.global_basis.y.dot(Vector3.UP) < 0.35 else ""
+	ui.damage_label.text = car.damage.summary() if started else ""
+	ui.set_windshield_crack(car.damage.windshield_crack(), ui.in_menu or chase_camera)
+	motor.roughness = 1.0 - car.damage.engine_scale()
 
 func _update_cameras(delta: float) -> void:
 	var car_basis := car.global_basis.orthonormalized()
@@ -244,6 +247,8 @@ func _start(value: String) -> void:
 	_close_local_navigator()
 	session.stop()
 	mode = value
+	# A new ride is a fresh car; damage otherwise lasts the whole run.
+	car.damage.reset()
 	chase_camera = mode == "solo"
 	started = true
 	car.driving_enabled = true
@@ -265,6 +270,7 @@ func _recover() -> void:
 
 func _host(bind_address: String = "*") -> void:
 	_close_local_navigator()
+	car.damage.reset()
 	mode = "host"
 	ui.set_mode(mode)
 	if session.host(bind_address) != OK:
@@ -282,6 +288,7 @@ func _host(bind_address: String = "*") -> void:
 
 func _join(address: String) -> void:
 	_close_local_navigator()
+	car.damage.reset()
 	mode = "join"
 	ui.set_mode(mode)
 	if session.join(address) != OK:
@@ -355,6 +362,7 @@ func _exit_tree() -> void:
 
 func _host_online(address: String) -> void:
 	_close_local_navigator()
+	car.damage.reset()
 	mode = "host"
 	ui.set_mode(mode)
 	car.driving_enabled = false
@@ -364,6 +372,7 @@ func _host_online(address: String) -> void:
 
 func _join_online(address: String, code: String) -> void:
 	_close_local_navigator()
+	car.damage.reset()
 	mode = "join"
 	ui.set_mode(mode)
 	car.driving_enabled = false
