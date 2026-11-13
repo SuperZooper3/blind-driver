@@ -23,10 +23,10 @@ func _run() -> void:
 	var world = game.world
 	var car = game.car
 	var ui = game.ui
-	check(ui.map_panel.position.y == ui.root.size.y - 158 and ui.map_panel.size.y == ui.root.size.y, "folded map exposes only the top of the full-size sheet")
+	check(ui.map_panel.position.y == ui.root.size.y - ui.FOOTER_HEIGHT - 64 and ui.map_panel.size.y == ui.root.size.y, "folded map exposes only the top of the full-size sheet")
 	ui.toggle_map()
 	await frames(12)
-	check(ui.map_panel.position.y > 0 and ui.map_panel.position.y < ui.root.size.y - 158, "map slides through intermediate positions")
+	check(ui.map_panel.position.y > 0 and ui.map_panel.position.y < ui.root.size.y - ui.FOOTER_HEIGHT - 64, "map slides through intermediate positions")
 	await frames(30)
 	check(ui.map_panel.position == Vector2.ZERO and ui.map_panel.size == ui.root.size, "open navigator map covers the full screen")
 	ui.set_mode("split")

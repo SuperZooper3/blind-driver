@@ -72,9 +72,35 @@ def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False, haza
         stop(host)
 
 
+def run_named_pair(temporary, relay_url):
+    """Navigator arrives first, then both enter only an agreed name (no exchanged code)."""
+    host = client = None
+    extra = ["--relay-url=" + relay_url, "--lobby-name=integration-friends", "--probe-duration=14"]
+    client_path = temporary / "named-client-output.txt"
+    host_path = temporary / "named-host-output.txt"
+    try:
+        with client_path.open("w+") as client_output, host_path.open("w+") as host_output:
+            client = subprocess.Popen(command("tests/network_probe.gd", temporary / "named-client.log", "--", "--probe-join", "--cut-before-driver", *extra), stdout=client_output, stderr=subprocess.STDOUT)
+            wait_output(client, client_path, "WAITING_RECONNECT")
+            host = subprocess.Popen(command("tests/network_probe.gd", temporary / "named-host.log", "--", "--probe-host", *extra), stdout=host_output, stderr=subprocess.STDOUT)
+            client.wait(timeout=25)
+            host.wait(timeout=20)
+        outputs = client_path.read_text() + host_path.read_text()
+        print("[named lobby]", re.sub(r"ROOM_READY=[A-F0-9]+", "ROOM_READY=(test room)", outputs))
+        if client.returncode or host.returncode or "FAIL:" in outputs or "SCRIPT ERROR" in outputs:
+            raise RuntimeError("Named lobby integration failed")
+    finally:
+        stop(client)
+        stop(host)
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="blind-driver-checks-") as directory:
         temporary = Path(directory)
+        lobby_ui = subprocess.run(command("tests/lobby_ui_smoke.gd", temporary / "lobby-ui.log"), capture_output=True, text=True, timeout=15)
+        print(lobby_ui.stdout)
+        if lobby_ui.returncode or "FAIL:" in lobby_ui.stdout or "SCRIPT ERROR" in lobby_ui.stderr:
+            sys.exit(lobby_ui.stderr or "Lobby UI check failed")
         physics = subprocess.run(command("tests/drive_smoke.gd", temporary / "physics.log", "--fixed-fps", "60", "--quit-after", "1500"), capture_output=True, text=True, timeout=45)
         print(physics.stdout)
         if physics.returncode or "FAIL:" in physics.stdout or "SCRIPT ERROR" in physics.stderr:
@@ -102,6 +128,7 @@ if __name__ == "__main__":
                     port = wait_output(relay, relay_output, r"listening on 127\.0\.0\.1:(\d+)").group(1)
                     run_pair(temporary, f"ws://127.0.0.1:{port}/ws", "--resilience" in sys.argv)
                     if "--resilience" not in sys.argv:
+                        run_named_pair(temporary, f"ws://127.0.0.1:{port}/ws")
                         run_pair(temporary, f"ws://127.0.0.1:{port}/ws", hazards=True)
                     if "--resilience" in sys.argv:
                         print("[faults]", "\n".join(line for line in relay_output.read_text().splitlines() if "FAULT:" in line))
