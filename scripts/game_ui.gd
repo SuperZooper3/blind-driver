@@ -2,6 +2,7 @@ extends CanvasLayer
 
 signal play_requested(mode: String)
 signal resume_requested
+signal restart_requested
 signal recover_requested
 signal connect_requested(address: String)
 signal host_requested
@@ -24,6 +25,7 @@ var menu: PanelContainer
 var hud: Control
 var map: Control
 var map_panel: PanelContainer
+var map_clip: Control
 var speed_label: Label
 var distance_label: Label
 var surface_label: Label
@@ -39,6 +41,12 @@ var blur_slider: HSlider
 var hint_label: Label
 var in_menu := true
 var map_open := false
+var map_reveal := 0.0
+var map_tween: Tween
+var result_panel: PanelContainer
+var result_title: Label
+var result_detail: Label
+var restart_button: Button
 var mode := "split"
 var online_panel: PanelContainer
 var relay_address: LineEdit
@@ -58,6 +66,7 @@ var diagnostic_timer := 0.0
 func _ready() -> void:
 	root = Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.clip_contents = true
 	add_child(root)
 	var theme := Theme.new()
 	theme.default_font_size = 16
@@ -77,6 +86,7 @@ func _ready() -> void:
 	_build_menu()
 	_build_online_menu()
 	_build_diagnostics()
+	_build_run_result()
 	root.resized.connect(_layout)
 	_layout()
 
@@ -178,9 +188,14 @@ func _build_hud() -> void:
 	route_box.add_child(route_distance)
 	map_panel = PanelContainer.new()
 	map_panel.add_theme_stylebox_override("panel", _style(Color("bcb998"), 5))
-	hud.add_child(map_panel)
+	map_clip = Control.new()
+	map_clip.clip_contents = true
+	map_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map_clip.z_index = 10
+	hud.add_child(map_clip)
+	map_clip.add_child(map_panel)
 	map = Map.new()
-	map.custom_minimum_size = Vector2(260, 190)
+	map.custom_minimum_size = Vector2(0, 0)
 	map_panel.add_child(map)
 	hint_label = _label("", 16, amber)
 	hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
@@ -390,13 +405,42 @@ func _layout() -> void:
 	var route_panel := hud.get_node("RouteCard") as PanelContainer
 	route_panel.position = Vector2(width - 340, 98)
 	route_panel.size = Vector2(312, 98)
-	if map_open:
-		map_panel.position = Vector2(width * 0.5 + 16 if mode == "split" else 16, 210)
-		map_panel.size = Vector2(width * 0.5 - 32 if mode == "split" else width - 32, height - 320)
-	else:
-		map_panel.position = Vector2(width - 312, height - 338)
-		map_panel.size = Vector2(284, 216)
-	map.large = map_open
+	_place_map(map_reveal)
+	if result_panel != null:
+		result_panel.position = Vector2(maxf(12, (width - 440) / 2), maxf(20, (height - 230) / 2))
+		result_panel.size = Vector2(minf(440, width - 24), 0)
+
+func _place_map(value: float) -> void:
+	map_reveal = value
+	var start_x := root.size.x * 0.5 if mode == "split" else 0.0
+	map_panel.position = Vector2(start_x, lerpf(root.size.y - 158.0, 0.0, value))
+	map_panel.size = Vector2(root.size.x - start_x, root.size.y)
+	map_clip.size = Vector2(root.size.x, lerpf(root.size.y - 94.0, root.size.y, value))
+	map.unfolded = map_open
+
+func _build_run_result() -> void:
+	result_panel = PanelContainer.new()
+	result_panel.z_index = 30
+	result_panel.add_theme_stylebox_override("panel", _style(ink, 12, amber))
+	root.add_child(result_panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 16)
+	result_panel.add_child(box)
+	result_title = _label("GAME OVER", 36, amber)
+	box.add_child(result_title)
+	result_detail = _label("", 18)
+	result_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(result_detail)
+	restart_button = _button("Drive again / R", func(): restart_requested.emit())
+	box.add_child(restart_button)
+	result_panel.hide()
+
+func show_run_result(state: String, reason: String, distance: float, navigator: bool) -> void:
+	result_panel.visible = state == "game_over" and not in_menu
+	if state != "game_over":
+		return
+	result_detail.text = "%s.\nYou made it %.2f km.%s" % [reason, distance / 1000.0, "\nWaiting for the driver to restart." if navigator else ""]
+	restart_button.visible = not navigator
 
 func set_mode(value: String) -> void:
 	mode = value
@@ -432,5 +476,16 @@ func show_menu(value: bool, can_resume: bool = true) -> void:
 		status_label.text = current_status
 
 func toggle_map() -> void:
+	if mode == "host" or in_menu:
+		return
 	map_open = not map_open
-	_layout()
+	if map_tween != null:
+		map_tween.kill()
+	map_tween = create_tween()
+	map_tween.tween_method(_place_map, map_reveal, 1.0 if map_open else 0.0, 0.38).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+
+func close_map() -> void:
+	map_open = false
+	if map_tween != null:
+		map_tween.kill()
+	_place_map(0.0)

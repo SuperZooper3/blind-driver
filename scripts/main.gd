@@ -51,6 +51,7 @@ func _ready() -> void:
 	ui.play_requested.connect(_start)
 	ui.resume_requested.connect(_resume)
 	ui.recover_requested.connect(_recover)
+	ui.restart_requested.connect(_restart_run)
 	ui.host_requested.connect(_host)
 	ui.connect_requested.connect(_join)
 	ui.online_create_requested.connect(_host_online)
@@ -159,7 +160,7 @@ func _process(delta: float) -> void:
 	world.focus = car.global_position
 	_update_cameras(delta)
 	motor.enabled = started and not audio_muted and not ui.in_menu
-	if ui.in_menu or (session.online and not session.can_drive()):
+	if ui.in_menu or car.run_state != "driving" or (session.online and not session.can_drive()):
 		car.driving_enabled = false
 	if local_navigator_pid > 0:
 		_local_navigator_running()
@@ -180,10 +181,37 @@ func _process(delta: float) -> void:
 	if route_timer > 0.25:
 		route_timer = 0.0
 		_update_route()
-		car.on_road = world.road_distance(car.global_position) < 4.6
-	if car.global_position.y < -35:
-		_recover()
-	ui.hint_label.text = "UPSIDE DOWN?  Press R to recover." if car.global_basis.y.dot(Vector3.UP) < 0.35 else ""
+		if not car.remote:
+			car.on_road = world.road_distance(car.global_position) < 4.6
+	ui.show_run_result(car.run_state, car.crash_reason, car.distance_driven, mode == "join")
+	ui.hint_label.text = "UPSIDE DOWN?  Press R to recover." if car.run_state == "driving" and car.global_basis.y.dot(Vector3.UP) < 0.35 else ""
+
+func _physics_process(_delta: float) -> void:
+	if not started or car.remote or car.reset_pending or car.recovery_grace > 0:
+		return
+	var hole: Dictionary = world.void_at(car.global_position)
+	if not hole.is_empty():
+		var rim: float = hole.position.y + hole.size.y
+		if car.global_position.y < rim - 1.5:
+			car.begin_fall("The road ended at a cliff" if hole.kind == "cliff" else "You plunged into the lake")
+		if car.run_state == "falling" and (car.global_position.y < hole.position.y + 1.2 or (hole.kind == "lake" and car.global_position.y < rim - 3.0)):
+			car.finish_run()
+	if car.global_position.y < -45.0 and car.run_state != "game_over":
+		car.begin_fall("You fell into the valley")
+		car.finish_run()
+
+func _restart_run() -> void:
+	if mode == "join" or car.run_state != "game_over":
+		return
+	world.reset_world()
+	car.run_id += 1
+	car.run_state = "driving"
+	car.crash_reason = ""
+	car.distance_driven = 0.0
+	car.recover(World.ground_point(0, 12, 0.17), Vector3.FORWARD)
+	car.driving_enabled = not ui.in_menu and session.can_drive()
+	camera_initialized = false
+	ui.close_map()
 
 func _update_cameras(delta: float) -> void:
 	var car_basis := car.global_basis.orthonormalized()
@@ -194,12 +222,12 @@ func _update_cameras(delta: float) -> void:
 	var seat_basis := stable.slerp(car_basis, 0.35)
 	var driver_target := Transform3D(seat_basis, car.global_transform * Vector3(-0.43, 1.23, -0.05))
 	var nav_target := Transform3D(seat_basis, car.global_transform * Vector3(0.43, 1.23, -0.05))
-	var chase: bool = ui.in_menu or chase_camera
+	var chase: bool = ui.in_menu or chase_camera or car.run_state != "driving"
 	navigator_camera.cull_mask = 3 if chase else 1
 	if chase:
 		var offset := Vector3(5.8, 3.8, 7.0) if ui.in_menu else Vector3(0, 3.5, 7.8)
 		var target_position := car.global_position + stable * offset
-		var ground: float = World.height_at(target_position.x, target_position.z)
+		var ground: float = world.surface_height(target_position)
 		target_position.y = maxf(target_position.y, ground + 1.4)
 		nav_target = Transform3D(Basis.looking_at(car.global_position + Vector3.UP * 0.7 - target_position), target_position)
 	var weight := 1.0 - exp(-delta * (7.0 if chase else 18.0))
@@ -214,7 +242,7 @@ func _update_route() -> void:
 	var nearest: Dictionary = {}
 	var distance := INF
 	for road: Dictionary in world.roads:
-		if int(road.depth) % 2 != 0:
+		if road.danger or int(road.depth) % 2 != 0:
 			continue
 		var end: Vector3 = road.points[-1]
 		var relative := end - car.global_position
@@ -228,14 +256,9 @@ func _update_route() -> void:
 		ui.route_label.text = "Follow the road"
 		ui.route_distance.text = "The next fork is still ahead."
 		return
-	var left: bool = int(nearest.id) % 2 == 0
-	ui.route_label.text = "↖  Take the left fork" if left else "Take the right fork  ↗"
-	ui.route_distance.text = "%d m to junction   /   M to unfold map" % (roundi(distance / 5.0) * 5)
-	var children: Array[Dictionary] = []
-	for road: Dictionary in world.roads:
-		if int(road.parent) == int(nearest.id) and int(road.depth) > int(nearest.depth):
-			children.append(road)
-	ui.map.route_id = int(children[0 if left else 1].id) if children.size() >= 2 else -1
+	# Directions require consulting the sheet; the card never gives the answer away.
+	ui.route_label.text = "Fork ahead / check map"
+	ui.route_distance.text = "%d m   /   X marks a collapsed road" % (roundi(distance / 5.0) * 5)
 
 func _start(value: String) -> void:
 	if value == "local_windows":
@@ -246,7 +269,9 @@ func _start(value: String) -> void:
 	mode = value
 	chase_camera = mode == "solo"
 	started = true
-	car.driving_enabled = true
+	if car.run_state == "game_over":
+		_restart_run()
+	car.driving_enabled = car.run_state == "driving"
 	ui.set_mode(mode)
 	ui.show_menu(false)
 	_resize_views()
@@ -257,9 +282,9 @@ func _resume() -> void:
 	_resize_views()
 
 func _recover() -> void:
-	if mode == "join":
+	if mode == "join" or car.run_state != "driving" or not world.void_at(car.global_position).is_empty():
 		return
-	var road: Dictionary = world.nearest_road(car.global_position)
+	var road: Dictionary = world.recovery_spot(car.global_position)
 	car.recover(road.point, road.direction)
 	camera_initialized = false
 
@@ -409,7 +434,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("camera"):
 		chase_camera = not chase_camera
 	if event.is_action_pressed("recover"):
-		_recover()
+		if car.run_state == "game_over":
+			_restart_run()
+		else:
+			_recover()
 	if event.is_action_pressed("lights") and mode != "join":
 		car.toggle_lights()
 	if event.is_action_pressed("mute"):

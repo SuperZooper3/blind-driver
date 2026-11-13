@@ -281,7 +281,7 @@ func _process(delta: float) -> void:
 		var buffered: int = relay.buffered_bytes() if online else peer.get_peer(navigator_id).get_current_outbound_buffered_amount()
 		if buffered > 32768:
 			return
-		if world.graph_revision != last_graph_revision and graph_timer > 0.25:
+		if world.graph_revision != last_graph_revision and (graph_timer > 0.25 or car.recovery_grace > 0):
 			graph_timer = 0.0
 			if online:
 				if relay.send_graph(world.export_graph()):
@@ -289,11 +289,17 @@ func _process(delta: float) -> void:
 			else:
 				_receive_graph.rpc_id(navigator_id, world.export_graph())
 				last_graph_revision = world.graph_revision
+		# A restart/recovery must never publish the new run with the old pose or graph.
+		if car.reset_pending or car.recovery_grace > 0 or world.graph_revision != last_graph_revision:
+			return
 		if snapshot_timer >= SNAPSHOT_INTERVAL:
 			snapshot_timer = fmod(snapshot_timer, SNAPSHOT_INTERVAL)
 			sequence += 1
 			reset_serial = car.recovery_serial
-			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible}
+			var wheels: Array = []
+			for wheel: Node3D in car.wheel_pivots:
+				wheels.append(wheel.position.y)
+			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength}
 			if online:
 				relay.send_snapshot(snapshot)
 			else:
@@ -360,11 +366,19 @@ func _interpolate(delta: float) -> void:
 	car.throttle = b.throttle
 	car.distance_driven = b.distance
 	car.grounded_wheels = b.grounded
+	car.linear_velocity = b.velocity
+	car.angular_velocity = b.angular_velocity
+	car.run_state = b.run_state
+	car.crash_reason = b.crash_reason
+	car.run_id = b.run_id
+	car.on_road = b.on_road
+	car.impact_strength = b.impact
 	for light: SpotLight3D in car.headlights:
 		light.visible = b.lights
 	car.wheel_spin += car.signed_speed * delta / car.WHEEL_RADIUS
 	car.steering_wheel.rotation.z = car.steering * 1.9
 	for i in car.wheel_pivots.size():
+		car.wheel_pivots[i].position.y = lerpf(a.wheels[i], b.wheels[i], weight)
 		car.wheel_pivots[i].rotation.y = car.steering_angle() if i < 2 else 0.0
 		car.wheel_meshes[i].rotation.x = -car.wheel_spin
 

@@ -11,10 +11,10 @@ button.onclick=async()=>{
  button.disabled=true;events=[];let sent=0,missed=0,ready=false,finished=false,start=0,last=0,maxGap=0;const pending=new Map(),rtts=[];
  function report(done=false){const sorted=[...rtts].sort((a,b)=>a-b), p=q=>sorted[Math.max(0,Math.ceil(sorted.length*q)-1)]?.toFixed(0)??'—';const elapsed=start?(performance.now()-start)/1000:0;output.textContent=`${done?'Finished':ready?'Checking':'Connecting'} · ${Math.min(75,elapsed).toFixed(0)} / 75 s\nReplies: ${rtts.length} / ${sent} · missed: ${missed}\nRTT median: ${p(.5)} ms · p95: ${p(.95)} ms\nLargest browser timer gap: ${maxGap.toFixed(0)} ms\n${done?(missed||rtts.length<60?'Interrupted or insufficient samples. Review saved events.':sorted.at(-1)>500?'No missed replies; high latency observed.':'No interruption observed during this check.'):''}`;}
  function finish(reason){if(finished)return;finished=true;clearInterval(timer);missed+=pending.size;pending.clear();record('finished',{reason,sent,replies:rtts.length,missed,max_timer_gap_ms:maxGap});report(true);output.textContent+='\n'+reason;socket?.close(1000,'Check complete');button.disabled=false;}
- try{const response=await fetch('/healthz',{signal:AbortSignal.timeout(90000)});const health=await response.json();record('health',health);if(!response.ok||health.protocol!==2)throw Error('Update the server to protocol 2.');}catch(e){record('health_failed',{message:e.message});finish('Health request failed: '+e.message);return;}
+ try{const response=await fetch('/healthz',{signal:AbortSignal.timeout(90000)});const health=await response.json();record('health',health);if(!response.ok||health.protocol!==3)throw Error('Update the server to protocol 3.');}catch(e){record('health_failed',{message:e.message});finish('Health request failed: '+e.message);return;}
  socket=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);
  const connectAt=performance.now();
- socket.onopen=()=>socket.send(JSON.stringify({type:'check',version:2}));
+ socket.onopen=()=>socket.send(JSON.stringify({type:'check',version:3}));
  socket.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch{finish('Invalid server response');return;}
   if(m.type==='check_ready'){ready=true;start=performance.now();record('check_ready',{instance:m.instance,connection:m.connection});}
   if(m.type==='pong'&&pending.has(m.id)){const rtt=performance.now()-pending.get(m.id);rtts.push(rtt);pending.delete(m.id);record('sample',{rtt_ms:Math.round(rtt)});}

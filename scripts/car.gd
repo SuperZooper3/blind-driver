@@ -7,8 +7,8 @@ const SPRING_LENGTH := 0.62
 const WHEEL_RADIUS := 0.36
 const SPRING_STRENGTH := 28000.0
 const SPRING_DAMPING := 3800.0
-const ENGINE_FORCE := 7800.0
-const MAX_SPEED := 29.0
+const ENGINE_FORCE := 11500.0
+const MAX_SPEED := 44.0
 var suspension_points := [Vector3(-0.88, 0.0, -1.3), Vector3(0.88, 0.0, -1.3), Vector3(-0.88, 0.0, 1.25), Vector3(0.88, 0.0, 1.25)]
 var wheel_pivots: Array[Node3D] = []
 var wheel_meshes: Array[Node3D] = []
@@ -16,6 +16,9 @@ var steering := 0.0
 var throttle := 0.0
 var brake_input := 0.0
 var handbrake := false
+var run_state := "driving"
+var crash_reason := ""
+var run_id := 0
 var driving_enabled := false
 var remote := false
 var on_road := true
@@ -25,6 +28,7 @@ var distance_driven := 0.0
 var wheel_spin := 0.0
 var reset_transform := Transform3D.IDENTITY
 var reset_pending := false
+var recovery_grace := 0
 var recovery_serial := 0
 var impact_strength := 0.0
 var steering_wheel: Node3D
@@ -34,7 +38,8 @@ func _ready() -> void:
 	mass = 1050.0
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = Vector3(0, -0.26, 0.12)
-	linear_damp = 0.05
+	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	linear_damp = 0.02
 	angular_damp = 1.5
 	continuous_cd = true
 	can_sleep = false
@@ -51,7 +56,8 @@ func _ready() -> void:
 	shape.position.y = 0.1
 	add_child(shape)
 	_build_model()
-	body_entered.connect(func(_body: Node): impact_strength = clampf(linear_velocity.length() / 12.0, 0.0, 1.0))
+	body_entered.connect(func(_body: Node):
+		impact_strength = clampf(linear_velocity.length() / 12.0, 0.0, 1.0))
 
 func _build_model() -> void:
 	var paint := Geo.material(Color("d3924b"))
@@ -117,12 +123,15 @@ func _build_model() -> void:
 		headlights.append(light)
 
 func _physics_process(delta: float) -> void:
+	recovery_grace = maxi(0, recovery_grace - 1)
 	if remote:
 		return
 	var steer_target := 0.0
 	throttle = 0.0
 	brake_input = 0.0
 	handbrake = false
+	if run_state != "driving":
+		driving_enabled = false
 	if driving_enabled:
 		steer_target = Input.get_axis("steer_right", "steer_left")
 		var forward := Input.get_action_strength("accelerate")
@@ -137,8 +146,9 @@ func _physics_process(delta: float) -> void:
 	else:
 		brake_input = 1.0
 	steering = move_toward(steering, steer_target, delta * (3.6 if steer_target != 0.0 else 5.2))
+	angular_damp = 0.45 if grounded_wheels == 0 else 1.5
 	signed_speed = linear_velocity.dot(-global_basis.z)
-	distance_driven += linear_velocity.length() * delta if driving_enabled else 0.0
+	distance_driven += Vector2(linear_velocity.x, linear_velocity.z).length() * delta if driving_enabled and grounded_wheels > 0 and recovery_grace == 0 and not reset_pending else 0.0
 	impact_strength = move_toward(impact_strength, 0.0, delta * 2.0)
 	wheel_spin += signed_speed * delta / WHEEL_RADIUS
 	steering_wheel.rotation.z = steering * 1.9
@@ -203,10 +213,27 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var roll_rate := state.angular_velocity.dot(forward)
 		state.apply_torque(-forward * roll_rate * 850.0)
 
+func begin_fall(reason: String) -> void:
+	if remote or run_state != "driving":
+		return
+	run_state = "falling"
+	crash_reason = reason
+	driving_enabled = false
+
+func finish_run() -> void:
+	if remote:
+		return
+	run_state = "game_over"
+	driving_enabled = false
+	impact_strength = 1.0
+
 func recover(point: Vector3, direction: Vector3) -> void:
+	if run_state != "driving":
+		return
 	var flat := Vector3(direction.x, 0.0, direction.z).normalized()
 	reset_transform = Transform3D(Basis.looking_at(flat), point + Vector3.UP * 1.05)
 	reset_pending = true
+	recovery_grace = 3
 
 func toggle_lights() -> void:
 	for light in headlights:

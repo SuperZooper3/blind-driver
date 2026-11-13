@@ -35,8 +35,8 @@ async function setup(t, options = {}) {
   return { connect, port: address.port };
 }
 
-const state = { seq: 1, time: 1.2, position: [0, 1, 2], rotation: [0, 0, 0, 1], velocity: [0, 0, -5], speed: 5, steering: 0.2, throttle: 1, distance: 10, grounded: 4, reset: 0, lights: false };
-const roads = [{ id: 0, parent: 0, depth: 0, heading: 0, expanded: false, points: [[0, 0, 0], [0, 0, -5]] }];
+const state = { seq: 1, time: 1.2, position: [0, 1, 2], rotation: [0, 0, 0, 1], velocity: [0, 0, -5], speed: 5, steering: 0.2, throttle: 1, distance: 10, grounded: 4, reset: 0, lights: false, angular_velocity: [0, 0, 0], wheels: [-0.4, -0.4, -0.4, -0.4], run_state: 'driving', crash_reason: '', run_id: 0, on_road: true, impact: 0 };
+const roads = [{ id: 0, parent: 0, depth: 0, heading: 0, expanded: false, danger: false, hazards: [], points: [[0, 0, 0], [0, 0, -5]] }];
 
 test('health endpoint works on the same port as WebSocket', async t => {
   const { port } = await setup(t);
@@ -44,7 +44,7 @@ test('health endpoint works on the same port as WebSocket', async t => {
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.ok, true);
-  assert.equal(health.protocol, 2);
+  assert.equal(health.protocol, 3);
   assert.ok(health.instance);
   assert.equal((await fetch(`http://127.0.0.1:${port}/diagnostics`)).status, 200);
 });
@@ -52,11 +52,11 @@ test('health endpoint works on the same port as WebSocket', async t => {
 test('two seats relay state, reject a third, allow navigator rejoin, and close with driver', async t => {
   const { connect } = await setup(t);
   const driver = await connect();
-  driver.send({ type: 'create', version: 2 });
+  driver.send({ type: 'create', version: 3 });
   const created = await driver.next();
   assert.match(created.room, /^[A-F0-9]{18}$/);
   const navigator = await connect();
-  navigator.send({ type: 'join', version: 2, room: created.room });
+  navigator.send({ type: 'join', version: 3, room: created.room });
   assert.equal((await navigator.next()).type, 'joined');
   assert.equal((await driver.next()).type, 'navigator_joined');
   driver.send({ type: 'graph', roads });
@@ -66,11 +66,11 @@ test('two seats relay state, reject a third, allow navigator rejoin, and close w
   navigator.send({ type: 'snapshot', state });
   assert.equal((await navigator.next()).code, 'not_driver');
   const third = await connect();
-  third.send({ type: 'join', version: 2, room: created.room });
+  third.send({ type: 'join', version: 3, room: created.room });
   assert.equal((await third.next()).code, 'full');
   navigator.send({ type: 'leave' });
   assert.equal((await driver.next()).type, 'navigator_left');
-  third.send({ type: 'join', version: 2, room: created.room });
+  third.send({ type: 'join', version: 3, room: created.room });
   assert.equal((await third.next()).type, 'joined');
   assert.equal((await driver.next()).type, 'navigator_joined');
   driver.send({ type: 'leave' });
@@ -81,13 +81,13 @@ test('rooms are isolated and malformed state is rejected', async t => {
   const { connect } = await setup(t);
   const first = await connect();
   const second = await connect();
-  first.send({ type: 'create', version: 2 });
-  second.send({ type: 'create', version: 2 });
+  first.send({ type: 'create', version: 3 });
+  second.send({ type: 'create', version: 3 });
   const one = await first.next();
   const two = await second.next();
   assert.notEqual(one.room, two.room);
   const navigator = await connect();
-  navigator.send({ type: 'join', version: 2, room: two.room });
+  navigator.send({ type: 'join', version: 3, room: two.room });
   await navigator.next();
   await second.next();
   first.send({ type: 'snapshot', state: { ...state, seq: 99 } });
@@ -103,12 +103,12 @@ test('version, unknown rooms, capacity, and message rate limits', async t => {
   const client = await connect();
   client.send({ type: 'create', version: 999 });
   assert.equal((await client.next()).code, 'version');
-  client.send({ type: 'join', version: 2, room: '000000000000000000' });
+  client.send({ type: 'join', version: 3, room: '000000000000000000' });
   assert.equal((await client.next()).code, 'not_found');
-  client.send({ type: 'create', version: 2 });
+  client.send({ type: 'create', version: 3 });
   assert.equal((await client.next()).type, 'created');
   const second = await connect();
-  second.send({ type: 'create', version: 2 });
+  second.send({ type: 'create', version: 3 });
   assert.equal((await second.next()).code, 'capacity');
   const closed = once(client.socket, 'close');
   for (let i = 0; i < 110; i++) client.send({ type: 'snapshot', state });
@@ -122,7 +122,7 @@ test('degenerate roads and oversized snapshots cannot be forwarded', async t => 
     { type: 'snapshot', state, padding: 'x'.repeat(4096) },
   ]) {
     const driver = await connect();
-    driver.send({ type: 'create', version: 2 });
+    driver.send({ type: 'create', version: 3 });
     await driver.next();
     const closed = once(driver.socket, 'close');
     driver.send(message);
@@ -133,23 +133,23 @@ test('degenerate roads and oversized snapshots cannot be forwarded', async t => 
 test('both seats resume after transport loss, protect tokens, and replace stale sockets safely', async t => {
   const logs = [];
   const { connect } = await setup(t, { logger: entry => logs.push(entry) });
-  const driver = await connect(); driver.send({ type: 'create', version: 2 });
+  const driver = await connect(); driver.send({ type: 'create', version: 3 });
   const created = await driver.next();
-  const nav = await connect(); nav.send({ type: 'join', version: 2, room: created.room });
+  const nav = await connect(); nav.send({ type: 'join', version: 3, room: created.room });
   const joined = await nav.next(); await driver.next();
   driver.socket.terminate();
   assert.equal((await nav.next()).type, 'peer_reconnecting');
   const replacement = await connect();
-  replacement.send({ type: 'resume', version: 2, room: created.room, role: 'driver', token: '0'.repeat(64) });
+  replacement.send({ type: 'resume', version: 3, room: created.room, role: 'driver', token: '0'.repeat(64) });
   assert.equal((await replacement.next()).code, 'resume_expired');
-  replacement.send({ type: 'resume', version: 2, room: created.room, role: 'driver', token: created.token });
+  replacement.send({ type: 'resume', version: 3, room: created.room, role: 'driver', token: created.token });
   assert.equal((await replacement.next()).peer_connected, true);
   assert.equal((await nav.next()).type, 'peer_restored');
   replacement.send({ type: 'snapshot', state });
   assert.equal((await nav.next()).state.seq, 1);
   const nav2 = await connect();
   const oldClosed = once(nav.socket, 'close');
-  nav2.send({ type: 'resume', version: 2, room: created.room, role: 'navigator', token: joined.token });
+  nav2.send({ type: 'resume', version: 3, room: created.room, role: 'navigator', token: joined.token });
   assert.equal((await nav2.next()).type, 'resumed');
   assert.equal((await replacement.next()).type, 'navigator_joined');
   assert.equal((await oldClosed)[0], 4001);
@@ -162,14 +162,14 @@ test('both seats resume after transport loss, protect tokens, and replace stale 
 
 test('reservation expires and diagnostic connections echo without occupying rooms', async t => {
   const { connect } = await setup(t, { reconnectGrace: 60, heartbeatInterval: 20, heartbeatTimeout: 1000 });
-  const driver = await connect(); driver.send({ type: 'create', version: 2 }); const created = await driver.next();
-  const nav = await connect(); nav.send({ type: 'join', version: 2, room: created.room }); await nav.next(); await driver.next();
+  const driver = await connect(); driver.send({ type: 'create', version: 3 }); const created = await driver.next();
+  const nav = await connect(); nav.send({ type: 'join', version: 3, room: created.room }); await nav.next(); await driver.next();
   nav.socket.terminate(); assert.equal((await driver.next()).type, 'peer_reconnecting');
   assert.equal((await driver.next()).type, 'navigator_left');
-  const check = await connect(); check.send({ type: 'check', version: 2 });
+  const check = await connect(); check.send({ type: 'check', version: 3 });
   assert.equal((await check.next()).type, 'check_ready');
   check.send({ type: 'ping', id: 42 }); assert.deepEqual(await check.next(), { type: 'pong', id: 42 });
-  const nav2 = await connect(); nav2.send({ type: 'join', version: 2, room: created.room });
+  const nav2 = await connect(); nav2.send({ type: 'join', version: 3, room: created.room });
   assert.equal((await nav2.next()).type, 'joined'); await driver.next();
   driver.socket.terminate(); assert.equal((await nav2.next()).type, 'peer_reconnecting');
   assert.equal((await nav2.next()).type, 'room_closed');
@@ -180,7 +180,7 @@ test('application traffic keeps a connection alive even if control pongs are los
   const { port } = await setup(t, { heartbeatInterval: 20, heartbeatTimeout: 150, logger: x => logs.push(x) });
   const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { autoPong: false });
   await once(socket, 'open');
-  socket.send(JSON.stringify({ type: 'check', version: 2 }));
+  socket.send(JSON.stringify({ type: 'check', version: 3 }));
   let id = 0;
   const timer = setInterval(() => socket.send(JSON.stringify({ type: 'ping', id: ++id })), 30);
   t.after(() => { clearInterval(timer); socket.terminate(); });
@@ -196,4 +196,26 @@ test('validation reports the failing field without including payload contents', 
   assert.equal(snapshotIssue({ ...state, rotation: [0, 0, 0, 0] }), 'rotation_normalization');
   assert.equal(snapshotIssue({ ...state, speed: Infinity }), 'speed');
   assert.equal(graphIssue([{ ...roads[0], points: [[0, 0, 0], [0, 0, 0]] }]), 'road[0].point[1].spacing');
+});
+
+
+test('survival state and physical hazards are validated and forwarded intact', async t => {
+  const { connect } = await setup(t);
+  const driver = await connect();
+  driver.send({ type: 'create', version: 3 });
+  const created = await driver.next();
+  const navigator = await connect();
+  navigator.send({ type: 'join', version: 3, room: created.room });
+  await navigator.next(); await driver.next();
+  const cliff = [{ ...roads[0], danger: true, hazards: [{ kind: 'cliff', position: [48, -24, -96], size: [48, 24, 48], yaw: 0 }] }];
+  driver.send({ type: 'graph', roads: cliff });
+  assert.deepEqual((await navigator.next()).roads, cliff);
+  const ended = { ...state, run_state: 'game_over', crash_reason: 'The road ended at a cliff', distance: 1234 };
+  driver.send({ type: 'snapshot', state: ended });
+  assert.deepEqual((await navigator.next()).state, ended);
+  assert.equal(snapshotIssue({ ...state, run_state: 'invalid' }), 'run_state');
+  assert.equal(snapshotIssue({ ...state, run_id: -1 }), 'run_id');
+  assert.equal(snapshotIssue({ ...state, wheels: [0] }), 'wheels');
+  assert.equal(graphIssue([{ ...cliff[0], hazards: [{ ...cliff[0].hazards[0], size: [999, 24, 48] }] }]), 'road[0].hazard_size');
+  assert.equal(graphIssue([{ ...cliff[0], hazards: [{ ...cliff[0].hazards[0], kind: 'unknown' }] }]), 'road[0].hazard_kind');
 });
