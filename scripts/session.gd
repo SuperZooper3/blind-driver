@@ -17,6 +17,7 @@ const SNAPSHOT_INTERVAL := 1.0 / 30.0
 const Relay = preload("res://scripts/relay_client.gd")
 var car: RigidBody3D
 var world: Node3D
+var police: Node3D
 var peer: WebSocketMultiplayerPeer
 var role := "local"
 var navigator_id := 0
@@ -309,7 +310,7 @@ func _process(delta: float) -> void:
 			var wheels: Array = []
 			for wheel: Node3D in car.wheel_pivots:
 				wheels.append(wheel.position.y)
-			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength, "tires": car.punctured_tires}
+			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength, "tires": car.punctured_tires, "police": police.snapshot()}
 			if online:
 				relay.send_snapshot(snapshot)
 			else:
@@ -385,6 +386,7 @@ func _interpolate(delta: float) -> void:
 	car.impact_strength = b.impact
 	car.punctured_tires = b.tires
 	car.update_tire_visuals()
+	police.apply_snapshot(a.police, b.police, weight)
 	for light: SpotLight3D in car.headlights:
 		light.visible = b.lights
 	car.wheel_spin += car.signed_speed * delta / car.WHEEL_RADIUS

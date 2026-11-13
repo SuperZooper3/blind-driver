@@ -1,0 +1,285 @@
+extends Node3D
+## Driver-owned route pursuit. Peers interpolate its pose and share the same catch clock.
+const Geo = preload("res://scripts/geometry.gd")
+const HEAD_START := 6.0
+const START_GAP := 85.0
+const ESCAPE_GAP := 300.0
+const CATCH_SECONDS := 1.5
+var world: Node3D
+var car: RigidBody3D
+var phase := "waiting"
+var elapsed := 0.0
+var speed := 0.0
+var gap := START_GAP
+var closing_speed := 0.0
+var catch_time := 0.0
+var paused := true
+var road_id := -1
+var station := 0.0
+var lateral := 0.0
+var cache: Dictionary = {}
+var revision := -1
+var last_gap := START_GAP
+var escape_time := 0.0
+var wheels: Array[Node3D] = []
+var lamps: Array[MeshInstance3D] = []
+var beacons: Array[OmniLight3D] = []
+var wheel_spin := 0.0
+
+func _ready() -> void:
+	_build_model()
+
+func reset() -> void:
+	phase = "waiting"
+	elapsed = 0.0
+	speed = 0.0
+	gap = START_GAP
+	last_gap = gap
+	closing_speed = 0.0
+	catch_time = 0.0
+	escape_time = 0.0
+	lateral = 0.0
+	paused = true
+	cache.clear()
+	revision = -1
+	_sync_roads()
+	road_id = int(world.roads[0].id)
+	station = maxf(0.0, _project(Vector3(0, 0, 12), road_id).station - START_GAP)
+	_place(1, 1.0)
+	visible = true
+
+func _sync_roads() -> void:
+	if revision == world.graph_revision:
+		return
+	var updated := {}
+	for road: Dictionary in world.roads:
+		var lengths := PackedFloat32Array([0.0])
+		for i in range(1, road.points.size()):
+			lengths.append(lengths[-1] + Vector2(road.points[i].x - road.points[i - 1].x, road.points[i].z - road.points[i - 1].z).length())
+		var offset: float = cache.get(road.id, {}).get("offset", 0.0)
+		if updated.has(road.parent) and road.parent != road.id:
+			offset = updated[road.parent].offset + updated[road.parent].length
+		updated[road.id] = {"points": road.points, "hazards": road.hazards, "parent": road.parent, "lengths": lengths, "length": float(lengths[-1]), "offset": offset}
+	cache = updated
+	revision = world.graph_revision
+
+func _project(at: Vector3, id: int) -> Dictionary:
+	var record: Dictionary = cache[id]
+	var result := {"station": 0.0, "distance": INF}
+	var flat := Vector2(at.x, at.z)
+	for i in range(record.points.size() - 1):
+		var a := Vector2(record.points[i].x, record.points[i].z)
+		var b := Vector2(record.points[i + 1].x, record.points[i + 1].z)
+		var t := clampf((flat - a).dot(b - a) / (b - a).length_squared(), 0, 1)
+		var distance := flat.distance_to(a.lerp(b, t))
+		if distance < result.distance:
+			result = {"station": lerpf(record.lengths[i], record.lengths[i + 1], t), "distance": distance}
+	return result
+
+func _sample(id: int, at: float) -> Dictionary:
+	var record: Dictionary = cache[id]
+	at = clampf(at, 0, record.length)
+	for i in range(record.points.size() - 1):
+		if at <= record.lengths[i + 1]:
+			var t: float = (at - record.lengths[i]) / (record.lengths[i + 1] - record.lengths[i])
+			return {"point": record.points[i].lerp(record.points[i + 1], t), "direction": (record.points[i + 1] - record.points[i]).normalized()}
+	return {"point": record.points[-1], "direction": (record.points[-1] - record.points[-2]).normalized()}
+
+func _ancestors(id: int) -> Array:
+	var result: Array = []
+	while cache.has(id) and not result.has(id):
+		result.append(id)
+		id = int(cache[id].parent)
+	return result
+
+func _route_gap(target_id: int, target_station: float) -> float:
+	var own: float = cache[road_id].offset + station
+	var target: float = cache[target_id].offset + target_station
+	var ours := _ancestors(road_id)
+	var theirs := _ancestors(target_id)
+	if ours.has(target_id) or theirs.has(road_id):
+		return absf(target - own)
+	for id in ours:
+		if theirs.has(id):
+			var junction: float = cache[id].offset + cache[id].length
+			return maxf(0, own + target - junction * 2)
+	return ESCAPE_GAP + 1.0
+
+func advance(delta: float, running: bool) -> void:
+	paused = not running
+	if not running or phase in ["caught", "escaped"]:
+		closing_speed = 0.0
+		return
+	_sync_roads()
+	if not cache.has(road_id):
+		# The driver has left even the retained road graph behind: no teleporting patrol.
+		phase = "escaped"
+		visible = false
+		return
+	var nearest: Dictionary = world.nearest_road(car.global_position)
+	var target_id := int(nearest.road_id)
+	if not cache.has(target_id):
+		return
+	var target := _project(car.global_position, target_id)
+	elapsed += delta
+	gap = _route_gap(target_id, target.station) + float(target.distance)
+	if phase == "waiting":
+		last_gap = gap
+		if elapsed < HEAD_START:
+			return
+		phase = "chasing"
+	var theirs := _ancestors(target_id)
+	var direction := 1 if theirs.has(road_id) else -1
+	if road_id == target_id:
+		direction = 1 if target.station >= station else -1
+	var guidance := _guidance(direction)
+	var cruise := 25.0 + clampf(car.distance_driven / 2000.0, 0, 1) * 8.0
+	var desired_speed: float = minf(cruise, guidance.speed_limit)
+	speed = move_toward(speed, desired_speed, delta * (3.2 if desired_speed > speed else 9.0))
+	lateral = move_toward(lateral, guidance.lateral, delta * 2.0)
+	var step := minf(speed * delta, maxf(0, _route_gap(target_id, target.station) - 6.0))
+	speed = minf(speed, step / maxf(delta, 0.001))
+	station += step * direction
+	if direction > 0 and station > cache[road_id].length:
+		var child := -1
+		for id in theirs:
+			if int(cache[id].parent) == road_id and id != road_id:
+				child = id
+				break
+		if child >= 0:
+			station -= cache[road_id].length
+			road_id = child
+		else:
+			station = cache[road_id].length
+	elif direction < 0 and station < 0:
+		var parent := int(cache[road_id].parent)
+		if parent != road_id and cache.has(parent):
+			station += cache[parent].length
+			road_id = parent
+		else:
+			station = 0
+	_place(direction, 1.0 - exp(-delta * 9.0))
+	gap = _route_gap(target_id, target.station) + float(target.distance)
+	var change := last_gap - gap
+	var measured := clampf(change / maxf(delta, 0.001), -60, 60) if absf(change) < 8.0 else 0.0
+	closing_speed = lerpf(closing_speed, measured, 1.0 - exp(-delta * 2.0))
+	last_gap = gap
+	escape_time = escape_time + delta if gap > ESCAPE_GAP else 0.0
+	if escape_time >= 5.0:
+		phase = "escaped"
+		visible = false
+		return
+	# Capture requires sustained, physical proximity on the same stretch, not distance
+	# through a forest shortcut or to a car at the bottom of a ravine.
+	var nearby := global_position.distance_to(car.global_position) < 11.0 and gap < 14.0
+	catch_time = catch_time + delta if nearby else maxf(0, catch_time - delta * 2.0)
+	if catch_time >= CATCH_SECONDS:
+		phase = "caught"
+		car.finish_run("The police caught you")
+
+func _guidance(direction: int) -> Dictionary:
+	var sample := _sample(road_id, station)
+	var forward: Vector3 = sample.direction * direction
+	var side: Vector3 = sample.direction.cross(Vector3.UP).normalized()
+	var desired := 0.0
+	var speed_limit := 40.0
+	var strongest := 0.0
+	# Inspect the next road too, so a turn or an obstacle just beyond a junction is anticipated.
+	for record: Dictionary in cache.values():
+		for hazard: Dictionary in record.hazards:
+			if hazard.kind in ["cliff", "lake"]: continue
+			var relative: Vector3 = hazard.position - sample.point
+			var ahead := relative.dot(forward)
+			if ahead < -9 or ahead > 35 or absf(relative.dot(side)) > 7: continue
+			var strength := clampf((35.0 - ahead) / 22.0, 0, 1) * clampf((ahead + 9.0) / 7.0, 0, 1)
+			if hazard.kind == "bumps":
+				speed_limit = minf(speed_limit, lerpf(40, 13, strength))
+			else:
+				speed_limit = minf(speed_limit, lerpf(40, 18, strength))
+				if strength > strongest:
+					strongest = strength
+					desired = (-2.6 if relative.dot(side) >= 0 else 2.6) * strength
+	var look := _sample(road_id, station + 18 * direction)
+	if sample.direction.dot(look.direction) < 0.985:
+		speed_limit = minf(speed_limit, 20.0)
+	if cache[road_id].length - station < 16 or station < 12:
+		speed_limit = minf(speed_limit, 19.0)
+	return {"lateral": desired, "speed_limit": speed_limit}
+
+func _place(direction: int, weight: float) -> void:
+	var sample := _sample(road_id, station)
+	var side: Vector3 = sample.direction.cross(Vector3.UP).normalized()
+	var point: Vector3 = sample.point + side * lateral
+	point.y = world.height_at(point.x, point.z) + 0.78
+	global_position = point
+	global_basis = global_basis.orthonormalized().slerp(Basis.looking_at(sample.direction * direction), weight)
+
+func eta() -> float:
+	return maxf(0, gap - 11.0) / closing_speed if phase == "chasing" and not paused and closing_speed > 0.75 else -1.0
+
+func siren_gain() -> float:
+	if paused or phase not in ["waiting", "chasing"]: return 0.0
+	return pow(clampf(1.0 - global_position.distance_to(car.global_position) / 300.0, 0, 1), 2.0)
+
+func snapshot() -> Dictionary:
+	var q := global_basis.orthonormalized().get_rotation_quaternion()
+	return {"position": [global_position.x, global_position.y, global_position.z], "rotation": [q.x, q.y, q.z, q.w], "phase": phase, "elapsed": elapsed, "speed": speed, "gap": gap, "closing": closing_speed, "catch": clampf(catch_time / CATCH_SECONDS, 0, 1), "paused": paused}
+
+func apply_snapshot(a: Dictionary, b: Dictionary, weight: float) -> void:
+	var first := Transform3D(Basis(Quaternion(a.rotation[0], a.rotation[1], a.rotation[2], a.rotation[3])), Vector3(a.position[0], a.position[1], a.position[2]))
+	var second := Transform3D(Basis(Quaternion(b.rotation[0], b.rotation[1], b.rotation[2], b.rotation[3])), Vector3(b.position[0], b.position[1], b.position[2]))
+	global_transform = first.interpolate_with(second, weight)
+	phase = b.phase
+	elapsed = lerpf(a.elapsed, b.elapsed, weight)
+	speed = lerpf(a.speed, b.speed, weight)
+	gap = lerpf(a.gap, b.gap, weight)
+	closing_speed = b.closing
+	catch_time = b.catch * CATCH_SECONDS
+	paused = b.paused
+	visible = phase != "escaped"
+
+func _process(delta: float) -> void:
+	wheel_spin += speed * delta / 0.36 if not paused and phase == "chasing" else 0.0
+	for wheel in wheels: wheel.rotation.x = -wheel_spin
+	for i in lamps.size():
+		var lit := phase != "escaped" and (fmod(elapsed, 0.8) < 0.4) == (i == 0)
+		lamps[i].material_override.emission_energy_multiplier = 2.0 if lit else 0.05
+		beacons[i].light_energy = 1.5 if lit else 0.0
+
+func _build_model() -> void:
+	var white := Geo.material(Color("e5e7da"))
+	var black := Geo.material(Color("17242a"))
+	var glass := Geo.material(Color("547982"), 0.25)
+	var trim := Geo.material(Color("a9b5ac"))
+	Geo.box(self, Vector3(1.95, 0.58, 4.15), Vector3.ZERO, white)
+	Geo.box(self, Vector3(1.91, 0.24, 1.2), Vector3(0, 0.37, -1.42), black)
+	Geo.box(self, Vector3(1.88, 0.2, 0.85), Vector3(0, 0.34, 1.58), black)
+	Geo.box(self, Vector3(1.66, 0.84, 2.2), Vector3(0, 0.86, 0.18), glass)
+	Geo.box(self, Vector3(1.77, 0.14, 2.28), Vector3(0, 1.33, 0.18), black)
+	for x in [-1.0, 1.0]:
+		Geo.box(self, Vector3(0.04, 0.3, 1.65), Vector3(x, 0.16, 0.1), black)
+		var badge := Geo.sphere(self, 0.16, Vector3(x * 1.025, 0.16, 0.1), Geo.material(Color("d4be74")))
+		badge.scale.x = 0.12
+		for z in [-1.3, 1.3]:
+			var pivot := Node3D.new()
+			pivot.position = Vector3(x * 0.93, -0.35, z)
+			add_child(pivot)
+			wheels.append(pivot)
+			Geo.cylinder(pivot, 0.36, 0.25, Vector3.ZERO, black, -1, 12).rotation.z = PI / 2
+			Geo.cylinder(pivot, 0.18, 0.26, Vector3.ZERO, trim).rotation.z = PI / 2
+	for z in [-2.12, 2.12]:
+		Geo.box(self, Vector3(1.9, 0.17, 0.13), Vector3(0, -0.15, z), trim)
+	for x in [-0.68, 0.68]:
+		Geo.box(self, Vector3(0.4, 0.2, 0.06), Vector3(x, 0.13, -2.1), Geo.material(Color("fff3c4")))
+	Geo.box(self, Vector3(1.35, 0.1, 0.4), Vector3(0, 1.46, 0.1), trim)
+	for i in 2:
+		var mat := Geo.material(Color("e34b43") if i == 0 else Color("4e88df"))
+		mat.emission_enabled = true
+		mat.emission = mat.albedo_color
+		lamps.append(Geo.box(self, Vector3(0.53, 0.19, 0.32), Vector3(-0.35 if i == 0 else 0.35, 1.59, 0.1), mat))
+		var light := OmniLight3D.new()
+		light.position = Vector3(-0.35 if i == 0 else 0.35, 1.75, 0.1)
+		light.light_color = mat.albedo_color
+		light.omni_range = 8
+		add_child(light)
+		beacons.append(light)

@@ -49,7 +49,7 @@ func _ready() -> void:
 	rock_material = Geo.material(Color("838a7e"))
 	_build_tree_mesh()
 	if allow_generation:
-		_add_road(Vector3(0, 0, 30), 0.0, 0, 0, 240.0)
+		_add_road(Vector3(0, 0, 150), 0.0, 0, 0, 360.0)
 		grow_near(Vector3.ZERO)
 	update_stream(Vector3.ZERO, true)
 
@@ -202,7 +202,7 @@ func reset_world() -> void:
 	pending_tiles.clear()
 	last_tile = Vector2i(99999, 99999)
 	# IDs never repeat in a session, including restarts and reconnects.
-	_add_road(Vector3(0, 0, 30), 0.0, 0, next_id, 240.0)
+	_add_road(Vector3(0, 0, 150), 0.0, 0, next_id, 360.0)
 	update_stream(Vector3.ZERO, true)
 
 func void_at(at: Vector3) -> Dictionary:

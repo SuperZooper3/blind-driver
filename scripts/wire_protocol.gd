@@ -32,6 +32,8 @@ static func snapshot_from_json(data: Dictionary) -> Dictionary:
 		return {}
 	if not _number(data.get("tires")) or int(data.tires) != data.tires or data.tires < 0 or data.tires > 15:
 		return {}
+	if not _police_state(data.get("police")):
+		return {}
 	var q: Array = data.rotation
 	var rotation := Quaternion(q[0], q[1], q[2], q[3])
 	if absf(rotation.length_squared() - 1.0) > 0.02:
@@ -109,3 +111,14 @@ static func _vector(value: Variant, length: int) -> bool:
 		if not _number(number):
 			return false
 	return true
+
+static func _police_state(value: Variant) -> bool:
+	if not value is Dictionary or not _vector(value.get("position"), 3) or not _vector(value.get("rotation"), 4):
+		return false
+	if not value.get("phase") in ["waiting", "chasing", "escaped", "caught"] or typeof(value.get("paused")) != TYPE_BOOL:
+		return false
+	for key in ["elapsed", "speed", "gap", "closing", "catch"]:
+		if not _number(value.get(key)): return false
+	var q: Array = value.rotation
+	if absf(Quaternion(q[0], q[1], q[2], q[3]).length_squared() - 1.0) > 0.02: return false
+	return value.elapsed >= 0 and value.speed >= 0 and value.speed <= 45 and value.gap >= 0 and value.gap <= 1.0e7 and absf(value.closing) <= 100 and value.catch >= 0 and value.catch <= 1

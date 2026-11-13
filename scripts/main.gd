@@ -5,6 +5,11 @@ const Car = preload("res://scripts/car.gd")
 const UI = preload("res://scripts/game_ui.gd")
 const Audio = preload("res://scripts/engine_audio.gd")
 const Session = preload("res://scripts/session.gd")
+const Pursuit = preload("res://scripts/police_pursuit.gd")
+const Siren = preload("res://scripts/police_siren.gd")
+var police: Node3D
+var siren: AudioStreamPlayer
+var looking_back := false
 const Records = preload("res://scripts/run_records.gd")
 var records := Records.new()
 var record_timer := 0.0
@@ -14,6 +19,8 @@ var car: RigidBody3D
 var ui: CanvasLayer
 var driver_view: SubViewport
 var navigator_view: SubViewport
+var mirror_view: SubViewport
+var mirror_camera: Camera3D
 var driver_camera: Camera3D
 var navigator_camera: Camera3D
 var motor: AudioStreamPlayer
@@ -39,17 +46,30 @@ func _ready() -> void:
 	car.name = "Car"
 	car.position = Vector3(0, World.height_at(0, 12) + 1.1, 12)
 	add_child(car)
+	police = Pursuit.new()
+	police.name = "Police"
+	police.car = car
+	police.world = world
+	add_child(police)
+	police.reset()
 	driver_view = _make_view("DriverView")
 	navigator_view = _make_view("NavigatorView")
 	driver_camera = _make_camera(driver_view)
 	navigator_camera = _make_camera(navigator_view)
+	mirror_view = _make_view("MirrorView")
+	mirror_view.size = Vector2i(640, 200)
+	mirror_camera = _make_camera(mirror_view)
+	mirror_camera.fov = 65
 	ui = UI.new()
 	add_child(ui)
 	ui.driver_screen.texture = driver_view.get_texture()
 	ui.navigator_screen.texture = navigator_view.get_texture()
+	ui.driver_mirror.texture = mirror_view.get_texture()
+	ui.navigator_mirror.texture = mirror_view.get_texture()
 	blur_material = ShaderMaterial.new()
 	blur_material.shader = preload("res://shaders/driver_blur.gdshader")
 	ui.driver_screen.material = blur_material
+	ui.driver_mirror.material = blur_material
 	ui.blur_slider.value_changed.connect(func(value: float): blur_material.set_shader_parameter("blur_amount", value))
 	ui.map.world = world
 	ui.map.car = car
@@ -67,10 +87,15 @@ func _ready() -> void:
 	motor = Audio.new()
 	motor.car = car
 	add_child(motor)
+	siren = Siren.new()
+	siren.pursuit = police
+	siren.car = car
+	add_child(siren)
 	session = Session.new()
 	session.name = "Session"
 	session.car = car
 	session.world = world
+	session.police = police
 	add_child(session)
 	session.status_changed.connect(func(message: String):
 		ui.status_label.text = message
@@ -159,6 +184,7 @@ func _make_camera(view: SubViewport) -> Camera3D:
 func _resize_views() -> void:
 	driver_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.driver_screen.visible else SubViewport.UPDATE_DISABLED
 	navigator_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.navigator_screen.visible else SubViewport.UPDATE_DISABLED
+	mirror_view.render_target_update_mode = SubViewport.UPDATE_DISABLED if ui.in_menu else SubViewport.UPDATE_ALWAYS
 	var size := get_viewport().get_visible_rect().size
 	var width := size.x * 0.5 if mode == "split" and not ui.in_menu else size.x
 	# Low resolution plus the blur pass makes the driver's vision genuinely unreadable.
@@ -167,7 +193,12 @@ func _resize_views() -> void:
 
 func _process(delta: float) -> void:
 	world.focus = car.global_position
+	looking_back = mode != "host" and not ui.in_menu and car.run_state == "driving" and (Input.is_action_pressed("look_back") or ui.rear_button_held)
+	if looking_back and ui.map_open:
+		ui.close_map()
 	_update_cameras(delta)
+	ui.update_pursuit(police, looking_back, car.run_state == "driving")
+	siren.enabled = started and not audio_muted and not ui.in_menu and car.run_state == "driving" and not session.recovering and not session.stale and session.role != "disconnected"
 	motor.enabled = started and not audio_muted and not ui.in_menu
 	if ui.in_menu or car.run_state != "driving" or (session.online and not session.can_drive()):
 		car.driving_enabled = false
@@ -209,6 +240,8 @@ func _process(delta: float) -> void:
 		ui.surface_label.text = "TIRES PUNCTURED"
 
 func _physics_process(delta: float) -> void:
+	if not car.remote:
+		police.advance(delta, started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive())
 	if not started or car.remote or car.reset_pending or car.recovery_grace > 0:
 		return
 	var hole: Dictionary = world.void_at(car.global_position)
@@ -232,6 +265,7 @@ func _restart_run() -> void:
 	records.save_record()
 	records.begin_run()
 	world.reset_world()
+	police.reset()
 	car.run_id += 1
 	car.punctured_tires = 0
 	car.rollover_time = 0.0
@@ -255,7 +289,10 @@ func _update_cameras(delta: float) -> void:
 	var seat_basis := stable.slerp(car_basis, 0.35)
 	var driver_target := Transform3D(seat_basis, car.global_transform * Vector3(-0.43, 1.23, -0.05))
 	var nav_target := Transform3D(seat_basis, car.global_transform * Vector3(0.43, 1.23, -0.05))
-	var chase: bool = ui.in_menu or chase_camera or car.run_state != "driving"
+	var chase: bool = ui.in_menu or (chase_camera and not looking_back) or car.run_state != "driving"
+	if looking_back:
+		nav_target.basis = seat_basis * Basis(Vector3.UP, PI)
+		nav_target.origin = car.global_transform * Vector3(0.43, 1.30, 0.9)
 	navigator_camera.cull_mask = 3 if chase else 1
 	if chase:
 		var offset := Vector3(5.8, 3.8, 7.0) if ui.in_menu else Vector3(0, 3.5, 7.8)
@@ -267,6 +304,8 @@ func _update_cameras(delta: float) -> void:
 	if not camera_initialized:
 		weight = 1.0
 		camera_initialized = true
+	var mirror_target := Transform3D(seat_basis * Basis(Vector3.UP, PI), car.global_transform * Vector3(0, 1.32, 1.35))
+	mirror_camera.global_transform = mirror_camera.global_transform.interpolate_with(mirror_target, 1.0 - exp(-delta * 18.0) if weight < 1.0 else 1.0)
 	driver_camera.global_transform = driver_camera.global_transform.interpolate_with(driver_target, weight)
 	navigator_camera.global_transform = navigator_camera.global_transform.interpolate_with(nav_target, weight)
 	navigator_camera.fov = lerpf(navigator_camera.fov, 76.0 + absf(car.signed_speed) * 0.24, delta * 2.0)
@@ -476,7 +515,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		audio_muted = not audio_muted
 
 func _setup_input() -> void:
-	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F], "mute": [KEY_V]}
+	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "look_back": [KEY_B], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F], "mute": [KEY_V]}
 	for action: String in bindings:
 		InputMap.add_action(action)
 		for key: int in bindings[action]:
@@ -488,7 +527,7 @@ func _setup_input() -> void:
 		input.axis = entry[1]
 		input.axis_value = entry[2]
 		InputMap.action_add_event(entry[0], input)
-	for entry: Array in [["handbrake", JOY_BUTTON_A], ["map", JOY_BUTTON_Y], ["menu", JOY_BUTTON_START]]:
+	for entry: Array in [["handbrake", JOY_BUTTON_A], ["map", JOY_BUTTON_Y], ["look_back", JOY_BUTTON_RIGHT_SHOULDER], ["menu", JOY_BUTTON_START]]:
 		var input := InputEventJoypadButton.new()
 		input.button_index = entry[1]
 		InputMap.action_add_event(entry[0], input)
