@@ -9,6 +9,7 @@ var playback: AudioStreamGeneratorPlayback
 var enabled := true
 
 func _ready() -> void:
+	playback_type = AudioServer.PLAYBACK_TYPE_STREAM
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = 22050.0
 	generator.buffer_length = 0.12

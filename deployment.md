@@ -1,5 +1,11 @@
 # Deploy Blind Driver on Render
 
+**For a playable browser frontend and Railway deployment, use
+[docs/RAILWAY.md](docs/RAILWAY.md).** The repository now includes the Web export,
+frontend Dockerfile, and Railway infrastructure blueprint. The existing Render
+relay can serve browser and desktop players together. This page retains the
+Render backend setup and operational guide.
+
 This guide gets **two people on different internet connections playing the desktop game together**. Render runs a small relay; each player runs the Godot game on their own computer.
 
 The existing relay is **https://blind-driver-relay.onrender.com**, now the game's default address. You can override it in the menu, through the saved preference, or with `BLIND_DRIVER_RELAY_URL`.
@@ -274,11 +280,15 @@ Recovery uses application heartbeats every two seconds, a 15-second client reply
 | Root Render URL shows JSON | Correct: the relay is a backend, not the browser game. |
 | No lobby-name field | Update the project/build to the revision containing the relay client and restart the game. |
 
-## Browser play is a separate next step
+## Browser frontend
 
-This deployment works with desktop Godot clients. It does not export or host the game as a webpage, and it does not produce clickable browser-game invite links.
-
-A browser release would add a Godot Web export on a static host, use this same WSS relay, and test browser rendering, performance, input, and audio. In particular, the generated engine audio needs Godot's Stream playback mode on web; the default web Sample mode does not support procedural audio. Start with a single-threaded export and test it before enabling threads and the corresponding cross-origin isolation headers. [Godot web export documentation](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html)
+The Render Blueprint above deploys only the relay. Add the playable frontend
+with [the Railway guide](docs/RAILWAY.md), and set its `BLIND_DRIVER_RELAY_URL` to
+this Render service's public HTTPS address. The frontend's Dockerfile exports
+the game with Godot 4.7.2; players open its URL and use the same named-lobby flow.
+The Web export uses a single thread and Stream playback for procedural audio.
+Browser-specific mode controls and downloadable logs are included. Room invite
+links are not implemented.
 
 The original broader plan is in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md). The deployable files added for this step are:
 

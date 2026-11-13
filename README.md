@@ -6,6 +6,14 @@ The driver has extremely blurred vision. The navigator sits beside them, sees th
 
 ## Play it
 
+**Browser:** open the deployed frontend URL, click **Get in the car**, and enter
+the same lobby name as your friend. Choose **Drive** or **Navigate**. No Godot
+installation is needed. Solo and shared-screen play are also available; automatic
+two-window and direct-LAN modes are desktop-only. See [Railway browser deployment](docs/RAILWAY.md)
+to create the frontend service from this repository, alongside your relay.
+
+**Desktop / editor:**
+
 1. Open **Godot 4.7** (developed and tested with 4.7.2).
 2. Import this folder's `project.godot`, or open the project if it is already in your project list.
 3. Press **F6** with `scenes/main.tscn` open, or **F5** from anywhere in the project.
@@ -60,7 +68,7 @@ For **different networks**, use the lobby name and **Drive / Navigate** buttons 
 
 **This revision requires protocol 8 on Render and both clients.** Deploy the updated backend before online play; protocol 8 adds route profiles, rejoining connections, and per-road heat levels alongside the shared crossing clock and patrol. Existing named lobbies, hazards, and tire damage are preserved. This change does not deploy Render. The backend retains both seats through temporary disconnects and the games automatically reconnect and resync. A server or game-process restart ends the current run, but the same locally saved name works for the next ride. Lobby names are rendezvous points, not saved games or permanent reservations. A seat from a crashed client can remain reserved for up to two minutes.
 
-Press **F8** for a 75-second connection test, live latency/retry metrics, and **Open network logs folder**. The deployed server also provides `/diagnostics` for a browser-based check. Client JSONL logs and Render's structured logs record timeouts, close codes, retries, validation failures, and stalls. See [connection checks and logs](deployment.md#connection-checks-and-logs) for instructions. Browser export and browser invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
+Press **F8** for a 75-second connection test, live latency/retry metrics, and **Open network logs folder** (**Download network logs** in the browser). The deployed server also provides `/diagnostics` for a browser-based check. Client JSONL logs and the relay's structured logs record timeouts, close codes, retries, validation failures, and stalls. See [connection checks and logs](deployment.md#connection-checks-and-logs) for instructions. Browser export and Railway hosting are configured in [docs/RAILWAY.md](docs/RAILWAY.md); room invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
 
 ### Command-line launch
 
@@ -117,6 +125,8 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/relay_client.gd`, `scripts/wire_protocol.gd` | Resumable internet rooms, diagnostics, and explicit JSON state protocol |
 | `scripts/network_log.gd` | Rotating per-process network event logs |
 | `server/`, `render.yaml` | Node relay and Render deployment configuration |
+| `frontend/`, `export_presets.cfg`, `tools/export_web.sh` | Browser loading page, Web export, static server, and browser checks |
+| `Dockerfile`, `server/Dockerfile`, `.railway/` | Railway frontend/relay containers and infrastructure blueprint |
 | `scripts/engine_audio.gd`, `scripts/police_siren.gd` | Procedural engine/tire sound and distance-based stereo siren |
 | `scripts/police_pursuit.gd` | Driver-owned patrol navigation, obstacle avoidance, gap estimates, and capture |
 | `shaders/driver_blur.gdshader` | Driver's vision |
@@ -150,4 +160,7 @@ The checks bind only to localhost and close their test processes afterwards. The
 
 This is an early handling/cooperation sandbox. There are no traffic systems, repair mechanics, saved worlds, or finish line. Obstacle collisions can spin or overturn the car; ravines, lakes, grounded rollovers, thorn punctures, and police capture end the run. Use the pause menu to start a new ride if the car is stuck. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
 
-The next useful milestone is deploying the relay using [deployment.md](deployment.md) and testing from two different networks. Then improve handling/junctions and verify a real browser export.
+Deploy the browser frontend and relay using [the Railway guide](docs/RAILWAY.md),
+or retain the existing [Render backend](deployment.md), then test the public
+frontend from two different computers/networks. Keep game tabs visible during a
+ride; browsers throttle background tabs and the driver owns the simulation.
