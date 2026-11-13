@@ -27,6 +27,7 @@ func _route_caption(anchor: Vector2, text: String, offset: Vector2, color: Color
 	if not Rect2(Vector2(10, 42), size - Vector2(20, 94)).has_point(anchor): return
 	var width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
 	var at := anchor + offset
+	if at.x + width > size.x - 18: at.x = anchor.x - width - offset.x
 	at.x = clampf(at.x, 18, maxf(18, size.x - width - 18))
 	draw_rect(Rect2(at - Vector2(3, 12), Vector2(width + 6, 17)), Color("ddd9bb"))
 	draw_string(ThemeDB.fallback_font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)

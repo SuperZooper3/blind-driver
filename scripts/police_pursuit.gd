@@ -64,10 +64,7 @@ func _sync_roads() -> void:
 		var lengths := PackedFloat32Array([0.0])
 		for i in range(1, road.points.size()):
 			lengths.append(lengths[-1] + Vector2(road.points[i].x - road.points[i - 1].x, road.points[i].z - road.points[i - 1].z).length())
-		var offset: float = cache.get(road.id, {}).get("offset", 0.0)
-		if updated.has(road.parent) and road.parent != road.id:
-			offset = updated[road.parent].offset + updated[road.parent].length
-		updated[road.id] = {"points": road.points, "hazards": road.hazards, "parent": road.parent, "lengths": lengths, "length": float(lengths[-1]), "offset": offset}
+		updated[road.id] = {"points": road.points, "hazards": road.hazards, "lengths": lengths, "length": float(lengths[-1])}
 	cache = updated
 	junctions.clear()
 	for id: int in cache:

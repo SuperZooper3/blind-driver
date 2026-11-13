@@ -85,6 +85,7 @@ func _run() -> void:
 					for hazard: Dictionary in other.hazards:
 						if Hazards.is_void(hazard) and (not hazard.kind in ["jump_gap", "timed_bridge"] or other.id != road.id) and Hazards.contains(hazard, point, 8):
 							safe_clear = false
+		world.difficulty = mini(4, step / 8)
 		if not frontier.is_empty(): world.grow_near(frontier.points[-1])
 		await process_frame
 	check(valid_chain and no_branch_growth, "80 extensions retain one growth frontier with at most two rejoining routes; dead ends never extend")
