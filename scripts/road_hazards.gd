@@ -1,10 +1,10 @@
 extends RefCounted
 ## Immutable obstacle records travel with the road graph. Only the driver simulates hits.
 const Geo = preload("res://scripts/geometry.gd")
-const KINDS := ["rock", "tree", "ramp", "bumps", "construction", "cliff", "lake"]
+const KINDS := ["rock", "tree", "ramp", "bumps", "construction", "cliff", "lake", "jump_gap", "timed_bridge"]
 
 static func is_void(hazard: Dictionary) -> bool:
-	return hazard.kind in ["cliff", "lake"]
+	return hazard.kind in ["cliff", "lake", "jump_gap", "timed_bridge"]
 
 static func contains(hazard: Dictionary, point: Vector3, margin: float = 0.0) -> bool:
 	if absf(point.x - hazard.position.x) >= hazard.size.x * 0.5 + margin or absf(point.z - hazard.position.z) >= hazard.size.z * 0.5 + margin:

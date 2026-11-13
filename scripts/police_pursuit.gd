@@ -1,6 +1,7 @@
 extends Node3D
 ## Driver-owned route pursuit. Peers interpolate its pose and share the same catch clock.
 const Geo = preload("res://scripts/geometry.gd")
+const Challenge = preload("res://scripts/road_challenge.gd")
 const HEAD_START := 6.0
 const START_GAP := 85.0
 const BOOST_FULL_GAP := 240.0
@@ -147,6 +148,7 @@ func advance(delta: float, running: bool) -> void:
 	speed = move_toward(speed, desired_speed, delta * (lerpf(3.2, 6.0, boost) if desired_speed > speed else BRAKING * pace * pace))
 	lateral = move_toward(lateral, guidance.lateral, delta * 2.0 * pace)
 	var step := minf(speed * delta, maxf(0, _route_gap(target_id, target.station) - 6.0))
+	step = minf(step, guidance.stop_distance)
 	speed = minf(speed, step / maxf(delta, 0.001))
 	station += step * direction
 	if direction > 0 and station > cache[road_id].length:
@@ -191,6 +193,7 @@ func _guidance(direction: int, pace: float = 1.0) -> Dictionary:
 	var desired := 0.0
 	var speed_limit := CATCH_UP_SPEED
 	var strongest := 0.0
+	var stop_distance := INF
 	# Scale braking and dodging with pursuit pace, so bends and obstacles still
 	# slow it down without erasing the catch-up boost throughout a busy route.
 	var braking := BRAKING * pace * pace
@@ -202,6 +205,16 @@ func _guidance(direction: int, pace: float = 1.0) -> Dictionary:
 	# Inspect the next road too, so a turn or an obstacle just beyond a junction is anticipated.
 	for record: Dictionary in cache.values():
 		for hazard: Dictionary in record.hazards:
+			if Challenge.is_challenge(hazard):
+				var crossing := Vector3(hazard.lane_x, sample.point.y, hazard.position.z)
+				var edge: float = (crossing - sample.point).dot(forward) - hazard.size.z * 0.5
+				if hazard.kind == "timed_bridge" and edge > 0 and edge < braking_lookahead + 25 and absf((crossing - sample.point).dot(side)) < 7:
+					var state := Challenge.bridge_state(hazard, world.challenge_time)
+					var time_to_clear: float = (edge + hazard.size.z + 5) / maxf(speed, 22.0)
+					if not state.open or state.remaining < time_to_clear:
+						speed_limit = minf(speed_limit, sqrt(2.0 * braking * maxf(0, edge - 7.0)))
+						stop_distance = minf(stop_distance, maxf(0, edge - 7.0))
+				continue
 			if hazard.kind in ["cliff", "lake"]: continue
 			var relative: Vector3 = hazard.position - sample.point
 			var ahead := relative.dot(forward)
@@ -227,13 +240,15 @@ func _guidance(direction: int, pace: float = 1.0) -> Dictionary:
 	speed_limit = minf(speed_limit, sqrt(junction_speed * junction_speed + 2.0 * braking * maxf(0, junction_distance - 16.0)))
 	if cache[road_id].length - station < 16 or station < 12:
 		speed_limit = minf(speed_limit, junction_speed)
-	return {"lateral": desired, "speed_limit": speed_limit}
+	return {"lateral": desired, "speed_limit": speed_limit, "stop_distance": stop_distance}
 
 func _place(direction: int, weight: float) -> void:
 	var sample := _sample(road_id, station)
 	var side: Vector3 = sample.direction.cross(Vector3.UP).normalized()
 	var point: Vector3 = sample.point + side * lateral
 	point.y = world.height_at(point.x, point.z) + 0.78
+	for hazard: Dictionary in cache[road_id].hazards:
+		if hazard.kind == "jump_gap": point.y += Challenge.jump_height(hazard, point)
 	global_position = point
 	global_basis = global_basis.orthonormalized().slerp(Basis.looking_at(sample.direction * direction), weight)
 

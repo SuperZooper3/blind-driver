@@ -80,6 +80,11 @@ func _tick() -> void:
 			streamed_fork = true
 			var points: PackedVector3Array = game.world.roads[1].points
 			game.world.update_stream(points[-1], true)
+			# Include a timed bridge in every transport/recovery check, even before
+			# this short drive reaches it. The shared clock moves its real deck.
+			for _i in 2:
+				for road: Dictionary in game.world.roads.duplicate():
+					if not road.danger and not road.expanded: game.world.grow_near(road.points[-1])
 			game.car.recover(points[-1], points[-1] - points[-2])
 			game.car.toggle_lights()
 		if elapsed > 6.5 and not reset_sent:
@@ -104,14 +109,21 @@ func _tick() -> void:
 			var latest: Dictionary = session.snapshots.back() if not session.snapshots.is_empty() else {}
 			var follows_host: bool = not latest.is_empty() and game.car.global_position.distance_to(latest.transform.origin) < 4.0
 			var patrol_matches: bool = not latest.is_empty() and game.police.global_position.distance_to(Vector3(latest.police.position[0], latest.police.position[1], latest.police.position[2])) < 5.0 and game.police.phase == latest.police.phase
-			var passed: bool = patrol_matches and session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and game.car.headlights[0].visible
+			var clock_matches: bool = not latest.is_empty() and game.world.challenge_time > 0 and absf(game.world.challenge_time - latest.challenge_time) < 0.3
+			var bridge_matches := false
+			for road: Dictionary in game.world.roads:
+				for visual: Node3D in road.node.get_meta("challenges", []):
+					if visual.hazard.kind == "timed_bridge":
+						var state = preload("res://scripts/road_challenge.gd").bridge_state(visual.hazard, game.world.challenge_time)
+						bridge_matches = visual.deck.position.is_equal_approx(visual.deck_origin + Vector3.RIGHT * state.shift * 17.0)
+			var passed: bool = clock_matches and bridge_matches and patrol_matches and session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and game.car.headlights[0].visible
 			if cut_before_driver:
 				passed = passed and waiting_cut and game.started and not game.ui.in_menu and session.relay.reconnects >= 1
 			if expect_lan_recovery:
 				passed = passed and lan_recovered and not session.recovering and not session.stale
 			if expect_recovery:
 				passed = passed and session.relay.reconnects >= 1 and session.relay.is_ready and not session.stale and session.last_sequence > 1000
-			print("%s: navigator received %d snapshots, %d roads, reset=%d, distance=%.1f, remote=%s" % ["PASS" if passed else "FAIL", session.snapshots_received, game.world.roads.size(), session.received_reset, game.car.distance_driven, game.car.remote])
+			print("%s: navigator received %d snapshots, %d roads, reset=%d, distance=%.1f, remote=%s, bridge=%s, clock=%s" % ["PASS" if passed else "FAIL", session.snapshots_received, game.world.roads.size(), session.received_reset, game.car.distance_driven, game.car.remote, bridge_matches, clock_matches])
 			_finish(0 if passed else 1)
 
 func _finish(code: int) -> void:

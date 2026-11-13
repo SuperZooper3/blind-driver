@@ -34,6 +34,8 @@ static func snapshot_from_json(data: Dictionary) -> Dictionary:
 		return {}
 	if not _police_state(data.get("police")):
 		return {}
+	if not _number(data.get("challenge_time")) or data.challenge_time < 0:
+		return {}
 	var q: Array = data.rotation
 	var rotation := Quaternion(q[0], q[1], q[2], q[3])
 	if absf(rotation.length_squared() - 1.0) > 0.02:
@@ -86,7 +88,11 @@ static func graph_from_json(data: Array) -> Array:
 			var extent := array_to_vector(hazard.size)
 			if extent.x <= 0 or extent.y <= 0 or extent.z <= 0 or extent.x > 192 or extent.y > 48 or extent.z > 192:
 				return []
-			hazards.append({"kind": hazard.kind, "position": array_to_vector(hazard.position), "size": extent, "yaw": float(hazard.yaw)})
+			var item := {"kind": hazard.kind, "position": array_to_vector(hazard.position), "size": extent, "yaw": float(hazard.yaw)}
+			if hazard.kind in ["jump_gap", "timed_bridge"]:
+				if not _number(hazard.get("lane_x")) or absf(hazard.lane_x - item.position.x) > extent.x * 0.5 - 6 or not is_zero_approx(hazard.yaw): return []
+				item.lane_x = float(hazard.lane_x)
+			hazards.append(item)
 		ids[road.id] = true
 		if road.points.size() < 2 or road.points.size() > 64:
 			return []

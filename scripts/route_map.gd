@@ -2,6 +2,7 @@ extends Control
 ## A live navigator's paper chart, drawn from the road graph.
 
 const Hazards = preload("res://scripts/road_hazards.gd")
+const Challenge = preload("res://scripts/road_challenge.gd")
 var world: Node3D
 var car: RigidBody3D
 var unfolded := false
@@ -58,6 +59,15 @@ func _draw() -> void:
 			elif hazard.kind == "construction":
 				draw_circle(at, 8.0, Color("c17a3f"))
 				draw_string(ThemeDB.fallback_font, at + Vector2(12, 4), "WORKS", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ink)
+			elif Challenge.is_challenge(hazard):
+				var color := Color("b86a2b")
+				var label := "JUMP / RAMP"
+				if hazard.kind == "timed_bridge":
+					var state := Challenge.bridge_state(hazard, world.challenge_time)
+					color = Color("b86a2b") if state.warning else (Color("367e61") if state.open else Color("b64638"))
+					label = ("BRIDGE CLOSES %ds" if state.open else "BRIDGE OPENS %ds") % maxi(1, ceili(state.remaining))
+				draw_rect(Rect2(at - Vector2(10, 5), Vector2(20, 10)), color)
+				draw_string(ThemeDB.fallback_font, at + Vector2(15, 4), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
 	var pos := _project(car.global_position)
 	draw_circle(pos, 16.0, Color(0.18, 0.33, 0.28, 0.12))
 	draw_colored_polygon(PackedVector2Array([pos + Vector2(0, -11), pos + Vector2(-7, 8), pos + Vector2(0, 4), pos + Vector2(7, 8)]), ink)
