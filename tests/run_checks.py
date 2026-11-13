@@ -102,6 +102,10 @@ if __name__ == "__main__":
             reservation.bind(("127.0.0.1", 0))
             os.environ["BLIND_DRIVER_LAN_PORT"] = str(reservation.getsockname()[1])
         os.environ["BLIND_DRIVER_RECORDS_PATH"] = str(temporary / "records.cfg")
+        routes = subprocess.run(command("tests/route_choices_smoke.gd", temporary / "routes.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=30)
+        print(routes.stdout)
+        if routes.returncode or "FAIL:" in routes.stdout or "SCRIPT ERROR" in routes.stderr:
+            sys.exit(routes.stderr or "Route choice check failed")
         challenges = subprocess.run(command("tests/challenge_smoke.gd", temporary / "challenges.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=60)
         print(challenges.stdout)
         if challenges.returncode or "FAIL:" in challenges.stdout or "SCRIPT ERROR" in challenges.stderr:

@@ -23,6 +23,14 @@ func _project(p: Vector3) -> Vector2:
 	var flat := Vector2(rel.x, rel.z).rotated(angle)
 	return Vector2(size.x * 0.5, size.y * 0.72) + flat * zoom
 
+func _route_caption(anchor: Vector2, text: String, offset: Vector2, color: Color) -> void:
+	if not Rect2(Vector2(10, 42), size - Vector2(20, 94)).has_point(anchor): return
+	var width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+	var at := anchor + offset
+	at.x = clampf(at.x, 18, maxf(18, size.x - width - 18))
+	draw_rect(Rect2(at - Vector2(3, 12), Vector2(width + 6, 17)), Color("ddd9bb"))
+	draw_string(ThemeDB.fallback_font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
+
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color("ddd9bb"))
 	for x in range(0, int(size.x), 32):
@@ -38,6 +46,18 @@ func _draw() -> void:
 			points.append(_project(p))
 		draw_polyline(points, Color("b7b99c"), 11.0, true)
 		draw_polyline(points, ink, 3.0, true)
+		if road.profile in ["scenic", "rough"]:
+			var color := Color("43836a") if road.profile == "scenic" else Color("bd792d")
+			draw_polyline(points, color, 4.0, true)
+			var midpoint: Vector2 = points[points.size() / 2]
+			var caption := "LONG / QUIETER" if road.profile == "scenic" else "SHORT / HEAVY HAZARDS"
+			_route_caption(midpoint, caption, Vector2(12, -8), color)
+		elif road.profile == "culdesac":
+			var end: Vector2 = points[-1]
+			var color := Color("8a6665")
+			draw_arc(end, 14.0 * zoom, 0, TAU, 32, color, 4.0, true)
+			draw_line(end + Vector2(-9, -7), end + Vector2(9, -7), color, 4.0, true)
+			_route_caption(end, "DEAD END / TURN AROUND", Vector2(24, 4), color)
 		if road.danger:
 			var danger := Color("a33d32")
 			draw_polyline(points, danger, 5.0, true)
@@ -73,6 +93,6 @@ func _draw() -> void:
 	draw_colored_polygon(PackedVector2Array([pos + Vector2(0, -11), pos + Vector2(-7, 8), pos + Vector2(0, 4), pos + Vector2(7, 8)]), ink)
 	var font := ThemeDB.fallback_font
 	draw_string(font, Vector2(18, 27), "FIELD MAP  /  M OR TAB TO " + ("FOLD" if unfolded else "UNFOLD"), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, ink)
-	draw_string(font, Vector2(18, size.y - 17), "X = CLIFF   /   SMALL OBSTACLES NOT SURVEYED", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ink)
+	draw_string(font, Vector2(18, size.y - 17), "X CLIFF / O DEAD END / AMBER ROUGH / SMALL OBSTACLES UNMAPPED", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, ink)
 	draw_line(Vector2(size.x - 82, size.y - 31), Vector2(size.x - 22, size.y - 31), ink, 2.0)
 	draw_string(font, Vector2(size.x - 80, size.y - 38), "%d m" % int(60.0 / zoom), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ink)

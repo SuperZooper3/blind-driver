@@ -39,6 +39,7 @@ var pursuit_detail: Label
 var rear_button: Button
 var rear_button_held := false
 var surface_label: Label
+var heat_label: Label
 var route_label: Label
 var route_distance: Label
 var status_label: Label
@@ -184,6 +185,9 @@ func _build_hud() -> void:
 	surface_label = _label("GRAVEL", 10, amber)
 	surface_label.position = Vector2(211, 117)
 	footer.add_child(surface_label)
+	heat_label = _label("HEAT 1 / 5", 11, amber)
+	heat_label.position = Vector2(211, 131)
+	footer.add_child(heat_label)
 	footer_label = _label("W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nB / RB  look back    C  camera    ESC  menu", 13, cream)
 	footer_label.position = Vector2(386, 44)
 	footer.add_child(footer_label)

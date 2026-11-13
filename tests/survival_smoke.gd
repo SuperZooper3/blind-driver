@@ -69,14 +69,14 @@ func _run() -> void:
 			if not road.danger and not road.expanded:
 				leaves += 1
 				frontier = road
-			if road.id != road.parent and not road.danger:
+			if road.id != road.parent and not road.profile in ["cliff", "culdesac"]:
 				children[road.parent] = int(children.get(road.parent, 0)) + 1
-			if road.danger:
+			if road.profile in ["cliff", "culdesac"]:
 				var before: int = world.next_id
 				world.grow_near(road.points[-1])
 				no_branch_growth = no_branch_growth and world.next_id == before
 		for count in children.values():
-			valid_chain = valid_chain and count == 1
+			valid_chain = valid_chain and count <= 2
 		valid_chain = valid_chain and leaves == 1
 		for road: Dictionary in world.roads:
 			if road.danger: continue
@@ -87,7 +87,7 @@ func _run() -> void:
 							safe_clear = false
 		if not frontier.is_empty(): world.grow_near(frontier.points[-1])
 		await process_frame
-	check(valid_chain and no_branch_growth, "80 extensions retain exactly one safe frontier; dead ends never generate more paths")
+	check(valid_chain and no_branch_growth, "80 extensions retain one growth frontier with at most two rejoining routes; dead ends never extend")
 	check(safe_clear, "ravines and crossing gaps never intersect an unrelated safe road or shoulder")
 	game.queue_free()
 	await process_frame

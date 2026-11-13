@@ -79,6 +79,8 @@ static func graph_from_json(data: Array) -> Array:
 			return []
 		if typeof(road.get("danger")) != TYPE_BOOL or not road.get("hazards") is Array or road.hazards.size() > 8:
 			return []
+		if not road.get("profile") in ["main", "scenic", "rough", "culdesac", "cliff"] or not _integer(road.get("level"), 0, 4) or not _integer(road.get("next"), -1, 2147483647) or not _integer(road.get("merge_with"), -1, 2147483647): return []
+		if road.danger != (road.profile == "cliff") or (road.profile in ["culdesac", "cliff", "rough"] and not road.expanded): return []
 		var hazards: Array = []
 		for hazard: Variant in road.hazards:
 			if not hazard is Dictionary or not hazard.get("kind") in preload("res://scripts/road_hazards.gd").KINDS:
@@ -90,8 +92,9 @@ static func graph_from_json(data: Array) -> Array:
 				return []
 			var item := {"kind": hazard.kind, "position": array_to_vector(hazard.position), "size": extent, "yaw": float(hazard.yaw)}
 			if hazard.kind in ["jump_gap", "timed_bridge"]:
-				if not _number(hazard.get("lane_x")) or absf(hazard.lane_x - item.position.x) > extent.x * 0.5 - 6 or not is_zero_approx(hazard.yaw): return []
+				if not _number(hazard.get("lane_x")) or absf(hazard.lane_x - item.position.x) > extent.x * 0.5 - 6 or not is_zero_approx(hazard.yaw) or not _integer(hazard.get("level"), 0, 4): return []
 				item.lane_x = float(hazard.lane_x)
+				item.level = int(hazard.level)
 			hazards.append(item)
 		ids[road.id] = true
 		if road.points.size() < 2 or road.points.size() > 64:
@@ -104,11 +107,14 @@ static func graph_from_json(data: Array) -> Array:
 			if not points.is_empty() and points[-1].distance_squared_to(decoded) < 0.0001:
 				return []
 			points.append(decoded)
-		result.append({"id": int(road.id), "parent": int(road.parent), "depth": int(road.depth), "heading": float(road.heading), "expanded": road.expanded, "points": points, "danger": road.danger, "hazards": hazards})
+		result.append({"id": int(road.id), "parent": int(road.parent), "depth": int(road.depth), "heading": float(road.heading), "expanded": road.expanded, "points": points, "danger": road.danger, "hazards": hazards, "profile": road.profile, "level": int(road.level), "next": int(road.next), "merge_with": int(road.merge_with)})
 	return result
 
 static func _number(value: Variant) -> bool:
 	return (typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT) and is_finite(float(value)) and absf(float(value)) <= 1.0e12
+
+static func _integer(value: Variant, low: int, high: int) -> bool:
+	return _number(value) and value == int(value) and value >= low and value <= high
 
 static func _vector(value: Variant, length: int) -> bool:
 	if not value is Array or value.size() != length:

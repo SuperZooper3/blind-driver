@@ -257,6 +257,9 @@ func check_streamed_pursuit(cop: Node3D, car: RigidBody3D, world: Node3D) -> voi
 	# Follow the generated safe route at a brisk sustained speed, including all
 	# bends/obstacles and enough streaming to discard the starting road.
 	for i in 7200:
+		# The game normally advances this clock. A frozen red bridge would strand
+		# the patrol while this synthetic driver moves through it.
+		world.challenge_time += 1.0 / 60.0
 		station += 31.0 / 60.0
 		car.distance_driven += 31.0 / 60.0
 		if station > cop.cache[road_id].length:
@@ -270,4 +273,5 @@ func check_streamed_pursuit(cop: Node3D, car: RigidBody3D, world: Node3D) -> voi
 		cop.advance(1.0 / 60.0, true)
 		peak_gap = maxf(peak_gap, cop.gap)
 		if cop.phase in ["caught", "escaped"]: break
+	print("Streamed pursuit: distance=%.0f phase=%s gap=%.0f peak=%.0f" % [car.distance_driven, cop.phase, cop.gap, peak_gap])
 	check(car.distance_driven > 3500 and cop.phase == "chasing" and cop.gap < 260 and peak_gap - cop.gap > 70, "rubberbanding regains ground through kilometers of generated bends and obstacles")

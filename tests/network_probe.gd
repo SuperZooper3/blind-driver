@@ -78,6 +78,8 @@ func _tick() -> void:
 			Input.action_release("accelerate")
 		if elapsed > 3.0 and not streamed_fork:
 			streamed_fork = true
+			game.car.distance_driven = 800
+			game.world.difficulty = preload("res://scripts/procedural_world.gd").heat_for_distance(game.car.distance_driven)
 			var points: PackedVector3Array = game.world.roads[1].points
 			game.world.update_stream(points[-1], true)
 			# Include a timed bridge in every transport/recovery check, even before
@@ -111,12 +113,17 @@ func _tick() -> void:
 			var patrol_matches: bool = not latest.is_empty() and game.police.global_position.distance_to(Vector3(latest.police.position[0], latest.police.position[1], latest.police.position[2])) < 5.0 and game.police.phase == latest.police.phase
 			var clock_matches: bool = not latest.is_empty() and game.world.challenge_time > 0 and absf(game.world.challenge_time - latest.challenge_time) < 0.3
 			var bridge_matches := false
+			var route_choices_match := false
+			var culdesac_matches := false
 			for road: Dictionary in game.world.roads:
+				if road.profile == "rough": route_choices_match = road.level == 1 and road.hazards.size() == 4 and road.merge_with >= 0 and road.next >= 0
+				if road.profile == "culdesac": culdesac_matches = game.world.road_distance(road.points[-1] + Vector3(12, 0, 0)) < 4
 				for visual: Node3D in road.node.get_meta("challenges", []):
 					if visual.hazard.kind == "timed_bridge":
 						var state = preload("res://scripts/road_challenge.gd").bridge_state(visual.hazard, game.world.challenge_time)
-						bridge_matches = visual.deck.position.is_equal_approx(visual.deck_origin + Vector3.RIGHT * state.shift * 17.0)
+						bridge_matches = visual.hazard.level == 1 and visual.deck.position.is_equal_approx(visual.deck_origin + Vector3.RIGHT * state.shift * 17.0)
 			var passed: bool = clock_matches and bridge_matches and patrol_matches and session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and game.car.headlights[0].visible
+			passed = passed and route_choices_match and culdesac_matches and game.ui.heat_label.text == "HEAT 2 / 5"
 			if cut_before_driver:
 				passed = passed and waiting_cut and game.started and not game.ui.in_menu and session.relay.reconnects >= 1
 			if expect_lan_recovery:

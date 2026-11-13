@@ -226,6 +226,8 @@ func _process(delta: float) -> void:
 	ui.dashboard.speed_kmh = absf(car.signed_speed) * 3.6
 	ui.dashboard.distance_km = car.distance_driven / 1000.0
 	ui.surface_label.text = "GRAVEL" if car.on_road else "OFF ROAD"
+	ui.heat_label.text = "HEAT %d / 5" % (World.heat_for_distance(car.distance_driven) + 1)
+	ui.heat_label.modulate = Color("ef9364").lerp(Color("ef554a"), World.heat_for_distance(car.distance_driven) / 4.0)
 	if car.grounded_wheels == 0 and started:
 		ui.surface_label.text = "AIRBORNE"
 	route_timer += delta
@@ -241,6 +243,7 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not car.remote:
+		world.difficulty = World.heat_for_distance(car.distance_driven)
 		var running: bool = started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive()
 		if running:
 			world.set_challenge_time(world.challenge_time + delta)
@@ -348,8 +351,11 @@ func _update_route() -> void:
 		ui.route_distance.text = "The next fork is still ahead."
 		return
 	# Directions require consulting the sheet; the card never gives the answer away.
-	ui.route_label.text = "Fork ahead / check map"
-	ui.route_distance.text = "%d m   /   X marks a collapsed road" % (roundi(distance / 5.0) * 5)
+	var exits := 0
+	for road: Dictionary in world.roads:
+		if road.parent == nearest.id and road.id != nearest.id: exits += 1
+	ui.route_label.text = "Three ways / check map" if exits >= 3 else "Fork ahead / check map"
+	ui.route_distance.text = "%d m / compare routes and dead ends" % (roundi(distance / 5.0) * 5)
 
 func _start(value: String) -> void:
 	if value == "local_windows":
