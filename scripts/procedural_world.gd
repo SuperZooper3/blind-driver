@@ -261,7 +261,7 @@ func _build_tile(key: Vector2i) -> void:
 			var c := ground_point(a.x, a.z + step_size)
 			var d := ground_point(a.x + step_size, a.z + step_size)
 			vertices.append_array(PackedVector3Array([a, c, b, b, c, d]))
-			var color := Color("6f8057").lerp(Color("92966a"), rng.randf() * 0.65)
+			var color := Color("435c42").lerp(Color("71845c"), rng.randf() * 0.65)
 			for _j in 6:
 				colors.append(color)
 	var terrain := Geo.instance(root, Geo.mesh_from_triangles(vertices, colors), Vector3.ZERO, terrain_material)

@@ -62,6 +62,7 @@ func _ready() -> void:
 	add_child(session)
 	session.status_changed.connect(func(message: String): ui.status_label.text = message)
 	session.connection_lost.connect(func(): car.driving_enabled = false)
+	session.navigator_joined.connect(func(): car.driving_enabled = not ui.in_menu)
 	get_viewport().size_changed.connect(_resize_views)
 	_resize_views()
 	# Useful for opening two local instances without clicking through the menus.
@@ -89,8 +90,8 @@ func _setup_environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("c5d6ca")
-	env.ambient_light_energy = 0.45
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.ambient_light_energy = 0.35
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	env.fog_enabled = true
 	env.fog_light_color = Color("b7c7b1")
 	env.fog_density = 0.0035
@@ -99,8 +100,8 @@ func _setup_environment() -> void:
 	add_child(environment)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-38, -35, 0)
-	sun.light_color = Color("ffe0ad")
-	sun.light_energy = 0.95
+	sun.light_color = Color("f8ecd5")
+	sun.light_energy = 0.72
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 130.0
 	add_child(sun)
@@ -262,7 +263,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		chase_camera = not chase_camera
 	if event.is_action_pressed("recover"):
 		_recover()
-	if event.is_action_pressed("lights"):
+	if event.is_action_pressed("lights") and mode != "join":
 		car.toggle_lights()
 	if event.is_action_pressed("mute"):
 		audio_muted = not audio_muted

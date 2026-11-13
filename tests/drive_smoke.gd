@@ -48,6 +48,14 @@ func _run() -> void:
 	check(car.global_position.y > -10.0, "car remains above streamed terrain")
 	var world = game.world
 	check(world.roads.size() >= 3, "initial road branches into two real roads")
+	var left_id: int = world.roads[1].id
+	var right_id: int = world.roads[2].id
+	world.grow_near(world.roads[1].points[-1])
+	world.grow_near(world.roads[2].points[-1])
+	var parents: Array = []
+	for road: Dictionary in world.roads:
+		parents.append(road.parent)
+	check(parents.has(left_id) and parents.has(right_id), "either initial fork generates a continuation")
 	for step in 32:
 		var newest: Dictionary = world.roads[-1]
 		var point: Vector3 = newest.points[-1]
@@ -55,6 +63,9 @@ func _run() -> void:
 	check(world.next_id > 30, "road generation keeps extending through many forks")
 	check(world.roads.size() <= world.MAX_ROADS, "distant road graph stays bounded")
 	print("Streaming: %d total roads generated, %d retained" % [world.next_id, world.roads.size()])
+	var endpoint: Vector3 = world.roads[-1].points[-1]
+	world.update_stream(endpoint, true)
+	check(world.tiles.size() <= 81, "terrain tiles stay bounded after a long-distance move")
 	game.queue_free()
 	await process_frame
 	quit(1 if failed else 0)

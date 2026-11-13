@@ -6,6 +6,7 @@ var is_host := false
 var elapsed := 0.0
 var reset_sent := false
 var finished := false
+var streamed_fork := false
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -17,6 +18,7 @@ func _run() -> void:
 	if is_host:
 		game.mode = "host"
 		game.started = true
+		game.ui.show_menu(false)
 		game.car.driving_enabled = true
 		if game.session.host("127.0.0.1") != OK:
 			print("FAIL: could not bind test host")
@@ -36,6 +38,12 @@ func _tick() -> void:
 			Input.action_press("accelerate")
 		else:
 			Input.action_release("accelerate")
+		if elapsed > 3.0 and not streamed_fork:
+			streamed_fork = true
+			var points: PackedVector3Array = game.world.roads[1].points
+			game.world.update_stream(points[-1], true)
+			game.car.recover(points[-1], points[-1] - points[-2])
+			game.car.toggle_lights()
 		if elapsed > 6.5 and not reset_sent:
 			reset_sent = true
 			game._recover()
@@ -45,7 +53,9 @@ func _tick() -> void:
 	else:
 		if elapsed > 8.0:
 			var session = game.session
-			var passed: bool = session.snapshots_received > 90 and session.graph_received and session.received_reset > 0 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze
+			var latest: Dictionary = session.snapshots.back() if not session.snapshots.is_empty() else {}
+			var follows_host: bool = not latest.is_empty() and game.car.global_position.distance_to(latest.transform.origin) < 4.0
+			var passed: bool = session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and game.car.headlights[0].visible
 			print("%s: navigator received %d snapshots, %d roads, reset=%d, distance=%.1f, remote=%s" % ["PASS" if passed else "FAIL", session.snapshots_received, game.world.roads.size(), session.received_reset, game.car.distance_driven, game.car.remote])
 			_finish(0 if passed else 1)
 
