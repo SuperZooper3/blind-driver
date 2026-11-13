@@ -30,6 +30,10 @@ var wheels: Array[Node3D] = []
 var lamps: Array[MeshInstance3D] = []
 var beacons: Array[OmniLight3D] = []
 var wheel_spin := 0.0
+var junctions: Dictionary = {}
+var goal_routes: Dictionary = {}
+var goal_road := -1
+var goal_station := -1.0
 
 func _ready() -> void:
 	_build_model()
@@ -60,12 +64,23 @@ func _sync_roads() -> void:
 		var lengths := PackedFloat32Array([0.0])
 		for i in range(1, road.points.size()):
 			lengths.append(lengths[-1] + Vector2(road.points[i].x - road.points[i - 1].x, road.points[i].z - road.points[i - 1].z).length())
-		var offset: float = cache.get(road.id, {}).get("offset", 0.0)
-		if updated.has(road.parent) and road.parent != road.id:
-			offset = updated[road.parent].offset + updated[road.parent].length
-		updated[road.id] = {"points": road.points, "hazards": road.hazards, "parent": road.parent, "lengths": lengths, "length": float(lengths[-1]), "offset": offset}
+		updated[road.id] = {"points": road.points, "hazards": road.hazards, "lengths": lengths, "length": float(lengths[-1])}
 	cache = updated
+	junctions.clear()
+	for id: int in cache:
+		var record: Dictionary = cache[id]
+		record.start = _junction(record.points[0])
+		record.end = _junction(record.points[-1])
+		for direction in [1, -1]:
+			var a: Vector2i = record.start if direction > 0 else record.end
+			var b: Vector2i = record.end if direction > 0 else record.start
+			if not junctions.has(a): junctions[a] = []
+			junctions[a].append({"to": b, "road": id, "direction": direction, "length": record.length})
+	goal_road = -1
 	revision = world.graph_revision
+
+func _junction(at: Vector3) -> Vector2i:
+	return Vector2i(roundi(at.x * 100), roundi(at.z * 100))
 
 func _project(at: Vector3, id: int) -> Dictionary:
 	var record: Dictionary = cache[id]
@@ -89,26 +104,47 @@ func _sample(id: int, at: float) -> Dictionary:
 			return {"point": record.points[i].lerp(record.points[i + 1], t), "direction": (record.points[i + 1] - record.points[i]).normalized()}
 	return {"point": record.points[-1], "direction": (record.points[-1] - record.points[-2]).normalized()}
 
-func _ancestors(id: int) -> Array:
-	var result: Array = []
-	while cache.has(id) and not result.has(id):
-		result.append(id)
-		id = int(cache[id].parent)
-	return result
+func _routes_to(target_id: int, target_station: float) -> void:
+	if goal_road == target_id and goal_station == target_station: return
+	goal_road = target_id
+	goal_station = target_station
+	goal_routes.clear()
+	var target: Dictionary = cache[target_id]
+	goal_routes[target.start] = {"cost": target_station, "road": target_id, "direction": 1}
+	goal_routes[target.end] = {"cost": target.length - target_station, "road": target_id, "direction": -1}
+	var pending := {target.start: target_station, target.end: target.length - target_station}
+	var visited := {}
+	# Actual junction connectivity supports rejoining shortcuts and turnarounds.
+	# Costs are road lengths, so close parallel roads never become a forest shortcut.
+	while not pending.is_empty():
+		var node: Vector2i = pending.keys()[0]
+		for candidate: Vector2i in pending:
+			if pending[candidate] < pending[node]: node = candidate
+		var cost: float = pending[node]
+		pending.erase(node)
+		visited[node] = true
+		for edge: Dictionary in junctions.get(node, []):
+			if visited.has(edge.to): continue
+			var distance: float = cost + edge.length
+			if not goal_routes.has(edge.to) or distance < goal_routes[edge.to].cost:
+				goal_routes[edge.to] = {"cost": distance, "road": edge.road, "direction": -edge.direction}
+				pending[edge.to] = distance
+
+func _route_to(target_id: int, target_station: float) -> Dictionary:
+	if road_id == target_id:
+		return {"distance": absf(target_station - station), "direction": 1 if target_station >= station else -1, "next": -1, "next_direction": 1}
+	_routes_to(target_id, target_station)
+	var record: Dictionary = cache[road_id]
+	var backward: float = station + goal_routes.get(record.start, {}).get("cost", INF)
+	var forward: float = record.length - station + goal_routes.get(record.end, {}).get("cost", INF)
+	if is_inf(minf(backward, forward)):
+		return {"distance": maxf(BOOST_FULL_GAP, global_position.distance_to(car.global_position)), "direction": -1, "next": -1, "next_direction": 1}
+	var direction := 1 if forward <= backward else -1
+	var next: Dictionary = goal_routes[record.end if direction > 0 else record.start]
+	return {"distance": minf(backward, forward), "direction": direction, "next": next.road, "next_direction": next.direction}
 
 func _route_gap(target_id: int, target_station: float) -> float:
-	var own: float = cache[road_id].offset + station
-	var target: float = cache[target_id].offset + target_station
-	var ours := _ancestors(road_id)
-	var theirs := _ancestors(target_id)
-	if ours.has(target_id) or theirs.has(road_id):
-		return absf(target - own)
-	for id in ours:
-		if theirs.has(id):
-			var junction: float = cache[id].offset + cache[id].length
-			return maxf(0, own + target - junction * 2)
-	# A missing connecting road must not turn physical proximity into a capture.
-	return maxf(BOOST_FULL_GAP, global_position.distance_to(car.global_position))
+	return _route_to(target_id, target_station).distance
 
 func advance(delta: float, running: bool) -> void:
 	paused = not running
@@ -126,17 +162,15 @@ func advance(delta: float, running: bool) -> void:
 	if not cache.has(target_id):
 		return
 	var target := _project(car.global_position, target_id)
+	var route := _route_to(target_id, target.station)
 	elapsed += delta
-	gap = _route_gap(target_id, target.station) + float(target.distance)
+	gap = route.distance + float(target.distance)
 	if phase == "waiting":
 		last_gap = gap
 		if elapsed < HEAD_START:
 			return
 		phase = "chasing"
-	var theirs := _ancestors(target_id)
-	var direction := 1 if theirs.has(road_id) else -1
-	if road_id == target_id:
-		direction = 1 if target.station >= station else -1
+	var direction: int = route.direction
 	var cruise := 25.0 + clampf(car.distance_driven / 2000.0, 0, 1) * 8.0
 	# Earned space gives breathing room, then the patrol gradually reels it back in.
 	# Fade the boost out before capture range; never jump the patrol toward the car.
@@ -147,28 +181,18 @@ func advance(delta: float, running: bool) -> void:
 	var desired_speed: float = minf(cruise, guidance.speed_limit)
 	speed = move_toward(speed, desired_speed, delta * (lerpf(3.2, 6.0, boost) if desired_speed > speed else BRAKING * pace * pace))
 	lateral = move_toward(lateral, guidance.lateral, delta * 2.0 * pace)
-	var step := minf(speed * delta, maxf(0, _route_gap(target_id, target.station) - 6.0))
+	var step := minf(speed * delta, maxf(0, route.distance - 6.0))
 	step = minf(step, guidance.stop_distance)
 	speed = minf(speed, step / maxf(delta, 0.001))
 	station += step * direction
-	if direction > 0 and station > cache[road_id].length:
-		var child := -1
-		for id in theirs:
-			if int(cache[id].parent) == road_id and id != road_id:
-				child = id
-				break
-		if child >= 0:
-			station -= cache[road_id].length
-			road_id = child
+	if station > cache[road_id].length or station < 0:
+		var carry: float = station - cache[road_id].length if direction > 0 else -station
+		if cache.has(route.next) and route.next != road_id:
+			road_id = route.next
+			direction = route.next_direction
+			station = carry if direction > 0 else cache[road_id].length - carry
 		else:
-			station = cache[road_id].length
-	elif direction < 0 and station < 0:
-		var parent := int(cache[road_id].parent)
-		if parent != road_id and cache.has(parent):
-			station += cache[parent].length
-			road_id = parent
-		else:
-			station = 0
+			station = clampf(station, 0, cache[road_id].length)
 	_place(direction, 1.0 - exp(-delta * 9.0))
 	gap = _route_gap(target_id, target.station) + float(target.distance)
 	var change := last_gap - gap

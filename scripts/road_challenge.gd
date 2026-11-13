@@ -19,16 +19,17 @@ static func is_challenge(item: Dictionary) -> bool:
 	return item.kind in ["jump_gap", "timed_bridge"]
 
 static func bridge_state(item: Dictionary, clock: float) -> Dictionary:
+	var open_time := OPEN_TIME - clampi(int(item.get("level", 0)), 0, 4) * 0.5
 	var phase := fposmod(clock + item.position.x * 0.037 + item.position.z * 0.019, CYCLE)
 	if phase > CYCLE - 0.000001: phase = 0.0
 	var shift := 0.0
-	if phase >= OPEN_TIME and phase < OPEN_TIME + MOVE_TIME:
-		shift = smoothstep(0.0, 1.0, (phase - OPEN_TIME) / MOVE_TIME)
-	elif phase >= OPEN_TIME + MOVE_TIME and phase < CYCLE - MOVE_TIME:
+	if phase >= open_time and phase < open_time + MOVE_TIME:
+		shift = smoothstep(0.0, 1.0, (phase - open_time) / MOVE_TIME)
+	elif phase >= open_time + MOVE_TIME and phase < CYCLE - MOVE_TIME:
 		shift = 1.0
 	elif phase >= CYCLE - MOVE_TIME:
 		shift = 1.0 - smoothstep(0.0, 1.0, (phase - CYCLE + MOVE_TIME) / MOVE_TIME)
-	return {"open": phase < OPEN_TIME, "warning": phase >= OPEN_TIME - 2 and phase < OPEN_TIME, "remaining": OPEN_TIME - phase if phase < OPEN_TIME else CYCLE - phase, "shift": shift}
+	return {"open": phase < open_time, "warning": phase >= open_time - 2 and phase < open_time, "remaining": open_time - phase if phase < open_time else CYCLE - phase, "shift": shift}
 
 static func jump_height(item: Dictionary, at: Vector3) -> float:
 	var lip: float = item.position.z + item.size.z * 0.5
