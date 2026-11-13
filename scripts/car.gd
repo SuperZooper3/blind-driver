@@ -77,7 +77,9 @@ func _build_model() -> void:
 		Geo.box(self, Vector3(0.1, 0.5, 2.25), Vector3(x, 0.45, 0.35), paint)
 	for x in [-0.44, 0.44]:
 		Geo.box(self, Vector3(0.62, 0.25, 0.65), Vector3(x, 0.45, 0.35), seat)
-		Geo.box(self, Vector3(0.62, 0.75, 0.18), Vector3(x, 0.83, 0.68), seat)
+		var seat_back := Geo.box(self, Vector3(0.62, 0.75, 0.18), Vector3(x, 0.83, 0.68), seat)
+		# Hide the backrest from both first-person cameras, as with the occupants.
+		seat_back.layers = 2
 		var person := Geo.sphere(self, 0.21, Vector3(x, 1.2, 0.32), Geo.material(Color("c3ad84") if x < 0 else Color("b9ccba")))
 		# Occupants are visible in chase view but hidden from both seat cameras.
 		person.layers = 2
