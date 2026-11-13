@@ -1,5 +1,9 @@
 # Play Blind Driver in a browser on Railway
 
+**Using dashboard.render.com?** Follow [the Render frontend instructions](../deployment.md#add-the-playable-frontend-in-the-render-dashboard)
+instead: choose **New + → Web Service**, then **Docker**. The steps below are
+only for Railway.
+
 The frontend builds Godot **4.7.2** into WebAssembly and serves a playable page.
 Players open its HTTPS address, click **Get in the car**, enter the same lobby
 name, and choose **Drive** or **Navigate**. Either seat can arrive first.
@@ -78,8 +82,8 @@ Desktop clients can join browser players by using the same relay and lobby.
 [`../.railway/railway.ts`](../.railway/railway.ts) declares both GitHub services,
 their root directories, health checks, replica counts, ports, and the relay URL
 reference. It uses Railway's current **Infrastructure as Code** API. Railway
-calls this an IaC configuration; `render.yaml` remains the separate Render
-Blueprint for the existing backend.
+calls this an IaC configuration; `render.yaml` is the separate Render Blueprint
+for the frontend and backend.
 
 For a new Railway project, with Node **22 or newer** and the current Railway CLI:
 

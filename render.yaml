@@ -19,3 +19,21 @@ services:
         value: "100"
       - key: MAX_CONNECTIONS
         value: "256"
+  - type: web
+    name: blind-driver-frontend
+    runtime: docker
+    region: frankfurt
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      # Browser clients need the public HTTPS address, not a private service host.
+      # Change this if Render assigns your relay a different public domain.
+      - key: BLIND_DRIVER_RELAY_URL
+        value: https://blind-driver-relay.onrender.com
