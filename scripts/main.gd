@@ -50,12 +50,13 @@ func _ready() -> void:
 	ui.map.car = car
 	ui.play_requested.connect(_start)
 	ui.resume_requested.connect(_resume)
-	ui.recover_requested.connect(_recover)
-	ui.restart_requested.connect(_restart_run)
+	ui.restart_requested.connect(func():
+		_restart_run()
+		_resume())
 	ui.host_requested.connect(_host)
 	ui.connect_requested.connect(_join)
 	ui.online_create_requested.connect(_host_online)
-	ui.online_join_requested.connect(_join_online)
+	ui.online_join_requested.connect(func(address: String, lobby: String): _join_online(address, "", lobby))
 	ui.online_cancel_requested.connect(_leave_online)
 	ui.show_menu(true, false)
 	motor = Audio.new()
@@ -66,13 +67,16 @@ func _ready() -> void:
 	session.car = car
 	session.world = world
 	add_child(session)
-	session.status_changed.connect(func(message: String): ui.status_label.text = message)
+	session.status_changed.connect(func(message: String):
+		ui.status_label.text = message
+		if session.online and ui.in_menu:
+			ui.online_status.text = message)
 	session.connection_lost.connect(func(): car.driving_enabled = false)
 	session.navigator_joined.connect(func():
 		if session.online:
 			_online_ready()
 		car.driving_enabled = not ui.in_menu and session.can_drive())
-	session.room_created.connect(ui.display_room_code)
+	session.room_created.connect(ui.display_lobby_ready)
 	session.online_joined.connect(_online_ready)
 	session.ride_restored.connect(func(): car.driving_enabled = not ui.in_menu and session.can_drive())
 	ui.network_session = session
@@ -153,8 +157,8 @@ func _resize_views() -> void:
 	var size := get_viewport().get_visible_rect().size
 	var width := size.x * 0.5 if mode == "split" and not ui.in_menu else size.x
 	# Low resolution plus the blur pass makes the driver's vision genuinely unreadable.
-	driver_view.size = Vector2i(maxi(64, int(width / 5.0)), maxi(64, int((size.y - 172) / 5.0)))
-	navigator_view.size = Vector2i(int(width), maxi(64, int(size.y - 172)))
+	driver_view.size = Vector2i(maxi(64, int(width / 5.0)), maxi(64, int((size.y - 78 - (0 if ui.in_menu else UI.FOOTER_HEIGHT)) / 5.0)))
+	navigator_view.size = Vector2i(int(width), maxi(64, int(size.y - 78 - (0 if ui.in_menu else UI.FOOTER_HEIGHT))))
 
 func _process(delta: float) -> void:
 	world.focus = car.global_position
@@ -172,8 +176,8 @@ func _process(delta: float) -> void:
 			ui.show_menu(true)
 			ui.status_label.text = "NAVIGATOR DID NOT CONNECT / RETRY LOCAL CO-OP"
 			_resize_views()
-	ui.speed_label.text = "%02d" % roundi(absf(car.signed_speed) * 3.6)
-	ui.distance_label.text = "%.2f\nKILOMETERS" % (car.distance_driven / 1000.0)
+	ui.dashboard.speed_kmh = absf(car.signed_speed) * 3.6
+	ui.dashboard.distance_km = car.distance_driven / 1000.0
 	ui.surface_label.text = "GRAVEL" if car.on_road else "OFF ROAD"
 	if car.grounded_wheels == 0 and started:
 		ui.surface_label.text = "AIRBORNE"
@@ -184,7 +188,7 @@ func _process(delta: float) -> void:
 		if not car.remote:
 			car.on_road = world.road_distance(car.global_position) < 4.6
 	ui.show_run_result(car.run_state, car.crash_reason, car.distance_driven, mode == "join")
-	ui.hint_label.text = "UPSIDE DOWN?  Press R to recover." if car.run_state == "driving" and car.global_basis.y.dot(Vector3.UP) < 0.35 else ""
+	ui.hint_label.text = "Overturned. Open the menu to start a new ride." if car.run_state == "driving" and car.global_basis.y.dot(Vector3.UP) < 0.35 else ""
 
 func _physics_process(_delta: float) -> void:
 	if not started or car.remote or car.reset_pending or car.recovery_grace > 0:
@@ -201,7 +205,7 @@ func _physics_process(_delta: float) -> void:
 		car.finish_run()
 
 func _restart_run() -> void:
-	if mode == "join" or car.run_state != "game_over":
+	if mode == "join":
 		return
 	world.reset_world()
 	car.run_id += 1
@@ -266,6 +270,7 @@ func _start(value: String) -> void:
 		return
 	_close_local_navigator()
 	session.stop()
+	ui.set_online_busy(false)
 	mode = value
 	chase_camera = mode == "solo"
 	started = true
@@ -290,6 +295,7 @@ func _recover() -> void:
 
 func _host(bind_address: String = "*") -> void:
 	_close_local_navigator()
+	ui.set_online_busy(false)
 	mode = "host"
 	ui.set_mode(mode)
 	if session.host(bind_address) != OK:
@@ -307,6 +313,7 @@ func _host(bind_address: String = "*") -> void:
 
 func _join(address: String) -> void:
 	_close_local_navigator()
+	ui.set_online_busy(false)
 	mode = "join"
 	ui.set_mode(mode)
 	if session.join(address) != OK:
@@ -378,26 +385,27 @@ func _exit_tree() -> void:
 	_close_local_navigator()
 	preload("res://scripts/network_log.gd").close()
 
-func _host_online(address: String) -> void:
+func _host_online(address: String, lobby: String = "") -> void:
 	_close_local_navigator()
 	mode = "host"
 	ui.set_mode(mode)
 	car.driving_enabled = false
 	chase_camera = false
-	session.host_online(address)
+	session.host_online(address, lobby)
 	_resize_views()
 
-func _join_online(address: String, code: String) -> void:
+func _join_online(address: String, code: String = "", lobby: String = "") -> void:
 	_close_local_navigator()
 	mode = "join"
 	ui.set_mode(mode)
 	car.driving_enabled = false
 	chase_camera = false
-	session.join_online(address, code)
+	session.join_online(address, code, lobby)
 	_resize_views()
 
 func _online_ready() -> void:
-	var first_connection: bool = not started or ui.online_panel.visible
+	var first_connection: bool = not started or ui.connecting
+	ui.connecting = false
 	started = true
 	if first_connection:
 		ui.show_menu(false)
@@ -410,8 +418,7 @@ func _leave_online() -> void:
 		started = false
 		mode = "split"
 		ui.set_mode(mode)
-		ui.room_field.text = ""
-		ui.online_status.text = "Enter the relay address, then create or join a room."
+		ui.online_status.text = "Your lobby name is saved. Choose a seat when you’re ready."
 	ui.set_online_busy(false)
 	ui.show_menu(true, started)
 	car.driving_enabled = false
@@ -433,18 +440,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		ui.toggle_map()
 	if event.is_action_pressed("camera"):
 		chase_camera = not chase_camera
-	if event.is_action_pressed("recover"):
-		if car.run_state == "game_over":
-			_restart_run()
-		else:
-			_recover()
 	if event.is_action_pressed("lights") and mode != "join":
 		car.toggle_lights()
 	if event.is_action_pressed("mute"):
 		audio_muted = not audio_muted
 
 func _setup_input() -> void:
-	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "recover": [KEY_R], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F], "mute": [KEY_V]}
+	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F], "mute": [KEY_V]}
 	for action: String in bindings:
 		InputMap.add_action(action)
 		for key: int in bindings[action]:
@@ -456,7 +458,7 @@ func _setup_input() -> void:
 		input.axis = entry[1]
 		input.axis_value = entry[2]
 		InputMap.action_add_event(entry[0], input)
-	for entry: Array in [["handbrake", JOY_BUTTON_A], ["map", JOY_BUTTON_Y], ["recover", JOY_BUTTON_BACK], ["menu", JOY_BUTTON_START]]:
+	for entry: Array in [["handbrake", JOY_BUTTON_A], ["map", JOY_BUTTON_Y], ["menu", JOY_BUTTON_START]]:
 		var input := InputEventJoypadButton.new()
 		input.button_index = entry[1]
 		InputMap.action_add_event(entry[0], input)

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue } from './protocol.mjs';
+import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue, normalizeLobby } from './protocol.mjs';
 
 export function createRelay(options = {}) {
   const maxRooms = options.maxRooms ?? Number(process.env.MAX_ROOMS || 100);
@@ -14,6 +14,7 @@ export function createRelay(options = {}) {
   const heartbeatInterval = options.heartbeatInterval ?? 10000;
   const heartbeatTimeout = options.heartbeatTimeout ?? 45000;
   const rooms = new Map();
+  const lobbyRooms = new Map();
   const clients = new Set();
   const instance = randomBytes(6).toString('hex');
   const started = performance.now();
@@ -70,6 +71,7 @@ export function createRelay(options = {}) {
     if (!room) return;
     log('room_closed', null, { room: room.id, reason });
     rooms.delete(code);
+    if (room.lobby) lobbyRooms.delete(room.lobby);
     for (const role of ['driver', 'navigator']) {
       const client = room[role]?.client;
       send(client, { type: 'room_closed', message: reason });
@@ -83,8 +85,9 @@ export function createRelay(options = {}) {
     seat.client = null;
     seat.deadline = performance.now() + grace;
     if (intentional) {
-      if (client.role === 'driver') { closeRoom(client.room, 'Driver left the room. Create a new room.'); return; }
+      if (client.role === 'driver') { closeRoom(client.room, 'The driver left. Join your saved lobby again for another ride.'); return; }
       room.navigator = null;
+      if (!room.driver) { closeRoom(client.room, 'Lobby closed.'); return; }
       room.waitingSince = performance.now();
     }
     send(room[otherRole(client.role)]?.client, { type: intentional ? 'navigator_left' : 'peer_reconnecting', role: client.role, grace_seconds: grace / 1000 });
@@ -160,15 +163,28 @@ export function createRelay(options = {}) {
           log('check_started', client);
           return;
         }
-        const code = typeof message.room === 'string' ? message.room.replaceAll('-', '').trim().toUpperCase() : '';
-        const room = /^[A-F0-9]{18}$/.test(code) ? rooms.get(code) : null;
-        if (message.type === 'create') {
-          if (rooms.size >= maxRooms) { fail(client, 'capacity', 'Server is full. Try again later.'); return; }
-          let newCode;
-          do { newCode = randomBytes(9).toString('hex').toUpperCase(); } while (rooms.has(newCode));
-          client.room = newCode; client.role = 'driver';
-          rooms.set(newCode, { id: randomBytes(6).toString('hex'), driver: seat(client), navigator: null, waitingSince: now });
-          replySeat(client, 'created'); log('room_created', client);
+        const named = message.type !== 'resume' && message.lobby !== undefined;
+        const lobby = named ? normalizeLobby(message.lobby) : null;
+        if (named && !lobby) { fail(client, 'lobby_name', 'Use 3–40 letters, numbers, spaces, or hyphens for the lobby name.'); return; }
+        const code = named ? lobbyRooms.get(lobby) : (typeof message.room === 'string' ? message.room.replaceAll('-', '').trim().toUpperCase() : '');
+        let room = /^[A-F0-9]{18}$/.test(code ?? '') ? rooms.get(code) : null;
+        if (message.type === 'create' || (named && message.type === 'join' && !room)) {
+          if (room?.driver && message.type === 'create') {
+            fail(client, 'driver_taken', 'This lobby already has a driver, or their connection is recovering. Choose Navigate or another lobby name.'); return;
+          }
+          if (!room) {
+            if (rooms.size >= maxRooms) { fail(client, 'capacity', 'Server is full. Try again later.'); return; }
+            let newCode;
+            do { newCode = randomBytes(9).toString('hex').toUpperCase(); } while (rooms.has(newCode));
+            room = { id: randomBytes(6).toString('hex'), code: newCode, lobby, driver: null, navigator: null, waitingSince: now };
+            rooms.set(newCode, room);
+            if (lobby) lobbyRooms.set(lobby, newCode);
+          }
+          client.room = room.code; client.role = message.type === 'create' ? 'driver' : 'navigator';
+          room[client.role] = seat(client);
+          replySeat(client, client.role === 'driver' ? 'created' : 'joined');
+          notifyReady(room, client.role);
+          log(client.role === 'driver' ? 'room_created' : 'seat_waiting', client);
         } else if (message.type === 'resume') {
           const reserved = room && ['driver', 'navigator'].includes(message.role) ? room[message.role] : null;
           const token = typeof message.token === 'string' && /^[a-f0-9]{64}$/.test(message.token) ? message.token : '';
@@ -224,13 +240,14 @@ export function createRelay(options = {}) {
       }
     }
     for (const [code, room] of rooms) {
-      if (room.driver.deadline <= now) { closeRoom(code, 'Driver did not return within the recovery window. Create a new room.'); continue; }
+      if (room.driver && room.driver.deadline <= now) { closeRoom(code, 'Driver did not return within the recovery window. Create a new room.'); continue; }
       if (room.navigator && room.navigator.deadline <= now) {
         log('seat_expired', null, { room: room.id, role: 'navigator' });
         room.navigator = null; room.waitingSince = now;
-        send(room.driver.client, { type: 'navigator_left' });
+        send(room.driver?.client, { type: 'navigator_left' });
       }
-      if (!room.navigator && now - room.waitingSince > waitingTimeout) closeRoom(code, 'Empty room expired. Create a new room.');
+      if (!room.driver && !room.navigator) { closeRoom(code, 'Lobby empty.'); continue; }
+      if ((!room.driver || !room.navigator) && now - room.waitingSince > waitingTimeout) closeRoom(code, 'Empty room expired. Create a new room.');
     }
   }, heartbeatInterval);
   sweep.unref();

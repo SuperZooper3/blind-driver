@@ -2,6 +2,7 @@ extends Node
 ## Outbound WSS transport with resumable seats, application heartbeats and diagnostics.
 signal room_created(code: String)
 signal joined
+signal waiting(message: String)
 signal navigator_joined
 signal navigator_left
 signal graph_received(roads: Array)
@@ -16,7 +17,7 @@ signal check_finished(message: String)
 
 const Wire = preload("res://scripts/wire_protocol.gd")
 const Log = preload("res://scripts/network_log.gd")
-const VERSION := 3
+const VERSION := 4
 const RECOVERY_SECONDS := 120.0
 var socket: WebSocketPeer
 var active := false
@@ -24,6 +25,7 @@ var is_ready := false
 var handshake_sent := false
 var intent := "create"
 var room_code := ""
+var lobby_name := ""
 var token := ""
 var seat_role := ""
 var url := ""
@@ -54,7 +56,7 @@ var backpressure_since := -1.0
 func now() -> float:
 	return Time.get_ticks_msec() / 1000.0
 
-func start(address: String, action: String, code: String = "") -> Error:
+func start(address: String, action: String, code: String = "", lobby: String = "") -> Error:
 	stop()
 	intent = action
 	url = normalize_url(address)
@@ -62,8 +64,9 @@ func start(address: String, action: String, code: String = "") -> Error:
 		_fail("Enter a relay address starting with https:// or wss://.")
 		return ERR_INVALID_PARAMETER
 	intent = action
+	lobby_name = lobby.strip_edges()
 	room_code = code.strip_edges().replace("-", "").to_upper()
-	if intent == "join" and (room_code.length() != 18 or not room_code.is_valid_hex_number(false)):
+	if intent == "join" and lobby_name.is_empty() and (room_code.length() != 18 or not room_code.is_valid_hex_number(false)):
 		_fail("Paste the 18-character room code from the driver.")
 		return ERR_INVALID_PARAMETER
 	token = ""
@@ -164,6 +167,8 @@ func _process(_delta: float) -> void:
 		if not handshake_sent:
 			handshake_sent = true
 			var hello := {"type": intent, "version": VERSION, "room": room_code}
+			if not lobby_name.is_empty():
+				hello.lobby = lobby_name
 			if not token.is_empty():
 				hello = {"type": "resume", "version": VERSION, "room": room_code, "token": token, "role": seat_role}
 			_send(hello)
@@ -246,8 +251,15 @@ func _handle(message: Dictionary) -> void:
 			last_pong = now()
 			Log.event(type, {"role": seat_role, "peer_connected": message.get("peer_connected", false), "connection": message.get("connection", ""), "instance": message.get("instance", "")})
 			match type:
-				"created": room_created.emit(room_code)
-				"joined": joined.emit()
+				"created":
+					room_created.emit(room_code)
+					if message.get("peer_connected", false):
+						navigator_joined.emit()
+				"joined":
+					if message.get("peer_connected", false):
+						joined.emit()
+					else:
+						waiting.emit("You're in. Waiting for your driver to join this lobby…")
 				"resumed": restored.emit(bool(message.get("peer_connected", false)))
 				"check_ready":
 					if check_started == 0.0:

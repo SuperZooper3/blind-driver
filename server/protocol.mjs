@@ -1,6 +1,6 @@
 // Explicit JSON protocol, shared conceptually with scripts/wire_protocol.gd.
 // No Godot objects, Variant decoding, executable payloads, or arbitrary RPC calls.
-export const VERSION = 3;
+export const VERSION = 4;
 export const MAX_PAYLOAD = 512 * 1024;
 export const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const number = (value, min = -1e7, max = 1e7) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
@@ -57,3 +57,10 @@ export function graphIssue(roads) {
   return null;
 }
 export const validGraph = roads => graphIssue(roads) === null;
+
+// Names are reusable rendezvous points, not saved games or permanent reservations.
+export function normalizeLobby(value) {
+  if (typeof value !== 'string' || value.length > 40 || !/^[a-z0-9 -]+$/i.test(value)) return null;
+  const name = value.trim().toLowerCase().replace(/[ -]+/g, '-');
+  return name.length >= 3 && name.length <= 40 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) ? name : null;
+}
