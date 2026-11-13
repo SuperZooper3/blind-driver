@@ -25,6 +25,8 @@ func _run() -> void:
 	print("Ramp: min_up=", min_up, " max_height=", max_height, " position=", game.car.global_position)
 	var passed := min_up < 0 and max_height > 22.0
 	print("%s: an offset ramp can launch and overturn the physical car at speed" % ("PASS" if passed else "FAIL"))
+	game._restart_run()
+	await frames(3)
 	game.car.recover(Vector3(2030, 20.17, 0), Vector3.FORWARD)
 	await frames(60)
 	game.route_timer = -1000.0

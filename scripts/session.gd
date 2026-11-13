@@ -11,6 +11,7 @@ signal ride_restored
 
 const Log = preload("res://scripts/network_log.gd")
 const PORT := 18765
+var port := PORT
 const INTERPOLATION_DELAY := 0.10
 const SNAPSHOT_INTERVAL := 1.0 / 30.0
 const Relay = preload("res://scripts/relay_client.gd")
@@ -43,6 +44,10 @@ var lan_retries := 0
 var last_metrics := 0.0
 
 func _ready() -> void:
+	# Integration checks can use a free port without disrupting a running game.
+	var requested_port := OS.get_environment("BLIND_DRIVER_LAN_PORT")
+	if requested_port.is_valid_int() and int(requested_port) > 0 and int(requested_port) <= 65535:
+		port = int(requested_port)
 	multiplayer.peer_connected.connect(_peer_connected)
 	multiplayer.peer_disconnected.connect(_peer_disconnected)
 	multiplayer.connected_to_server.connect(_connected)
@@ -144,14 +149,14 @@ func _new_peer() -> WebSocketMultiplayerPeer:
 func host(bind_address: String = "*") -> Error:
 	stop()
 	peer = _new_peer()
-	var error := peer.create_server(PORT, bind_address)
+	var error := peer.create_server(port, bind_address)
 	if error != OK:
-		status_changed.emit("PORT %d BUSY / CLOSE THE OTHER HOST" % PORT)
+		status_changed.emit("PORT %d BUSY / CLOSE THE OTHER HOST" % port)
 		peer = null
 		return error
 	role = "host"
 	multiplayer.multiplayer_peer = peer
-	status_changed.emit("DRIVER / HOSTING ON PORT %d" % PORT)
+	status_changed.emit("DRIVER / HOSTING ON PORT %d" % port)
 	return OK
 
 func join(address: String) -> Error:
@@ -161,7 +166,7 @@ func join(address: String) -> Error:
 	if not url.begins_with("ws://") and not url.begins_with("wss://"):
 		url = "ws://" + url
 		if url.get_slice("://", 1).find(":") == -1:
-			url += ":%d" % PORT
+			url += ":%d" % port
 	lan_url = url
 	var error := peer.create_client(url)
 	if error != OK:

@@ -336,7 +336,7 @@ func _host(bind_address: String = "*") -> void:
 	car.driving_enabled = true
 	chase_camera = false
 	ui.show_menu(false)
-	ui.status_label.text = "DRIVER / HOSTING ON PORT %d" % session.PORT
+	ui.status_label.text = "DRIVER / HOSTING ON PORT %d" % session.port
 	get_window().title = "Blind Driver — Driver"
 	_resize_views()
 
