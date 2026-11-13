@@ -7,6 +7,7 @@ import { once } from 'node:events';
 import http from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { createFrontend, relayAddress } from './server.mjs';
+import { VERSION } from '../server/protocol.mjs';
 
 test('relay configuration accepts secure endpoints and rejects unsafe or private browser addresses', () => {
   assert.equal(relayAddress('https://relay.example/'), 'https://relay.example');
@@ -32,7 +33,7 @@ test('frontend serves playable files, runtime configuration, readiness, and comp
   writeFileSync(join(directory, 'game.wasm.gz'), compressed);
   const health = await fetch(`${base}/healthz`);
   assert.equal(health.status, 200);
-  assert.equal((await health.json()).protocol, 6);
+  assert.equal((await health.json()).protocol, VERSION);
   const home = await fetch(base);
   assert.match(home.headers.get('content-type'), /text\/html/);
   assert.equal(await home.text(), 'contents:game.html');

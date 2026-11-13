@@ -9,7 +9,7 @@ personal bests, and network diagnostics are available in the browser.
 The frontend and relay are separate services. The relay pairs the players and
 forwards state; the driver's browser still simulates the car and police.
 Both services can live in the same Railway project. An existing Render relay
-also works, provided its `/healthz` reports **protocol 6**.
+also works, provided its `/healthz` reports **protocol 7**.
 
 ## Add the frontend to your existing Railway project
 
@@ -45,7 +45,7 @@ also works, provided its `/healthz` reports **protocol 6**.
    Domain**, targeting port **8080**. Open that HTTPS address. This is the
    playable URL to share with friends.
 7. Check `<frontend URL>/healthz` returns `"ok":true`, then check
-   `<relay URL>/healthz` returns `"ok":true,"protocol":6` (additional fields
+   `<relay URL>/healthz` returns `"ok":true,"protocol":7` (additional fields
    are normal). Frontend health verifies the game files, not relay reachability.
 
 No frontend database, persistent disk, API key, manual Godot export, or upload of
