@@ -53,9 +53,10 @@ func _ready() -> void:
 	add_child(relay)
 	relay.room_created.connect(func(code: String):
 		room_code = code
-		status_changed.emit("ROOM READY / SHARE THE CODE WITH YOUR NAVIGATOR")
+		status_changed.emit("Lobby ready. Waiting for your navigator…")
 		room_created.emit(code))
 	relay.joined.connect(func(): online_joined.emit())
+	relay.waiting.connect(func(message: String): status_changed.emit(message))
 	relay.recovering.connect(func(message: String):
 		recovering = true
 		navigator_id = 0
@@ -70,12 +71,14 @@ func _ready() -> void:
 	relay.peer_restored.connect(func():
 		snapshots.clear()
 		last_sequence = -1
-		status_changed.emit("DRIVER RETURNED / SYNCING THE RIDE"))
+		status_changed.emit("Driver connected. Syncing the ride…")
+		if not graph_received:
+			online_joined.emit())
 	relay.navigator_joined.connect(_online_peer_joined)
 	relay.navigator_left.connect(func():
 		navigator_id = 0
 		car.driving_enabled = false
-		status_changed.emit("NAVIGATOR LEFT / REJOIN WITH THE SAME ROOM CODE"))
+		status_changed.emit("Navigator left. They can return to this lobby."))
 	relay.graph_received.connect(_receive_graph)
 	relay.snapshot_received.connect(_receive_snapshot)
 	relay.failed.connect(func(message: String):
@@ -86,15 +89,15 @@ func _ready() -> void:
 		connection_lost.emit()
 		online_error.emit(message))
 
-func host_online(address: String) -> Error:
+func host_online(address: String, lobby: String = "") -> Error:
 	stop()
 	online = true
 	role = "host"
 	car.driving_enabled = false
-	status_changed.emit("CONNECTING TO RELAY / CREATING ROOM")
-	return relay.start(address, "create")
+	status_changed.emit("Connecting to your lobby…")
+	return relay.start(address, "create", "", lobby)
 
-func join_online(address: String, code: String) -> Error:
+func join_online(address: String, code: String = "", lobby: String = "") -> Error:
 	stop()
 	online = true
 	role = "join"
@@ -103,8 +106,8 @@ func join_online(address: String, code: String) -> Error:
 	car.collision_layer = 0
 	car.collision_mask = 0
 	world.allow_generation = false
-	status_changed.emit("CONNECTING TO RELAY / JOINING ROOM")
-	return relay.start(address, "join", code)
+	status_changed.emit("Joining your lobby…")
+	return relay.start(address, "join", code, lobby)
 
 func _online_restored(peer_connected: bool) -> void:
 	recovering = false
@@ -116,6 +119,8 @@ func _online_restored(peer_connected: bool) -> void:
 		_online_peer_joined()
 	else:
 		status_changed.emit("CONNECTION RESTORED / WAITING FOR DRIVER" if role == "join" else "CONNECTED / WAITING FOR NAVIGATOR")
+		if role == "join" and peer_connected and not graph_received:
+			online_joined.emit()
 		ride_restored.emit()
 
 func can_drive() -> bool:
