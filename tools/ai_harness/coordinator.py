@@ -61,6 +61,7 @@ class AgentCoordinator:
                                for role in ROLES} if args.provider == "gemini" else {})
         self.requests = self.input_tokens = self.output_tokens = self.usage_known_requests = 0
         self.errors = []
+        self.fatal_provider_error = False
 
     @property
     def usage_complete(self):
@@ -103,6 +104,13 @@ class AgentCoordinator:
             # No burst per model; action and recap requests share this slot.
             self.role_next[role] = self.clock() + 60 / rpm
 
+    def provider_cooldown(self, role, error):
+        seat = self.seats[role]
+        seat.next_request = max(seat.next_request, self.clock() + error.retry_after)
+        self.role_next[role] = max(self.role_next[role], seat.next_request)
+        self.fatal_provider_error = self.fatal_provider_error or error.permanent
+        return {"http_status": error.status, "retry_after_seconds": error.retry_after, "quotas": error.quotas}
+
     def collect_memory(self, role, latest, *, ending=False):
         memory = self.memories[role]
         pending = memory.pending
@@ -119,6 +127,8 @@ class AgentCoordinator:
             if isinstance(exc, InvalidModelResponse):
                 self.account(exc.usage, role, pending["request_id"])
                 detail["usage"] = exc.usage
+            if isinstance(exc, GeminiAPIError):
+                detail.update(self.provider_cooldown(role, exc))
             self.log("memory_error", role=role, request_id=pending["request_id"],
                 error=str(exc)[:250] if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__, **detail)
 
@@ -185,17 +195,13 @@ class AgentCoordinator:
                     self.command(role, "keys", hold=[], tap=[], observation_sim=latest[role]["sim_time"])
                     self.log("controls_released", role=role, reason="provider_error", sim_time=latest[role]["sim_time"])
                 if isinstance(exc, GeminiAPIError):
-                    seat.next_request = max(seat.next_request, self.clock() + exc.retry_after)
-                    self.role_next[role] = max(self.role_next[role], seat.next_request)
-                    details.update(http_status=exc.status, retry_after_seconds=exc.retry_after, quotas=exc.quotas)
-                    if exc.permanent:
-                        seat.error_streak = 3
+                    details.update(self.provider_cooldown(role, exc))
                 message = str(exc)[:250] if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__
                 self.errors.append({"role": role, "error": message})
                 self.log("request_error", role=role, request_id=context["request_id"], error=message,
                     latency_seconds=latency, **details)
 
-        if any(seat.error_streak >= 3 for seat in self.seats.values()):
+        if self.fatal_provider_error or any(seat.error_streak >= 3 for seat in self.seats.values()):
             return "provider_errors"
         if self.budget_reason:
             # A request cap must not discard the other seat's already-paid result.

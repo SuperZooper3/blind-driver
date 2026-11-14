@@ -62,7 +62,7 @@ def main():
     live.add_argument("directory", type=Path)
     live.add_argument("--latest", action="store_true")
     live.add_argument("--port", type=int, default=8766)
-    live.add_argument("--env-file", default=str(ROOT / ".env"), help="Cohere configuration for new/repeated runs")
+    live.add_argument("--env-file", default=str(ROOT / ".env"), help="Provider credentials for new/repeated runs")
     live.add_argument("--provider", choices=["cohere", "gemini"], default="cohere", help="Provider for New run")
     summarize = sub.add_parser("summarize", help="Export CSV and graphs across recorded runs")
     summarize.add_argument("directory", type=Path)

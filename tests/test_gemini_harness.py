@@ -1,5 +1,6 @@
 """Gemini protocol, one-way control, quota and dashboard regressions."""
 from copy import deepcopy
+from concurrent.futures import Future
 import io
 import json
 import os
@@ -163,6 +164,23 @@ class GeminiTests(unittest.TestCase):
         f = Fixture(provider="gemini", agents=agents, memory_every=1)
         self.assertEqual(f.coordinator.memories["driver"].every, 0)
         self.assertEqual(f.coordinator.memories["navigator"].every, 1)
+
+    def test_recap_quota_error_also_cools_down_action_requests(self):
+        f = self.started_fixture()
+        future = Future()
+        future.set_exception(GeminiAPIError(429, 75))
+        f.coordinator.memories["navigator"].pending = {"future": future, "request_id": 99,
+            "through_turn": 1, "started": 0}
+        f.coordinator.collect_memory("navigator", f.latest)
+        self.assertFalse(f.coordinator.role_ready("navigator"))
+        self.assertGreaterEqual(f.coordinator.role_next["navigator"], f.now + 75)
+        self.assertEqual(f.events[-1]["http_status"], 429)
+
+    def test_permission_error_stops_without_retrying_or_falling_back(self):
+        f = self.started_fixture()
+        f.executor.complete(1, error=GeminiAPIError(403, permanent=True))
+        self.assertEqual(f.tick(), "provider_errors")
+        self.assertEqual(f.coordinator.requests, 2)
 
     def test_separate_key_cli_defaults_and_repeat_preserve_gemini(self):
         root = Path(self.temp.name)
