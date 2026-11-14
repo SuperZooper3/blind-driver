@@ -132,7 +132,8 @@ func _tick() -> void:
 			var session = game.session
 			var latest: Dictionary = session.snapshots.back() if not session.snapshots.is_empty() else {}
 			var follows_host: bool = not latest.is_empty() and game.car.global_position.distance_to(latest.transform.origin) < 4.0
-			var patrol_matches: bool = not latest.is_empty() and game.police.global_position.distance_to(Vector3(latest.police.position[0], latest.police.position[1], latest.police.position[2])) < 5.0 and game.police.phase == latest.police.phase
+			# The patrol is drawn up to ~0.35 s behind the newest snapshot (interpolation delay), so allow for its travel.
+			var patrol_matches: bool = not latest.is_empty() and game.police.global_position.distance_to(Vector3(latest.police.position[0], latest.police.position[1], latest.police.position[2])) < 5.0 + absf(float(latest.police.speed)) * 0.35 and game.police.phase == latest.police.phase
 			var clock_matches: bool = not latest.is_empty() and game.world.challenge_time > 0 and absf(game.world.challenge_time - latest.challenge_time) < 0.3
 			var bridge_matches := false
 			var route_choices_match := false

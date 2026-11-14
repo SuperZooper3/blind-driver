@@ -1,6 +1,6 @@
 // Explicit JSON protocol, shared conceptually with scripts/wire_protocol.gd.
 // No Godot objects, Variant decoding, executable payloads, or arbitrary RPC calls.
-export const VERSION = 9;
+export const VERSION = 10;
 export const MAX_PAYLOAD = 512 * 1024;
 export const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const number = (value, min = -1e7, max = 1e7) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
@@ -55,11 +55,23 @@ const privateIPv4 = value => typeof value === 'string' && /^(\d{1,3})\.(\d{1,3})
   && value.split('.').every(part => Number(part) <= 255)
   && (/^10\./.test(value) || /^192\.168\./.test(value) || /^169\.254\./.test(value) || /^127\./.test(value)
     || (/^172\./.test(value) && Number(value.split('.')[1]) >= 16 && Number(value.split('.')[1]) <= 31));
+// `rtc` says the game can use WebRTC (browsers); then addresses may be empty.
 export function validDirect(message) {
   if (typeof message.on !== 'boolean' || typeof message.reply !== 'boolean') return false;
+  if (message.rtc !== undefined && typeof message.rtc !== 'boolean') return false;
   if (!message.on) return true;
   return Array.isArray(message.addrs) && message.addrs.length <= 8 && message.addrs.every(privateIPv4)
     && integer(message.port, 0, 65535) && typeof message.key === 'string' && /^[a-f0-9]{32}$/.test(message.key);
+}
+
+// WebRTC negotiation between partners: session descriptions and ICE candidates.
+// The relay only forwards them; game data then flows browser to browser.
+export function validRtc(message) {
+  if (!integer(message.link, 0, 1e6)) return false;
+  if (message.kind === 'offer' || message.kind === 'answer') return typeof message.sdp === 'string' && message.sdp.length > 0 && message.sdp.length <= 20000;
+  if (message.kind === 'ice') return typeof message.mid === 'string' && message.mid.length <= 64 && integer(message.index, 0, 64)
+    && typeof message.name === 'string' && message.name.length <= 1000;
+  return false;
 }
 
 export function graphIssue(roads) {

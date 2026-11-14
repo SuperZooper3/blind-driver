@@ -141,8 +141,8 @@ func _ready() -> void:
 			session.set_direct(on))
 	session.direct_status_changed.connect(func(text: String, wanted: bool):
 		ui.set_direct_status(text, wanted)
-		if session.direct.is_linked():
-			ui.status_label.text = "DIRECT LINK   /   " + session.direct.partner_address()
+		if not session.peer_link_address().is_empty():
+			ui.status_label.text = "DIRECT LINK   /   " + session.peer_link_address().to_upper()
 		elif wanted:
 			ui.status_label.text = "INTERNET RELAY   /   LOOKING FOR DIRECT LINK")
 	session.online_joined.connect(_online_ready)
@@ -264,6 +264,7 @@ func _process(delta: float) -> void:
 		ui.pursuit_detail.text = "No pursuit / static obstacles"
 	siren.enabled = started and not audio_muted and not ui.in_menu and car.run_state == "driving" and not session.recovering and not session.stale and session.role != "disconnected"
 	motor.enabled = started and not audio_muted and not ui.in_menu
+	_publish_browser_status(delta)
 	impact_audio.enabled = started and not audio_muted
 	if ui.in_menu or car.run_state != "driving" or (session.online and not session.can_drive()):
 		car.driving_enabled = false
@@ -586,6 +587,22 @@ func _join_from_invite(code: String) -> void:
 	ui.set_online_busy(true)
 	ui.online_status.text = "Joining room %s…" % short
 	_join_online(ui.relay_address.text, short)
+
+var _status_timer := 0.0
+## Browser only: a small read-only status object (window.blindDriverStatus) so a
+## page or a person in the developer console can see the connection at a glance.
+func _publish_browser_status(delta: float) -> void:
+	if not OS.has_feature("web"):
+		return
+	_status_timer += delta
+	if _status_timer < 0.5:
+		return
+	_status_timer = 0.0
+	var status := {"prototype": preload("res://scripts/version.gd").PROTOTYPE, "mode": mode, "online": session.online,
+		"seat": session.relay.seat_role, "room": session.relay.share_code, "link": "webrtc" if session.rtc.is_linked() else ("lan" if session.direct.is_linked() else "relay"),
+		"direct_wanted": session.direct_wanted, "webrtc_available": session.rtc_available, "updates_received": session.snapshots_received,
+		"direct_messages": session.rtc.received_count + session.direct.received_count, "webrtc": session.rtc.debug_state(), "run_state": car.run_state, "distance_m": snappedf(car.distance_driven, 0.1)}
+	JavaScriptBridge.eval("window.blindDriverStatus = %s;" % JSON.stringify(status), true)
 
 ## Warn when the two games are different builds: features and bugs will not match.
 func _check_partner_build(build: int) -> void:
