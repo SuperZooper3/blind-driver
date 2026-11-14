@@ -110,6 +110,8 @@ Hits under about 13 km/h are harmless. Harder hits on rocks, trees, barriers and
 | Rear bumper | Falls off. Rear hits reach the rear wheels at full strength. | |
 | Windshield | Cracks spread across the glass itself, so each seat sees them in perspective (blurred for the driver, like the road) and third person sees them from outside; they then shatter into a hazy web. | |
 
+**Opening scene.** The first ride of each launch opens outside the bank the pair just robbed: the alarm bell rings, a red light flashes, and the driver's glasses fly off and break on the road. Both players see the bank, then the broken glasses, before the camera flies into their own seat and the ride begins (about 8.5 seconds; the car and the police wait until it ends). The bank stays beside the starting road.
+
 **Spike strips** appear from heat 4. A yellow **SPIKES AHEAD 100 m** sign stands at the start of the road, and the strip is always at least 100 m past it. It lies across one half of the road, striped yellow and black with red spikes, and pops every tire that rolls over it; steer into the clear half.
 
 The **navigator holds R** to repair while the car is under 15 km/h (on one computer, either player can press it). The car stays parked while you hold it; let go to drive on with whatever has been fixed so far. Repairs fix one part at a time, most crucial first: the engine, then the tires (worst first), the windshield, the front bumper and the rear bumper, at 5 seconds for a fully broken part. Lost wheels and bumpers go back on, and flats are reinflated.

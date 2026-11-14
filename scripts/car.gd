@@ -55,6 +55,8 @@ var driving_enabled := false
 var repairing := false
 ## Set each frame by main: the navigator (or the shared keyboard) holds R.
 var repair_held := false
+## The opening scene holds the car at the bank until it hands over.
+var intro_hold := false
 var repair_part := -1
 ## Repairs only start below this speed: 15 km/h.
 const REPAIR_MAX_SPEED := 15.0 / 3.6
@@ -245,7 +247,7 @@ func _physics_process(delta: float) -> void:
 		repair_part = damage.repair_step(delta) if run_state == "driving" else -1
 		if repair_part == -1:
 			repairing = false
-	if driving_enabled and not repairing:
+	if driving_enabled and not repairing and not intro_hold:
 		steer_target = Input.get_axis("steer_right", "steer_left")
 		var forward := Input.get_action_strength("accelerate")
 		var reverse := Input.get_action_strength("reverse")

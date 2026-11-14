@@ -229,6 +229,10 @@ if __name__ == "__main__":
         print(obstacles.stdout)
         if obstacles.returncode or "FAIL:" in obstacles.stdout or "SCRIPT ERROR" in obstacles.stderr:
             sys.exit(obstacles.stderr or "Obstacle check failed")
+        intro = subprocess.run(command("tests/intro_smoke.gd", temporary / "intro.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=45)
+        print(intro.stdout)
+        if intro.returncode or "FAIL:" in intro.stdout or "SCRIPT ERROR" in intro.stderr:
+            sys.exit(intro.stderr or "Intro check failed")
         repair = subprocess.run(command("tests/repair_smoke.gd", temporary / "repair.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=45)
         print(repair.stdout)
         if repair.returncode or "FAIL:" in repair.stdout or "SCRIPT ERROR" in repair.stderr:

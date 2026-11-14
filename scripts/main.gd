@@ -46,6 +46,12 @@ var local_navigator_pid := -1
 var local_pair_deadline := 0
 var input_ready := false
 var repair_notice := ""
+## The bank-robbery opening plays once, the first time a ride starts. Headless
+## test runs skip it unless a test turns it on.
+const BankIntro = preload("res://scripts/bank_intro.gd")
+var intro_enabled := DisplayServer.get_name() != "headless"
+var intro_seen := false
+var intro: Node3D
 var repair_notice_time := 0.0
 
 func _ready() -> void:
@@ -274,6 +280,7 @@ func _process(delta: float) -> void:
 	looking_back = mode not in ["host", "ai"] and not ui.in_menu and car.run_state == "driving" and (Input.is_action_pressed("look_back") or ui.rear_button_held)
 	if looking_back and ui.map_open:
 		ui.close_map()
+	_update_intro()
 	_update_cameras(delta)
 	ui.update_pursuit(police, looking_back, car.run_state == "driving")
 	if world.basic_course:
@@ -354,7 +361,7 @@ func _physics_process(delta: float) -> void:
 	car.repair_held = session.partner_repairing() if mode == "host" else (holding and mode != "join")
 	if not car.remote:
 		world.difficulty = 0 if world.basic_course else World.heat_for_distance(car.distance_driven)
-		var running: bool = started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive()
+		var running: bool = started and not intro_playing() and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive()
 		if mode == "ai":
 			running = running and ai_navigator.ready_to_drive
 		if ai_capture != null:
@@ -421,6 +428,24 @@ func _restart_run() -> void:
 	shake = 0.0
 	ui.close_map()
 
+func intro_playing() -> bool:
+	return intro != null and not intro.finished()
+
+func _update_intro() -> void:
+	if intro_enabled and not intro_seen and started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending:
+		intro_seen = true
+		# The opening ends in first person, even in solo's usual chase view.
+		chase_camera = false
+		intro = BankIntro.new()
+		intro.name = "BankIntro"
+		add_child(intro)
+		intro.setup(car, World.height_at(car.global_position.x + 16.5, car.global_position.z + 6.0))
+	car.intro_hold = intro_playing()
+	# The bank stays put until the car has left it far behind.
+	if intro != null and intro.done_with_sound() and car.global_position.distance_to(intro.get_node("Bank").global_position) > 200.0:
+		intro.queue_free()
+		intro = null
+
 func _update_cameras(delta: float) -> void:
 	var car_basis := car.global_basis.orthonormalized()
 	var flat_forward := -car_basis.z
@@ -466,6 +491,14 @@ func _update_cameras(delta: float) -> void:
 	driver_camera.global_transform = driver_base * _shake_offset(0.0)
 	navigator_camera.global_transform = navigator_base * _shake_offset(7.3)
 	navigator_camera.fov = 60.0 if ai_options.get("readable_ui", false) else 76.0
+	if intro_playing():
+		# Both seats watch the robbery from outside, then fly into their own view.
+		driver_camera.global_transform = intro.shot(driver_camera.global_transform)
+		navigator_camera.global_transform = intro.shot(navigator_camera.global_transform)
+		driver_camera.cull_mask = 1 | 2 | Car.DRIVER_BODY_LAYER | Car.NAVIGATOR_BODY_LAYER
+		navigator_camera.cull_mask = 1 | 2 | Car.DRIVER_BODY_LAYER | Car.NAVIGATOR_BODY_LAYER
+	else:
+		driver_camera.cull_mask = 1 | Car.NAVIGATOR_BODY_LAYER
 
 func _on_car_impact(strength: float) -> void:
 	# A 30 km/h knock gives a clear jolt; a head-on crash about 3 degrees.
