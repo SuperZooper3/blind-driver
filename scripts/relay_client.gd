@@ -16,6 +16,8 @@ signal snapshot_received(state: Dictionary)
 signal pose_received(pose: Dictionary)
 ## The partner offered (or withdrew) a direct local-network link.
 signal direct_offer(offer: Dictionary)
+## WebRTC negotiation from the partner (offer, answer or ICE candidate).
+signal rtc_signal(message: Dictionary)
 signal failed(message: String)
 signal recovering(message: String)
 signal restored(peer_connected: bool)
@@ -26,7 +28,7 @@ signal check_finished(message: String)
 
 const Wire = preload("res://scripts/wire_protocol.gd")
 const Log = preload("res://scripts/network_log.gd")
-const VERSION := 9
+const VERSION := 10
 ## Matches server/protocol.mjs: six characters, no 0/O or 1/I/L lookalikes.
 const SHARE_ALPHABET := "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 const SHARE_LENGTH := 6
@@ -345,6 +347,8 @@ func _handle(message: Dictionary) -> void:
 				_fail("Invalid game data from relay.")
 		"direct":
 			direct_offer.emit(message)
+		"rtc":
+			rtc_signal.emit(message)
 		"error", "room_closed":
 			Log.event("server_rejected", {"code": message.get("code", type)})
 			_fail(str(message.get("message", "Room closed. Create a new room.")))
@@ -378,7 +382,11 @@ func send_direct(offer: Dictionary) -> bool:
 		message.addrs = Array(offer.addrs)
 		message.port = int(offer.port)
 		message.key = str(offer.key)
+		message.rtc = bool(offer.get("rtc", false))
 	return is_ready and _send(message)
+
+func send_rtc(signal_message: Dictionary) -> bool:
+	return is_ready and _send(signal_message.merged({"type": "rtc"}, true))
 
 func _send(message: Dictionary) -> bool:
 	if socket == null or socket.get_ready_state() != WebSocketPeer.STATE_OPEN:

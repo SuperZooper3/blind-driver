@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue, validPose, poseIssue, validDirect, normalizeLobby, normalizeShare, SHARE_ALPHABET, SHARE_LENGTH } from './protocol.mjs';
+import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue, validPose, poseIssue, validDirect, validRtc, normalizeLobby, normalizeShare, SHARE_ALPHABET, SHARE_LENGTH } from './protocol.mjs';
 
 export function createRelay(options = {}) {
   const maxRooms = options.maxRooms ?? Number(process.env.MAX_ROOMS || 100);
@@ -229,9 +229,16 @@ export function createRelay(options = {}) {
         // Either player may offer a direct local-network link; only the partner sees it.
         const room = rooms.get(client.room);
         if (!room || room[client.role]?.client !== client || raw.length > 1024 || !validDirect(message)) { reject(client, 'Invalid direct offer'); return; }
-        const { on, reply, addrs = [], port = 0, key = '' } = message;
-        send(room[otherRole(client.role)]?.client, { type: 'direct', on, reply, addrs, port, key });
+        const { on, reply, addrs = [], port = 0, key = '', rtc = false } = message;
+        send(room[otherRole(client.role)]?.client, { type: 'direct', on, reply, addrs, port, key, rtc });
         log('direct_offer', client, { on, addresses: addrs.length });
+        return;
+      }
+      if (message.type === 'rtc') {
+        const room = rooms.get(client.room);
+        if (!room || room[client.role]?.client !== client || raw.length > 24000 || !validRtc(message)) { reject(client, 'Invalid WebRTC signal'); return; }
+        const { kind, link, sdp, mid, index, name } = message;
+        send(room[otherRole(client.role)]?.client, kind === 'ice' ? { type: 'rtc', kind, link, mid, index, name } : { type: 'rtc', kind, link, sdp });
         return;
       }
       if (message.type === 'swap') {

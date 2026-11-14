@@ -26,6 +26,7 @@ const SNAPSHOT_INTERVAL := 1.0 / 30.0
 const FULL_INTERVAL := 0.1
 const Predictor = preload("res://scripts/pose_predictor.gd")
 const DirectLink = preload("res://scripts/direct_link.gd")
+const RtcLink = preload("res://scripts/rtc_link.gd")
 const Wire = preload("res://scripts/wire_protocol.gd")
 const Relay = preload("res://scripts/relay_client.gd")
 var car: RigidBody3D
@@ -45,9 +46,14 @@ var reset_serial := 0
 var received_reset := -1
 var snapshots: Array[Dictionary] = []
 var predictor := Predictor.new()
+## Two ways to skip the relay: `direct` (desktop, same network, WebSocket) and `rtc`
+## (browsers, WebRTC). Both players' offers decide which one is used.
 var direct: Node
+var rtc: Node
+var rtc_available := false
 var direct_wanted := false
 var direct_offer: Dictionary = {}
+var partner_offer: Dictionary = {}
 var latest_pose: Dictionary = {}
 var last_pose_sequence := -1
 var pose_sequence := 0
@@ -127,6 +133,14 @@ func _ready() -> void:
 	# Game data from the partner arrives the same way whichever path it took.
 	direct.message_received.connect(func(message: Dictionary): relay.handle_game_message(message))
 	direct.link_changed.connect(_direct_link_changed)
+	rtc = RtcLink.new()
+	rtc.name = "RtcLink"
+	add_child(rtc)
+	rtc_available = RtcLink.available()
+	rtc.message_received.connect(func(message: Dictionary): relay.handle_game_message(message))
+	rtc.link_changed.connect(_direct_link_changed)
+	rtc.signal_ready.connect(func(message: Dictionary): relay.send_rtc(message))
+	relay.rtc_signal.connect(func(message: Dictionary): rtc.handle_signal(message))
 	relay.direct_offer.connect(_partner_direct_offer)
 	relay.failed.connect(func(message: String):
 		role = "disconnected"
@@ -194,55 +208,88 @@ func _online_restored(peer_connected: bool) -> void:
 			online_joined.emit()
 		ride_restored.emit()
 
-## Turn the direct local-network link on or off for both players. Either player may;
+## Turn the direct (peer-to-peer) link on or off for both players. Either player may;
 ## the partner's game follows. Falls back to the relay whenever the link is down.
 func set_direct(on: bool) -> void:
 	if not online:
 		return
 	if not on:
-		direct.stop()
-		direct_wanted = false
-		direct_offer = {}
+		_stop_direct()
 		relay.send_direct({"on": false})
 		direct_status_changed.emit("Direct link off. Using the internet relay.", false)
 		return
 	_start_direct(false)
 
+func _stop_direct() -> void:
+	direct.stop()
+	rtc.stop()
+	direct_wanted = false
+	direct_offer = {}
+	partner_offer = {}
+
 func _start_direct(reply: bool) -> void:
-	if not direct.enabled:
-		var offer: Dictionary = direct.start()
-		if offer.is_empty():
-			direct_status_changed.emit("Direct links need the desktop game.", false)
-			return
-		direct_offer = offer.merged({"on": true})
+	if direct_offer.is_empty():
+		# Desktop games listen for a LAN connection; browsers offer WebRTC instead.
+		var lan: Dictionary = direct.start()
+		var key: String = lan.get("key", Crypto.new().generate_random_bytes(16).hex_encode())
+		direct_offer = {"on": true, "addrs": lan.get("addrs", PackedStringArray()), "port": lan.get("port", 0), "key": key, "rtc": rtc_available}
 	direct_wanted = true
 	relay.send_direct(direct_offer.merged({"reply": reply}, true))
-	if not direct.is_linked():
-		var listening := "listening on port %d" % direct.port if direct.port > 0 else "not listening (port busy or blocked)"
-		direct_status_changed.emit("Looking for your partner on this network (%s: %s)…" % [", ".join(direct_offer.addrs), listening], true)
+	_choose_direct_path()
 
 func _partner_direct_offer(offer: Dictionary) -> void:
 	if not offer.get("on", false):
-		direct.stop()
-		direct_wanted = false
-		direct_offer = {}
+		_stop_direct()
 		direct_status_changed.emit("Your partner turned the direct link off. Using the internet relay.", false)
 		return
-	# Follow the partner: listen too, answer with our addresses once, and dial theirs.
-	if not direct.enabled or not offer.get("reply", false):
+	partner_offer = offer
+	# Follow the partner: answer with our own offer once, then pick a path.
+	if direct_offer.is_empty() or not offer.get("reply", false):
 		_start_direct(true)
-	direct.set_partner(offer.get("addrs", []), int(offer.get("port", 0)), str(offer.get("key", "")))
+	else:
+		_choose_direct_path()
 
-func _direct_link_changed(address: String) -> void:
+func _choose_direct_path() -> void:
+	if partner_offer.is_empty() or direct_offer.is_empty():
+		direct_status_changed.emit("Direct link on. Waiting for your partner's game to answer…", true)
+		return
+	if direct_offer.rtc and partner_offer.get("rtc", false):
+		direct.stop()
+		if not rtc.enabled:
+			# Both sides agree who makes the WebRTC offer: the smaller key.
+			rtc.begin(str(direct_offer.key) < str(partner_offer.get("key", "")))
+		if not rtc.is_linked():
+			direct_status_changed.emit("Connecting peer-to-peer (WebRTC)…", true)
+	elif direct.enabled and not (Array(direct_offer.addrs).is_empty() and Array(partner_offer.get("addrs", [])).is_empty()):
+		direct.set_partner(partner_offer.get("addrs", []), int(partner_offer.get("port", 0)), str(partner_offer.get("key", "")))
+		if not direct.is_linked():
+			var listening := "listening on port %d" % direct.port if direct.port > 0 else "not listening (port busy or blocked)"
+			direct_status_changed.emit("Looking for your partner on this network (%s: %s)…" % [", ".join(direct_offer.addrs), listening], true)
+	else:
+		direct_status_changed.emit("A direct link needs both players in the browser, or both in the desktop game. Using the internet relay.", true)
+
+func peer_link() -> Node:
+	if rtc.is_linked():
+		return rtc
+	if direct.is_linked():
+		return direct
+	return null
+
+func peer_link_address() -> String:
+	var link := peer_link()
+	return "" if link == null else link.partner_address()
+
+func _direct_link_changed(_address: String) -> void:
 	# Re-send the road map over whichever path now carries the game.
 	last_graph_revision = -1
+	var address := peer_link_address()
 	if address.is_empty():
 		Log.event("direct_link_lost")
 		if direct_wanted:
 			direct_status_changed.emit("Direct link lost. Using the internet relay and retrying…", true)
 	else:
-		Log.event("direct_link_up", {"outgoing": bool(direct.active.outgoing)})
-		direct_status_changed.emit("Direct link to %s. Game data skips the internet." % address, true)
+		Log.event("direct_link_up", {"path": "webrtc" if rtc.is_linked() else "lan"})
+		direct_status_changed.emit("Direct link: %s. Game data skips the relay." % address, true)
 
 ## Both players are in the room right now, so seats can be swapped.
 func can_swap() -> bool:
@@ -313,9 +360,7 @@ func stop() -> void:
 	if relay != null:
 		relay.stop()
 	if direct != null:
-		direct.stop()
-	direct_wanted = false
-	direct_offer = {}
+		_stop_direct()
 	online = false
 	recovering = false
 	lan_url = ""
@@ -421,13 +466,14 @@ func _process(delta: float) -> void:
 		snapshot_timer += network_delta
 		graph_timer += network_delta
 		# Do not pile new snapshots behind a slow connection.
-		var buffered: int = (direct.buffered_bytes() if direct.is_linked() else relay.buffered_bytes()) if online else peer.get_peer(navigator_id).get_current_outbound_buffered_amount()
+		var link := peer_link()
+		var buffered: int = (link.buffered_bytes() if link != null else relay.buffered_bytes()) if online else peer.get_peer(navigator_id).get_current_outbound_buffered_amount()
 		if buffered > 32768:
 			return
 		if world.graph_revision != last_graph_revision and (graph_timer > 0.25 or car.recovery_grace > 0):
 			graph_timer = 0.0
 			if online:
-				var sent: bool = direct.send({"type": "graph", "roads": Wire.graph_to_json(world.export_graph())}) if direct.is_linked() else relay.send_graph(world.export_graph())
+				var sent: bool = link.send({"type": "graph", "roads": Wire.graph_to_json(world.export_graph())}) if link != null else relay.send_graph(world.export_graph())
 				if sent:
 					last_graph_revision = world.graph_revision
 			else:
@@ -452,7 +498,7 @@ func _process(delta: float) -> void:
 				sequence += 1
 				var snapshot := {"seq": sequence, "time": now, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength, "tires": car.punctured_tires, "police": police.snapshot(), "challenge_time": world.challenge_time, "damage": car.damage.health_array()}
 				if online:
-					if not (direct.is_linked() and direct.send({"type": "snapshot", "state": Wire.snapshot_to_json(snapshot)})):
+					if not (link != null and link.send({"type": "snapshot", "state": Wire.snapshot_to_json(snapshot)})):
 						relay.send_snapshot(snapshot)
 				else:
 					_receive_snapshot.rpc_id(navigator_id, snapshot)
@@ -460,7 +506,7 @@ func _process(delta: float) -> void:
 				pose_sequence += 1
 				var pose := {"seq": pose_sequence, "time": now, "reset": reset_serial, "transform": car.global_transform, "velocity": car.linear_velocity, "angular_velocity": car.angular_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "grounded": car.grounded_wheels, "wheels": wheels}
 				if online:
-					if not (direct.is_linked() and direct.send({"type": "pose", "state": Wire.pose_to_json(pose)})):
+					if not (link != null and link.send({"type": "pose", "state": Wire.pose_to_json(pose)})):
 						relay.send_pose(pose)
 				else:
 					_receive_pose.rpc_id(navigator_id, pose)

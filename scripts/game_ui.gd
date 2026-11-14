@@ -339,14 +339,13 @@ func _build_menu() -> void:
 	join_row.add_child(join_code_button)
 	# Same-network shortcut: game data goes straight between the two computers.
 	direct_toggle = CheckButton.new()
-	direct_toggle.text = "Direct connection (same Wi-Fi / network)"
+	direct_toggle.text = "Direct connection (peer-to-peer)"
 	direct_toggle.add_theme_font_size_override("font_size", 14)
 	direct_toggle.toggled.connect(func(on: bool):
 		_save_preferences()
 		direct_toggled.emit(on))
-	direct_toggle.visible = not OS.has_feature("web")
 	box.add_child(direct_toggle)
-	direct_label = _label("Only works when you're both on the same local network. Not encrypted. Falls back to the internet if it can't connect.", 12, muted)
+	direct_label = _label("Sends the car straight between your two games instead of through the server: smoother. Works best on the same network. Both in the browser (WebRTC), or both in the desktop game. Falls back to the server if it can't connect.", 12, muted)
 	direct_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	direct_label.visible = direct_toggle.visible
 	box.add_child(direct_label)
