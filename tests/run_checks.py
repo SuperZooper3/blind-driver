@@ -185,6 +185,10 @@ if __name__ == "__main__":
         print(surface.stdout)
         if surface.returncode or "FAIL:" in surface.stdout or "SCRIPT ERROR" in surface.stderr:
             sys.exit(surface.stderr or "Road surface continuity check failed")
+        seasons = subprocess.run(command("tests/season_smoke.gd", temporary / "seasons.log"), capture_output=True, text=True, timeout=20)
+        print(seasons.stdout)
+        if seasons.returncode or "FAIL:" in seasons.stdout or "SCRIPT ERROR" in seasons.stderr:
+            sys.exit(seasons.stderr or "Season visual/mechanics check failed")
         direction = subprocess.run(command("tests/direction_warning_smoke.gd", temporary / "direction.log"), capture_output=True, text=True, timeout=20)
         print(direction.stdout)
         if direction.returncode or "FAIL:" in direction.stdout or "SCRIPT ERROR" in direction.stderr:

@@ -18,7 +18,7 @@ static func contains(hazard: Dictionary, point: Vector3, margin: float = 0.0) ->
 	var inset := 24.0 if end_distance == 0 else (16.0 if end_distance == 1 else (8.0 if end_distance % 3 == 2 else 0.0))
 	return absf(point.x - hazard.position.x) < hazard.size.x * 0.5 - inset
 
-static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh) -> void:
+static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh, seasons: RefCounted = null) -> void:
 	if is_void(hazard):
 		_render_void(parent, hazard)
 		return
@@ -38,10 +38,15 @@ static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh) -> void:
 			rock.create_convex_collision()
 			Geo.sphere(root, 0.45, Vector3(1.6, 0.2, -0.6), stone).create_convex_collision()
 		"tree":
-			Geo.cylinder(root, 0.62, 4.5, Vector3.UP * 2.25, Geo.material(Color("594937")), 0.4).create_convex_collision()
-			var leaves := Geo.material(Color.WHITE)
-			leaves.vertex_color_use_as_albedo = true
-			Geo.instance(root, tree_mesh, Vector3.ZERO, leaves)
+			var bark: Material = seasons.bark_material if seasons != null else Geo.material(Color("594937"))
+			Geo.cylinder(root, 0.62, 4.5, Vector3.UP * 2.25, bark, 0.4).create_convex_collision()
+			if seasons != null:
+				var trees: Array[Transform3D] = [Transform3D.IDENTITY]
+				seasons.add_trees(root, trees)
+			else:
+				var leaves := Geo.material(Color.WHITE)
+				leaves.vertex_color_use_as_albedo = true
+				Geo.instance(root, tree_mesh, Vector3.ZERO, leaves)
 		"ramp":
 			# A half-width ramp pitches one side of the car up: approach slowly or roll.
 			_wedge(root, Vector3.ZERO, 2.2, 4.0, 1.8, orange)
@@ -79,17 +84,44 @@ static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh) -> void:
 					var spike := Geo.cylinder(root, 0.07, 0.38, Vector3(-1.875 + i * 0.25, 0.28, row), red, 0.0, 6)
 					spike.rotation.x = 0.3 if row < 0 else -0.3
 		"spike_sign":
-			# A roadside warning, 100 m before the strip.
-			Geo.cylinder(root, 0.07, 2.4, Vector3(0, 1.2, 0), Geo.material(Color("8a8f8c")), -1.0, 8).create_convex_collision()
-			var board := Geo.box(root, Vector3(1.3, 1.3, 0.06), Vector3(0, 2.3, 0.05), Geo.material(Color("f2c318")))
-			board.rotation.z = PI / 4.0
-			var text := Label3D.new()
-			text.text = "SPIKES\nAHEAD\n100 m"
-			text.font_size = 46
-			text.outline_size = 0
-			text.modulate = Color("1b1b1b")
-			text.position = Vector3(0, 2.3, 0.1)
-			root.add_child(text)
+			_render_spike_sign(root)
+
+static func _render_spike_sign(root: Node3D) -> void:
+	# Oversized, two-sided pictogram. The only lettering is the warning distance.
+	var yellow := Geo.material(Color("ffcf16"))
+	yellow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var black := Geo.material(Color("131713"))
+	black.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	for x in [-0.8, 0.8]:
+		Geo.cylinder(root, 0.07, 3.5, Vector3(x, 1.75, 0), Geo.material(Color("8a8f8c")), -1.0, 8).create_convex_collision()
+	var border := Geo.box(root, Vector3(2.45, 2.45, 0.12), Vector3(0, 3.6, 0), black)
+	border.name = "SpikeWarningBoard"
+	border.rotation.z = PI / 4.0
+	for face in [-1.0, 1.0]:
+		var board := Geo.box(root, Vector3(2.29, 2.29, 0.025), Vector3(0, 3.6, face * 0.075), yellow)
+		board.rotation.z = PI / 4.0
+		var icon := Node3D.new()
+		icon.name = "SpikeIcon"
+		root.add_child(icon)
+		icon.position = Vector3(0, 3.45, face * 0.1)
+		icon.rotation.y = PI if face < 0 else 0.0
+		Geo.box(icon, Vector3(1.9, 0.16, 0.025), Vector3(0, -0.25, 0), black)
+		var vertices := PackedVector3Array()
+		for i in 5:
+			var x := -0.76 + i * 0.38
+			vertices.append_array(PackedVector3Array([Vector3(x - 0.17, -0.18, 0.02), Vector3(x + 0.17, -0.18, 0.02), Vector3(x, 0.64, 0.02)]))
+		Geo.instance(icon, Geo.mesh_from_triangles(vertices), Vector3.ZERO, black)
+		Geo.box(root, Vector3(1.95, 0.79, 0.05), Vector3(0, 1.65, face * 0.07), black)
+		Geo.box(root, Vector3(1.81, 0.65, 0.025), Vector3(0, 1.65, face * 0.11), yellow)
+		var distance := Label3D.new()
+		distance.text = "100 m"
+		distance.font_size = 100
+		distance.pixel_size = 0.005
+		distance.outline_size = 0
+		distance.modulate = Color("131713")
+		distance.position = Vector3(0, 1.65, face * 0.14)
+		distance.rotation.y = PI if face < 0 else 0.0
+		root.add_child(distance)
 
 static func _wedge(parent: Node3D, at: Vector3, width: float, length: float, height: float, mat: Material, rounded: bool = false) -> void:
 	var a := at + Vector3(-width / 2, 0, length / 2)

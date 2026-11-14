@@ -54,6 +54,10 @@ var intro_run_id := -1
 var intro_clear := false
 var intro: Node3D
 var repair_notice_time := 0.0
+var seasonal_environment: Environment
+var seasonal_sky: ProceduralSkyMaterial
+var seasonal_sun: DirectionalLight3D
+var environment_season := -1
 
 func _ready() -> void:
 	ai_options = AICapture.read_options()
@@ -247,6 +251,22 @@ func _setup_environment() -> void:
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 130.0
 	add_child(sun)
+	seasonal_environment = env
+	seasonal_sky = sky_material
+	seasonal_sun = sun
+	_apply_season_environment(0)
+
+func _apply_season_environment(stage: int) -> void:
+	if environment_season == stage:
+		return
+	environment_season = stage
+	var palette: Dictionary = World.Seasons.PALETTES[stage]
+	seasonal_sky.sky_top_color = Color(palette.sky)
+	seasonal_sky.sky_horizon_color = Color(palette.horizon)
+	seasonal_sky.ground_horizon_color = Color(palette.horizon)
+	seasonal_sky.ground_bottom_color = Color(palette.ground_low)
+	seasonal_environment.fog_light_color = Color(palette.fog)
+	seasonal_sun.light_color = Color(palette.sun)
 
 func _make_view(view_name: String) -> SubViewport:
 	var view := SubViewport.new()
@@ -282,6 +302,10 @@ func _resize_views() -> void:
 
 func _process(delta: float) -> void:
 	world.focus = car.global_position
+	# Distance is already replicated to both seats, including reconnects and resets.
+	var season := 0 if world.basic_course else World.heat_for_distance(car.distance_driven)
+	world.set_season(season)
+	_apply_season_environment(season)
 	looking_back = mode not in ["host", "ai"] and not ui.in_menu and car.run_state == "driving" and (Input.is_action_pressed("look_back") or ui.rear_button_held)
 	if looking_back and ui.map_open:
 		ui.close_map()

@@ -12,6 +12,9 @@ var saw_restart := false
 var saw_puncture := false
 var saw_rollover := false
 var saw_caught := false
+var saw_summer := false
+var saw_winter := false
+var saw_hell := false
 var saw_graph := false
 var saw_reconnect := false
 var finished := false
@@ -122,6 +125,7 @@ func _tick() -> void:
 			phase = 1
 		saw_fall = saw_fall or game.car.run_state == "falling"
 		if game.car.run_state == "game_over" and game.car.run_id == 0:
+			saw_summer = saw_summer or game.world.seasons.stage == 1
 			saw_over = absf(game.car.distance_driven - 1234.0) < 1.0 and game.ui.result_panel.visible and not game.ui.restart_button.visible
 			if phase == 1:
 				# Drop this socket during Game Over. Normal recovery must restore that same outcome.
@@ -134,6 +138,7 @@ func _tick() -> void:
 			elif phase == 2 and not game.session.recovering and game.session.snapshots_received > 120:
 				saw_reconnect = true
 		if game.car.run_id == 1 and game.car.run_state == "game_over":
+			saw_winter = saw_winter or game.world.seasons.stage == 3
 			saw_puncture = game.car.punctured_tires != 0 and game.car.crash_reason.contains("shredded") and absf(game.car.distance_driven - 2345.0) < 1.0 and game.ui.result_panel.visible
 			for i in game.car.wheel_pivots.size():
 				if game.car.punctured_tires & (1 << i):
@@ -143,10 +148,12 @@ func _tick() -> void:
 		if game.car.run_id == 3 and game.car.run_state == "game_over":
 			# Keep the observation: a reset snapshot can move the car to spawn
 			# before the next interpolation tick updates its run_id.
+			saw_hell = saw_hell or game.world.seasons.stage == 4
 			saw_caught = saw_caught or (game.car.crash_reason.contains("police") and game.police.phase == "caught" and game.ui.result_panel.visible and absf(game.car.distance_driven - 3456.0) < 1.0 and game.car.global_position.x > 12)
-		if game.car.run_id == 4 and game.car.run_state == "driving":
-			saw_restart = game.car.distance_driven < 2.0 and game.car.punctured_tires == 0 and game.world.roads[0].id > 0 and game.car.global_position.distance_to(Vector3(0, 1.6, 12)) < 2.0 and game.records.best_distance >= 3456.0 and game.police.phase == "waiting" and game.police.catch_time == 0
-			_finish(saw_graph and saw_fall and saw_over and saw_restart and saw_reconnect and saw_puncture and saw_rollover and saw_caught, "navigator matches hazards=%s fall=%s result=%s reconnect=%s restart=%s puncture=%s rollover=%s caught=%s" % [saw_graph, saw_fall, saw_over, saw_reconnect, saw_restart, saw_puncture, saw_rollover, saw_caught])
+		# The visual palette follows the received distance on the next render frame.
+		if game.car.run_id == 4 and game.car.run_state == "driving" and game.world.seasons.stage == 0:
+			saw_restart = game.car.distance_driven < 2.0 and game.car.punctured_tires == 0 and game.world.roads[0].id > 0 and game.car.global_position.distance_to(Vector3(0, 1.6, 12)) < 2.0 and game.records.best_distance >= 3456.0 and game.police.phase == "waiting" and game.police.catch_time == 0 and game.world.seasons.stage == 0
+			_finish(saw_graph and saw_fall and saw_over and saw_restart and saw_reconnect and saw_puncture and saw_rollover and saw_caught and saw_summer and saw_winter and saw_hell, "navigator matches hazards=%s fall=%s result=%s reconnect=%s restart=%s puncture=%s rollover=%s caught=%s seasons=%s" % [saw_graph, saw_fall, saw_over, saw_reconnect, saw_restart, saw_puncture, saw_rollover, saw_caught, saw_summer and saw_winter and saw_hell])
 	if elapsed > 38.0:
 		_finish(false, "hazard network probe timed out at phase %d" % phase)
 

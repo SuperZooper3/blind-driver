@@ -2,6 +2,7 @@ extends Node3D
 ## A bounded road graph with rejoining route choices, terminal roads, and distance-based heat.
 ## Geometry/decoration are disposable; road records are also used by the map/network.
 
+const Seasons = preload("res://scripts/season_style.gd")
 const Geo = preload("res://scripts/geometry.gd")
 const Hazards = preload("res://scripts/road_hazards.gd")
 const Challenge = preload("res://scripts/road_challenge.gd")
@@ -30,6 +31,7 @@ const SPIKE_MIN_DIFFICULTY := 3
 const SPIKE_WARNING := 100.0
 const PROFILES := ["main", "scenic", "rough", "culdesac", "cliff"]
 var difficulty := 0
+var seasons := Seasons.new()
 ## Opt-in harness curriculum; ordinary play retains the original generator.
 var basic_course := false
 var world_seed := 72419
@@ -45,9 +47,8 @@ var focus := Vector3.ZERO
 var road_material: StandardMaterial3D
 var shoulder_material: StandardMaterial3D
 var stripe_material: StandardMaterial3D
-var terrain_material: StandardMaterial3D
+var terrain_material: ShaderMaterial
 var trunk_material: StandardMaterial3D
-var leaf_material: StandardMaterial3D
 var rock_material: StandardMaterial3D
 var timer := 0.0
 var last_tile := Vector2i(99999, 99999)
@@ -62,13 +63,8 @@ func _ready() -> void:
 	road_material = Geo.material(Color("726b57"))
 	shoulder_material = Geo.material(Color("9b9271"))
 	stripe_material = Geo.material(Color("dbcb91"))
-	terrain_material = Geo.material(Color.WHITE)
-	terrain_material.vertex_color_use_as_albedo = true
-	terrain_material.vertex_color_is_srgb = true
-	trunk_material = Geo.material(Color("4a4234"))
-	leaf_material = Geo.material(Color.WHITE)
-	leaf_material.vertex_color_use_as_albedo = true
-	leaf_material.vertex_color_is_srgb = true
+	terrain_material = seasons.terrain_material
+	trunk_material = seasons.bark_material
 	rock_material = Geo.material(Color("838a7e"))
 	_build_tree_mesh()
 	if allow_generation:
@@ -84,6 +80,15 @@ static func ground_point(x: float, z: float, lift: float = 0.0) -> Vector3:
 
 static func heat_for_distance(distance: float) -> int:
 	return clampi(floori(distance / HEAT_DISTANCE), 0, 4)
+
+func set_season(value: int) -> bool:
+	value = clampi(value, 0, 4)
+	if seasons.stage == value:
+		return false
+	seasons.set_stage(value)
+	for trees: Node3D in find_children("SeasonalTrees", "Node3D", true, false):
+		seasons.apply_to_trees(trees)
+	return true
 
 func _process(delta: float) -> void:
 	timer += delta
@@ -313,6 +318,7 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 
 func reset_world() -> void:
 	difficulty = 0
+	set_season(0)
 	set_challenge_time(0.0)
 	jumped_gaps.clear()
 	for road: Dictionary in roads:
@@ -401,7 +407,7 @@ func _render_road(road: Dictionary) -> void:
 	var challenges: Array[Node3D] = []
 	var points: PackedVector3Array = road.points
 	for hazard: Dictionary in road.hazards:
-		Hazards.render(root, hazard, tree_mesh)
+		Hazards.render(root, hazard, tree_mesh, seasons)
 		if Challenge.is_challenge(hazard):
 			var challenge := Challenge.new()
 			root.add_child(challenge)
@@ -704,26 +710,13 @@ func _build_tile(key: Vector2i) -> void:
 				continue
 			var rotation := fposmod(p.x * 7.13 + p.z * 3.71, TAU)
 			thorns.append(Transform3D(Basis(Vector3.UP, rotation), p))
-	_multimesh(root, thorn_mesh, leaf_material, thorns)
-	_multimesh(root, tree_mesh, leaf_material, trees)
+	_multimesh(root, thorn_mesh, seasons.undergrowth_material, thorns)
+	seasons.add_trees(root, trees)
 	_multimesh(root, trunk_mesh, trunk_material, trunks)
 	_multimesh(root, rock_mesh, rock_material, rocks)
 
 func _build_tree_mesh() -> void:
-	var vertices := PackedVector3Array()
-	var colors := PackedColorArray()
-	for tier in 3:
-		var radius := 2.25 - tier * 0.48
-		var base := 1.6 + tier * 1.65
-		for side in 6:
-			var angle := side * TAU / 6.0
-			var a := Vector3(cos(angle) * radius, base, sin(angle) * radius)
-			var b := Vector3(cos(angle + TAU / 6.0) * radius, base, sin(angle + TAU / 6.0) * radius)
-			vertices.append_array(PackedVector3Array([a, Vector3(0, base + 3.7, 0), b]))
-			var shade := Color("284c41").lerp(Color("507359"), float((side + tier) % 3) / 3.0)
-			for _j in 3:
-				colors.append(shade)
-	tree_mesh = Geo.mesh_from_triangles(vertices, colors)
+	tree_mesh = seasons.canopies[1]
 	trunk_mesh = CylinderMesh.new()
 	trunk_mesh.height = 3.6
 	trunk_mesh.top_radius = 0.22
