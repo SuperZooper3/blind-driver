@@ -131,6 +131,13 @@ class GeminiTests(unittest.TestCase):
         self.assertGreater(observed["timing"]["since_previous_observation_sim_seconds"], 0)
         self.assertGreater(observed["timing"]["previous_request_latency_real_seconds"], 0)
         self.assertFalse(any(e["event"] == "message" and e["role"] == "driver" for e in f.events))
+        started = f.coordinator.held_since["driver"]["W"]
+        f.executor.complete(2, (action(hold=["W"]), {"input_tokens": 2000}))
+        f.tick(); f.tick(seconds=4)
+        self.assertEqual(f.coordinator.held_since["driver"]["W"], started)
+        later = f.coordinator.seats["driver"].context["observation"]
+        self.assertGreater(later["timing"]["held_for_sim_seconds"]["W"],
+                           observed["timing"]["held_for_sim_seconds"]["W"])
 
     def test_429_releases_controls_and_waits_without_blocking_navigator(self):
         f = self.started_fixture()

@@ -168,8 +168,8 @@ their existing defaults and two-way dialogue.
   bounded text history, uses B/M/C normally, and sends concrete instructions. It
   is told the driver cannot answer questions and must verify progress visually.
 - **Timing:** each request includes simulation time/speed, elapsed simulation
-  time since the seat's previous observation and control acknowledgment, previous
-  API latency, and delivered instruction ages. The driver waits for the first
+  time since the seat's previous observation and control acknowledgment, continuous
+  held-key durations, previous API latency, and delivered instruction ages. The driver waits for the first
   accepted navigator instruction before spending its first API call. Afterwards,
   each seat runs as soon as its fresh observation, acknowledgment and quota permit.
 

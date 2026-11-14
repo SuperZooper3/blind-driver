@@ -55,6 +55,7 @@ class AgentCoordinator:
         self.memories = {role: WorkingMemory(args.memory_every if getattr(agents[role], "supports_memory", True) else 0)
                          for role in ROLES}
         self.team = TeamContext()
+        self.held_since = {role: {} for role in ROLES}
         self.rate = RateBudget(args.rpm if args.provider != "scripted" else 120 / args.scripted_interval, clock)
         self.role_next = {role: 0.0 for role in ROLES}
         self.token_windows = ({role: InputTokenWindow(getattr(args, role + "_tpm", 40000), clock)
@@ -151,6 +152,8 @@ class AgentCoordinator:
                 sim_time=state["sim_time"], observation_sim=observed["sim_time"],
                 error=state.get("input_error", ""), observation=observed)
             if accepted:
+                self.held_since[role] = {key: self.held_since[role].get(key, state["sim_time"])
+                                         for key in action["hold"]}
                 self.memories[role].record(observed, context["delivered"], action, state["sim_time"])
                 if message:
                     other = "driver" if role == "navigator" else "navigator"
@@ -193,6 +196,7 @@ class AgentCoordinator:
                     # Release even after a timeout/invalid answer: held steering
                     # must not persist throughout a potentially long cooldown.
                     self.command(role, "keys", hold=[], tap=[], observation_sim=latest[role]["sim_time"])
+                    self.held_since[role] = {}
                     self.log("controls_released", role=role, reason="provider_error", sim_time=latest[role]["sim_time"])
                 if isinstance(exc, GeminiAPIError):
                     details.update(self.provider_cooldown(role, exc))
@@ -218,6 +222,7 @@ class AgentCoordinator:
                     continue
                 if seat.idle and not self.token_windows[role].ready() and not seat.quota_released:
                     self.command(role, "keys", hold=[], tap=[], observation_sim=state["sim_time"])
+                    self.held_since[role] = {}
                     seat.quota_released = True
                     self.log("controls_released", role=role, reason="input_token_cooldown", sim_time=state["sim_time"])
             if not seat.ready(state, self.clock()) or not self.role_ready(role) or self.budget_reason:
@@ -237,6 +242,8 @@ class AgentCoordinator:
                         if accepted else None),
                     "previous_request_latency_real_seconds": round(seat.last_latency_real, 3),
                     "minimum_request_interval_real_seconds": 60 / getattr(self.args, role + "_rpm", 10),
+                    "held_for_sim_seconds": {key: round(max(0, state["sim_time"] - since), 3)
+                        for key, since in self.held_since[role].items() if key in state["held"]},
                 }
                 seat.last_observation_sim = state["sim_time"]
             path = self.directory / role / state["image"]
