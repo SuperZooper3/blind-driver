@@ -1,4 +1,4 @@
-"""One shared Godot simulation, two complete seat views, alternating visual agents."""
+"""One shared Godot simulation, two complete seat views, independent concurrent visual agents."""
 from __future__ import annotations
 
 import concurrent.futures
@@ -12,10 +12,9 @@ import subprocess
 import time
 import uuid
 
-from .agents import CohereAgent, InvalidModelResponse, ScriptedAgent, PROMPT_REVISION, prompt, validate_action
-from .context import TeamContext
+from .agents import CohereAgent, ScriptedAgent, PROMPT_REVISION, prompt
+from .coordinator import AgentCoordinator
 from .monitor import ConsoleMonitor
-from .memory import RateBudget, WorkingMemory
 from .scoring import DEFAULT_SCORING
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -95,8 +94,9 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     directory = output_root / run_id
     directory.mkdir(parents=True, mode=0o700)
     (directory / ".gdignore").touch()
-    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 5,
+    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 8,
                 "prompt_revision": PROMPT_REVISION,
+                "scheduling_policy": "independent_seats_v1",
                 "prototype": prototype_number(),
                 "communication_policy": "optional speech; last 8 delivered messages with ages; own action acknowledgments",
                 "hold_policy": "until_replaced",
@@ -127,14 +127,10 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     errors = []
     reason = "infrastructure_error"
     latest = {}
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="visual-agent")
-    future = None
-    request_context = {}
-    memories = {role: WorkingMemory(args.memory_every) for role in ROLES}
-    team = TeamContext()
-    heard = {role: 0 for role in ROLES}
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="visual-agent")
+    coordinator = None
+    recap_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="agent-recap")
     heartbeat = 0.0
-    rate = RateBudget(args.rpm if args.provider == "cohere" else 120 / args.scripted_interval)
     events_file = (directory / "events.jsonl").open("w", encoding="utf-8")
 
     def log(event: str, **fields) -> dict:
@@ -156,30 +152,6 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     def stop_requested():
         control = read_json(directory / "control.json")
         return control.get("run_id") == run_id and control.get("action") == "stop"
-
-    def collect_memory(role, *, ending=False):
-        nonlocal input_tokens, output_tokens, usage_known_requests
-        memory = memories[role]
-        pending = memory.pending
-        if not pending or (not ending and not pending["future"].done()):
-            return
-        try:
-            recap, usage = memory.finish()
-            input_tokens += int(usage.get("input_tokens", 0))
-            output_tokens += int(usage.get("output_tokens", 0))
-            usage_known_requests += 1
-            log("memory_response", role=role, request_id=pending["request_id"], memory=recap,
-                latency_seconds=time.monotonic() - pending["started"], usage=usage,
-                sim_time=latest.get(role, {}).get("sim_time", 0))
-        except Exception as exc:
-            detail = {}
-            if isinstance(exc, InvalidModelResponse):
-                input_tokens += int(exc.usage.get("input_tokens", 0))
-                output_tokens += int(exc.usage.get("output_tokens", 0))
-                usage_known_requests += 1
-                detail["usage"] = exc.usage
-            log("memory_error", role=role, request_id=pending["request_id"],
-                error=str(exc)[:250] if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__, **detail)
 
     status("starting")
     try:
@@ -233,13 +205,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
             command(role, "start")
         start = time.monotonic()
         status("running")
-        log("episode_started", speed=args.speed, seed=args.seed, provider=args.provider)
-        inbox = {role: [] for role in ROLES}
-        turn = 0
-        next_request = start
-        request_context = {}
-        pending_ack = None
-        error_streak = {role: 0 for role in ROLES}
+        log("episode_started", speed=args.speed, seed=args.seed, provider=args.provider, scheduling_policy="independent_seats_v1")
+        coordinator = AgentCoordinator(args, directory, agents, executor, recap_executor, log, command)
         while True:
             if stop_requested():
                 reason = "operator_stop"
@@ -247,8 +214,6 @@ def run_episode(args, *, prepared: bool = False) -> Path:
             if time.monotonic() - heartbeat > 1:
                 status("running")
                 heartbeat = time.monotonic()
-            for memory_role in ROLES:
-                collect_memory(memory_role)
             latest = {role: read_json(directory / role / "latest.json") for role in ROLES}
             if any(p.poll() is not None for p in processes.values()):
                 raise RuntimeError("Game exited during episode")
@@ -271,101 +236,10 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 time.sleep(0.05)
                 continue
 
-            if pending_ack:
-                role, seq, action, latency, context = pending_ack
-                observed = context["observation"]
-                state = latest[role]
-                if state.get("sequence", -1) >= seq:
-                    accepted = state.get("applied_sequence") == seq
-                    log("action_ack", role=role, sequence=seq, accepted=accepted,
-                        sim_time=state["sim_time"], held=state["held"], error=state.get("input_error", ""),
-                        request_id=context["request_id"],
-                        action={k: action[k] for k in ("hold", "tap", "steering_pulse_sim", "pedal_pulse_sim") if k in action})
-                    message = team.acknowledge(role, action, accepted=accepted,
-                        sim_time=state["sim_time"], observation_sim=observed["sim_time"],
-                        error=state.get("input_error", ""))
-                    if accepted:
-                        memories[role].record(observed, context["delivered"], action, state["sim_time"])
-                        if message:
-                            other = "driver" if role == "navigator" else "navigator"
-                            log("message", **message, to=other, latency_seconds=latency,
-                                hold=action["hold"], tap=action["tap"])
-                            inbox[other].append(message)
-                    pending_ack = None
-                    turn += 1
-
-            if future and future.done():
-                role = request_context["role"]
-                latency = time.monotonic() - request_context["started_monotonic"]
-                try:
-                    action, usage = future.result()
-                    action = validate_action(action, role)
-                    input_tokens += int(usage.get("input_tokens", 0))
-                    output_tokens += int(usage.get("output_tokens", 0))
-                    usage_known_requests += 1
-                    log("response", role=role, request_id=request_context["request_id"], action=action,
-                        latency_seconds=latency, usage=usage,
-                        sim_time=latest[role]["sim_time"], observation_sim=request_context["observation"]["sim_time"])
-                    seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap")},
-                                  observation_sim=request_context["observation"]["sim_time"])
-                    pending_ack = role, seq, action, latency, request_context
-                    error_streak[role] = 0
-                except Exception as exc:
-                    error_streak[role] += 1
-                    inbox[role][:0] = request_context["delivered"]
-                    heard[role] = request_context["heard_before"]
-                    details = {}
-                    if isinstance(exc, InvalidModelResponse):
-                        input_tokens += int(exc.usage.get("input_tokens", 0))
-                        output_tokens += int(exc.usage.get("output_tokens", 0))
-                        usage_known_requests += 1
-                        details = {"usage": exc.usage, "details": exc.details}
-                    message = str(exc)[:250] if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__
-                    errors.append({"role": role, "error": message})
-                    log("request_error", role=role, request_id=request_context["request_id"], error=message, latency_seconds=latency, **details)
-                    other = "driver" if role == "navigator" else "navigator"
-                    inbox[other].append({"role": role, "message": "Partner response unavailable this exchange."})
-                    turn += 1
-                future = None
-                if error_streak[role] >= 3:
-                    reason = "provider_errors"
-                    break
-
-            if not future and not pending_ack and time.monotonic() >= next_request:
-                if requests >= args.max_requests:
-                    reason = "request_budget"
-                    break
-                if input_tokens + output_tokens >= args.max_tokens:
-                    reason = "token_budget"
-                    break
-                role = ROLES[turn % 2]
-                other = "driver" if role == "navigator" else "navigator"
-                recap_due = memories[other].due() and requests + 1 < args.max_requests
-                recap_slot = recap_due and rate.take(2)
-                if not recap_slot and not rate.take():
-                    time.sleep(0.04)
-                    continue
-                state = latest[role]
-                observation = team.observation(role, state, memories[role], heard[role])
-                heard_before = heard[role]
-                heard[role] = max([heard[role]] + [e["id"] for e in observation["sound_captions"]])
-                delivered = inbox[role][:]
-                inbox[role].clear()
-                requests += 1
-                request_context = {"role": role, "request_id": requests, "observation": observation, "delivered": delivered, "heard_before": heard_before, "started_monotonic": time.monotonic()}
-                log("request", role=role, request_id=requests, observation=observation,
-                    image=f"{role}/{state['image']}", partner_messages=delivered)
-                future = executor.submit(agents[role].decide, directory / role / state["image"], observation, delivered)
-                interval = args.scripted_interval if args.provider == "scripted" else 0
-                next_request = time.monotonic() + interval
-                # Recap only when a second slot is available; never delay a
-                # driving decision just to accumulate background recap quota.
-                if recap_slot:
-                    requests += 1
-                    pending = memories[other].start(executor, agents[other], requests)
-                    log("memory_request", role=other, request_id=requests,
-                        through_turn=pending["through_turn"], concurrent_action=request_context["request_id"],
-                        sim_time=latest[other]["sim_time"])
+            stop_reason = coordinator.step(latest)
+            if stop_reason:
+                reason = stop_reason
+                break
             time.sleep(0.04)
     except KeyboardInterrupt:
         reason = "operator_stop"
@@ -383,25 +257,14 @@ def run_episode(args, *, prepared: bool = False) -> Path:
             stop_process(process)
         # Stop keys/game first, then account for already-issued calls. No late
         # response is ever applied to a stopped run. Provider timeout bounds this.
-        if future:
-            try:
-                _, usage = future.result()
-                input_tokens += int(usage.get("input_tokens", 0))
-                output_tokens += int(usage.get("output_tokens", 0))
-                usage_known_requests += 1
-                log("response_discarded", role=request_context["role"], request_id=request_context["request_id"],
-                    usage=usage, reason="episode_ended")
-            except InvalidModelResponse as exc:
-                input_tokens += int(exc.usage.get("input_tokens", 0))
-                output_tokens += int(exc.usage.get("output_tokens", 0))
-                usage_known_requests += 1
-                log("response_discarded", role=request_context["role"], request_id=request_context["request_id"],
-                    usage=exc.usage, reason="episode_ended_invalid_response")
-            except Exception:
-                pass
-        for role in ROLES:
-            collect_memory(role, ending=True)
+        if coordinator:
+            coordinator.finish(latest)
+            requests = coordinator.requests
+            input_tokens, output_tokens = coordinator.input_tokens, coordinator.output_tokens
+            usage_known_requests = coordinator.usage_known_requests
+            errors.extend(coordinator.errors)
         executor.shutdown(wait=False, cancel_futures=True)
+        recap_executor.shutdown(wait=False, cancel_futures=True)
         for output in logs:
             output.close()
         log("episode_finished", reason=reason, requests=requests, input_tokens=input_tokens,

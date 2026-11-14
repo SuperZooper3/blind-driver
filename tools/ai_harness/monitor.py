@@ -21,7 +21,7 @@ class ConsoleMonitor:
         self.scoring = manifest.get("scoring")
         self.last_status = 0.0
         self.finished = False
-        self.pending = None
+        self.pending = set()
         self.requests = self.tokens = self.errors = 0
         models = {role: manifest[role + "_model"] if manifest["provider"] != "scripted" else "SCRIPTED (no model calls)"
                   for role in ("driver", "navigator")}
@@ -43,13 +43,13 @@ class ConsoleMonitor:
         prefix = f"[real {elapsed:6.1f}s" + (f" | sim {sim:6.2f}s" if sim is not None else "") + "]"
         detail = None
         if kind == "episode_started":
-            detail = "RUNNING — navigator observes first"
+            detail = "RUNNING — both seats act independently" if item.get("scheduling_policy") else "RUNNING"
         elif kind == "request":
             self.requests += 1
-            self.pending = role
+            self.pending.add(role)
             detail = f"{role} observing frame {item['observation']['frame']} / waiting for model (request {item['request_id']})"
         elif kind == "response":
-            self.pending = None
+            self.pending.discard(role)
             usage = item.get("usage", {})
             self.tokens += usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
             action = item["action"]
@@ -58,6 +58,10 @@ class ConsoleMonitor:
             detail = (f"{role} answered in {item['latency_seconds']:.2f}s | "
                       f"hold={'+'.join(action['hold']) or 'none'} tap={'+'.join(action['tap']) or 'none'} "
                       f"{holding} | awaiting game acknowledgment")
+        elif kind == "response_discarded":
+            self.pending.discard(role)
+            usage = item.get("usage", {})
+            self.tokens += usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
         elif kind == "memory_request":
             self.requests += 1
             detail = f"{role} updating recap through turn {item['through_turn']} in background"
@@ -70,13 +74,15 @@ class ConsoleMonitor:
         elif kind == "action_ack" and not item.get("accepted"):
             detail = f"{role} ACTION REJECTED: {item.get('error', '')}"
         elif kind in {"request_error", "infrastructure_error", "recap_error", "memory_error"}:
-            self.pending = None
+            if kind == "request_error":
+                self.pending.discard(role)
             self.errors += 1
             usage = item.get("usage", {})
             self.tokens += usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
             detail = f"{role} ERROR: {item.get('error', kind)}"
         elif kind == "episode_finished":
             self.finished = True
+            self.pending.clear()
             detail = (f"STOPPED: {item['reason']} | {item['requests']} requests | "
                       f"{item['input_tokens'] + item['output_tokens']} known tokens | "
                       f"usage {'complete' if item.get('usage_complete') else 'incomplete'} | rendering recap…")
@@ -106,7 +112,7 @@ class ConsoleMonitor:
             f"progress {driver.get('forward_progress_m', 0):.1f} m | "
             f"score {score_frame(driver, self.scoring)['score']:.1f} | "
             f"hits {driver.get('impact_events', 0)} | " + " / ".join(keys) +
-            f" | {self.pending + ' thinking' if self.pending else 'between requests'} | "
+            f" | {' + '.join(sorted(self.pending)) + ' thinking' if self.pending else 'between requests'} | "
             f"{self.requests} requests / {self.tokens} known tokens / {self.errors} errors"))
 
 

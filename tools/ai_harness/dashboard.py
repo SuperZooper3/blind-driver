@@ -29,7 +29,7 @@ def snapshot(directory):
     # Explicit public-view fields. Never serve arbitrary run files/config/env.
     run = {k: manifest.get(k) for k in ("run_id", "provider", "speed", "course", "seed",
           "driver_model", "navigator_model", "git_commit", "hold_policy", "engine_mode",
-          "prototype", "sim_seconds", "max_tokens", "max_requests")}
+          "prototype", "sim_seconds", "max_tokens", "max_requests", "scheduling_policy")}
     events = json_lines(directory / "events.jsonl")
     accepted, pending = {}, {}
     control_fields = ("hold", "tap", "steering_pulse_sim", "pedal_pulse_sim", "hold_sim_seconds")
@@ -56,7 +56,7 @@ def snapshot(directory):
             seats[role].update(score_frame(state, manifest.get("scoring")))
             seats[role]["offroad_sim_seconds"] = state.get("offroad_sim_seconds", 0)
     timeline = [{k: e[k] for k in ("event", "unix_time", "sim_time", "role", "to", "message",
-                "request_id", "latency_seconds", "action", "usage", "error", "reason", "requests", "memory", "through_turn", "concurrent_action") if k in e}
+                "request_id", "latency_seconds", "action", "usage", "error", "reason", "requests", "memory", "through_turn", "concurrent_action", "concurrent_actions") if k in e}
                 for e in events if e["event"] in {"request", "response", "message", "request_error",
                     "infrastructure_error", "episode_started", "episode_finished", "recap_error", "recap_ready",
                     "memory_request", "memory_response", "memory_error", "response_discarded"}]
