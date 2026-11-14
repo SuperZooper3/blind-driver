@@ -1,6 +1,7 @@
 extends Control
-## Cracks in the shared windshield, drawn over a seat view. The pattern is fixed
-## per seat and revealed as damage rises, so both players see the same glass.
+## Cracks in the shared windshield. The car paints this pattern into a texture on
+## the glass itself, so each seat sees it in perspective and the chase view sees
+## it from outside. The pattern is fixed and revealed as damage rises.
 
 const CRACKS := 16
 var crack := 0.0:

@@ -29,6 +29,7 @@ func _run() -> void:
 	check(ui.map_panel.position.y > 0 and ui.map_panel.position.y < ui.root.size.y - ui.FOOTER_HEIGHT - 64, "map slides through intermediate positions")
 	await frames(30)
 	check(ui.map_panel.position == Vector2.ZERO and ui.map_panel.size == ui.root.size, "open navigator map covers the full screen")
+	check_cabin(game)
 	ui.set_mode("split")
 	check(ui.map_panel.position.x == ui.root.size.x / 2 and ui.map_panel.size.x == ui.root.size.x / 2, "shared-screen sheet covers only the navigator's entire half")
 	ui.set_mode("host")
@@ -123,3 +124,23 @@ func _run() -> void:
 	game.queue_free()
 	await process_frame
 	quit(1 if failed else 0)
+
+func check_cabin(game) -> void:
+	var car = game.car
+	var Car = load("res://scripts/car.gd")
+	var cracks: MeshInstance3D = car.find_child("WindshieldCracks", true, false)
+	check(cracks != null and cracks.layers & 1 and game.driver_camera.cull_mask & 1, "windshield cracks are painted on the glass, visible to every camera")
+	check(game.ui.find_child("*Cracks*", true, false) == null, "cracks are no longer a flat overlay on the players' screens")
+	car.damage.set_part(car.damage.WINDSHIELD, 0.4)
+	car.update_cabin(0.016)
+	check(is_equal_approx(car.crack_pattern.crack, 0.6), "the glass crack pattern follows windshield damage")
+	car.damage.set_part(car.damage.WINDSHIELD, 1.0)
+	car.update_cabin(0.016)
+	var driver_head: VisualInstance3D = car.find_child("DriverHead", true, false)
+	var navigator_head: VisualInstance3D = car.find_child("NavigatorHead", true, false)
+	check(driver_head != null and navigator_head != null and car.find_child("DriverBody", true, false) != null, "both occupants have a head and a body")
+	var driver_mask: int = game.driver_camera.cull_mask
+	check(not driver_mask & driver_head.layers and driver_mask & navigator_head.layers, "the driver sees the navigator but not their own head")
+	var hands: Array = car.steering_wheel.find_children("DriverHand*", "", false, false)
+	check(hands.size() == 2 and hands[0].layers & driver_mask and car.navigator_hands.find_children("NavigatorHand*", "", false, false).size() == 2, "the driver's hands ride the steering wheel and the navigator holds the map")
+	check(game.ui.map_hands != null and game.ui.map_hands.get_parent() == game.ui.map_clip, "the navigator's hands grip the paper map")

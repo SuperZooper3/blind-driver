@@ -12,12 +12,12 @@ signal online_create_requested(address: String, seat: String)
 signal online_join_requested(address: String, code: String)
 signal online_cancel_requested
 
+const MapHands = preload("res://scripts/map_hands.gd")
 const Settings = preload("res://scripts/lobby_settings.gd")
 const Version = preload("res://scripts/version.gd")
 const Dashboard = preload("res://scripts/dashboard.gd")
 const FOOTER_HEIGHT := 148.0
 const Map = preload("res://scripts/route_map.gd")
-const Cracks = preload("res://scripts/windshield_cracks.gd")
 const ReadableHUD = preload("res://scripts/readable_hud.gd")
 const DirectionWarning = preload("res://scripts/direction_warning.gd")
 var direction_warning: Control
@@ -38,6 +38,7 @@ var hud: Control
 var map: Control
 var map_panel: PanelContainer
 var map_clip: Control
+var map_hands: Control
 var dashboard: Control
 var personal_best_label: Label
 var pursuit_box: VBoxContainer
@@ -58,8 +59,6 @@ var address: LineEdit
 var blur_slider: HSlider
 var hint_label: Label
 var damage_label: Label
-var driver_cracks: Control
-var navigator_cracks: Control
 var in_menu := true
 var map_open := false
 var map_reveal := 0.0
@@ -173,21 +172,8 @@ func _build_views() -> void:
 	navigator_screen.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	navigator_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	views.add_child(navigator_screen)
-	# The same crack seen from each seat: the driver sits left, so it appears further right.
 	driver_screen.clip_contents = true
 	navigator_screen.clip_contents = true
-	driver_cracks = Cracks.new()
-	driver_cracks.origin = Vector2(0.64, 0.3)
-	driver_screen.add_child(driver_cracks)
-	navigator_cracks = Cracks.new()
-	navigator_cracks.origin = Vector2(0.4, 0.3)
-	navigator_screen.add_child(navigator_cracks)
-
-func set_windshield_crack(value: float, chase_view: bool) -> void:
-	driver_cracks.crack = value
-	navigator_cracks.crack = value
-	# The chase camera shows the 3D glass instead.
-	navigator_cracks.visible = not chase_view
 
 func _build_hud() -> void:
 	hud = Control.new()
@@ -271,6 +257,9 @@ func _build_hud() -> void:
 	map = Map.new()
 	map.custom_minimum_size = Vector2(0, 0)
 	map_panel.add_child(map)
+	map_hands = MapHands.new()
+	map_hands.panel = map_panel
+	map_clip.add_child(map_hands)
 	hint_label = _label("", 16, amber)
 	hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	hint_label.position = Vector2(28, -FOOTER_HEIGHT - 90)

@@ -4,6 +4,10 @@ extends RigidBody3D
 
 const Geo = preload("res://scripts/geometry.gd")
 const Damage = preload("res://scripts/car_damage.gd")
+const Cracks = preload("res://scripts/windshield_cracks.gd")
+## Render layers: each seat camera hides only its own occupant's head and body.
+const DRIVER_BODY_LAYER := 4
+const NAVIGATOR_BODY_LAYER := 8
 const SPRING_LENGTH := 0.62
 const WHEEL_RADIUS := 0.36
 const SPRING_STRENGTH := 28000.0
@@ -55,6 +59,10 @@ var recovery_grace := 0
 var recovery_serial := 0
 var impact_strength := 0.0
 var steering_wheel: Node3D
+var crack_pattern: Control
+var crack_view: SubViewport
+var navigator_hands: Node3D
+var cabin_time := 0.0
 var headlights: Array[SpotLight3D] = []
 var lamp_material: StandardMaterial3D
 var damage: Damage
@@ -123,7 +131,8 @@ func _build_model() -> void:
 	Geo.box(self, Vector3(1.8, 0.14, 0.66), Vector3(0, 0.64, -0.58), dark)
 	damage.register(Damage.FRONT_BUMPER, Geo.box(self, Vector3(1.94, 0.19, 0.16), Vector3(0, -0.13, -2.03), trim))
 	damage.register(Damage.REAR_BUMPER, Geo.box(self, Vector3(1.94, 0.19, 0.16), Vector3(0, -0.13, 2.03), trim))
-	# Glass is drawn for the chase view only; seat views get the 2D crack overlay.
+	# The tinted pane is drawn for the chase view only; its cracks are a separate
+	# layer drawn onto the glass for every camera.
 	var glass_mat := Geo.material(Color(0.75, 0.86, 0.86, 0.18), 0.1)
 	glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -138,14 +147,9 @@ func _build_model() -> void:
 		Geo.box(self, Vector3(0.1, 0.5, 2.25), Vector3(x, 0.45, 0.35), paint)
 	for x in [-0.44, 0.44]:
 		Geo.box(self, Vector3(0.62, 0.25, 0.65), Vector3(x, 0.45, 0.35), seat)
-		var seat_back := Geo.box(self, Vector3(0.62, 0.75, 0.18), Vector3(x, 0.83, 0.68), seat)
+		var seat_back := Geo.box(self, Vector3(0.62, 0.55, 0.18), Vector3(x, 0.73, 0.68), seat)
 		# Hide the backrest from both first-person cameras, as with the occupants.
 		seat_back.layers = 2
-		var person := Geo.sphere(self, 0.21, Vector3(x, 1.2, 0.32), Geo.material(Color("c3ad84") if x < 0 else Color("b9ccba")))
-		# Occupants are visible in chase view but hidden from both seat cameras.
-		person.layers = 2
-		var torso := Geo.box(self, Vector3(0.43, 0.52, 0.28), Vector3(x, 0.78, 0.32), dark)
-		torso.layers = 2
 	steering_wheel = Node3D.new()
 	steering_wheel.position = Vector3(-0.44, 0.79, -0.48)
 	steering_wheel.rotation.x = -0.3
@@ -158,6 +162,8 @@ func _build_model() -> void:
 	var ring := Geo.instance(steering_wheel, torus, Vector3.ZERO, rubber)
 	ring.rotation.x = PI / 2.0
 	Geo.box(steering_wheel, Vector3(0.39, 0.04, 0.04), Vector3.ZERO, trim)
+	_build_occupants()
+	_build_windshield_cracks(glass)
 	for i in suspension_points.size():
 		var pivot := Node3D.new()
 		add_child(pivot)
@@ -241,7 +247,80 @@ func _physics_process(delta: float) -> void:
 	wheel_spin += signed_speed * delta / WHEEL_RADIUS
 	steering_wheel.rotation.z = steering * 1.9
 	update_wheel_visuals()
+	update_cabin(delta)
 	update_tire_visuals()
+
+## Simple occupants: a head, a body, and two floating sphere hands each. The
+## driver's hands ride the steering wheel; the navigator's hold a folded map.
+func _build_occupants() -> void:
+	var dark := Geo.material(Color("243632"))
+	for seat in 2:
+		var x := -0.43 if seat == 0 else 0.43
+		var skin := Geo.material(Color("c3ad84") if seat == 0 else Color("b9ccba"))
+		var shirt := dark if seat == 0 else Geo.material(Color("3f4f6a"))
+		var layer := DRIVER_BODY_LAYER if seat == 0 else NAVIGATOR_BODY_LAYER
+		var head := Geo.sphere(self, 0.17, Vector3(x, 1.3, 0.12), skin)
+		head.name = "DriverHead" if seat == 0 else "NavigatorHead"
+		head.layers = layer
+		var torso := Geo.box(self, Vector3(0.42, 0.52, 0.26), Vector3(x, 0.87, 0.32), shirt)
+		torso.name = "DriverBody" if seat == 0 else "NavigatorBody"
+		torso.layers = layer
+		if seat == 0:
+			# Hands stay on the rim and turn with the wheel.
+			for side in [-1.0, 1.0]:
+				var hand := Geo.sphere(steering_wheel, 0.07, Vector3(side * 0.15, 0.14, 0.04), skin)
+				hand.name = "DriverHand"
+		else:
+			navigator_hands = Node3D.new()
+			navigator_hands.name = "NavigatorHands"
+			navigator_hands.position = Vector3(0.24, 0.9, -0.4)
+			navigator_hands.rotation.x = -0.5
+			add_child(navigator_hands)
+			Geo.box(navigator_hands, Vector3(0.36, 0.01, 0.24), Vector3.ZERO, Geo.material(Color("d8d2ad")))
+			for side in [-1.0, 1.0]:
+				var hand := Geo.sphere(navigator_hands, 0.065, Vector3(side * 0.19, 0.02, 0.06), skin)
+				hand.name = "NavigatorHand"
+
+## The same procedural crack pattern as before, now painted onto the glass
+## itself, so it sits on the windshield in every view and stays in perspective.
+func _build_windshield_cracks(glass: Node3D) -> void:
+	crack_view = SubViewport.new()
+	crack_view.name = "CrackTexture"
+	crack_view.size = Vector2i(672, 320)
+	crack_view.transparent_bg = true
+	crack_view.disable_3d = true
+	crack_view.render_target_update_mode = SubViewport.UPDATE_ONCE
+	add_child(crack_view)
+	crack_pattern = Cracks.new()
+	crack_pattern.origin = Vector2(0.56, 0.32)
+	crack_view.add_child(crack_pattern)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_texture = crack_view.get_texture()
+	var quad := QuadMesh.new()
+	# Only the part of the pane below the roof line, seen from inside the cabin.
+	quad.size = Vector2(1.66, 0.79)
+	var overlay := MeshInstance3D.new()
+	overlay.name = "WindshieldCracks"
+	overlay.mesh = quad
+	overlay.material_override = mat
+	# Just inside the pane, toward the cabin.
+	overlay.position = Vector3(0, -0.085, 0.012)
+	glass.add_child(overlay)
+
+## Shared by the driver and the navigator's copy: glass cracks follow damage,
+## and the navigator's map bobs gently with the ride.
+func update_cabin(delta: float) -> void:
+	cabin_time += delta
+	if crack_pattern != null:
+		var value := damage.windshield_crack()
+		if not is_equal_approx(crack_pattern.crack, value):
+			crack_pattern.crack = value
+			crack_view.render_target_update_mode = SubViewport.UPDATE_ONCE
+	if navigator_hands != null:
+		navigator_hands.position.y = 0.9 + sin(cabin_time * 2.3) * 0.012 + clampf(absf(signed_speed) / 40.0, 0, 1) * sin(cabin_time * 11.0) * 0.006
 
 ## Shared by the driver and the navigator's interpolated copy.
 func update_wheel_visuals() -> void:
