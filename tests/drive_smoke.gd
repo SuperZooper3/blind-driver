@@ -164,7 +164,11 @@ func _check_damage(game, car) -> void:
 	check(car.run_state == "driving" and damage.power_scale() < 0.75, "two broken tires cripple the car but do not end the run")
 	damage.set_part(damage.ENGINE, 0.0)
 	await frames(5)
-	check(car.run_state == "game_over" and car.crash_reason.contains("broke down"), "a blown engine with two broken tires ends the run")
+	check(car.run_state == "driving", "a blown engine with two broken tires limps on along the road")
+	game._recover()
+	car.recover(game.world.ground_point(26, 12, 0.17), Vector3.FORWARD)
+	await frames(30)
+	check(car.run_state == "game_over" and car.crash_reason.contains("broke down"), "a blown engine with two broken tires ends the run in the thorn forest")
 	game._restart_run()
 	game.police.phase = "escaped"
 	await frames(30)
@@ -182,7 +186,10 @@ func _check_damage(game, car) -> void:
 	for wheel in 3:
 		damage.set_part(wheel, 0.0)
 	await frames(5)
-	check(car.run_state == "game_over" and car.crash_reason.contains("broke down"), "three broken tires end the run even away from the police")
+	check(car.run_state == "driving", "three broken tires on the road do not end the run")
+	car.recover(game.world.ground_point(26, 12, 0.17), Vector3.FORWARD)
+	await frames(30)
+	check(car.run_state == "game_over" and car.crash_reason.contains("broke down"), "three broken tires end the run in the thorn forest, away from the police")
 	game._restart_run()
 	game.police.phase = "escaped"
 	await frames(30)

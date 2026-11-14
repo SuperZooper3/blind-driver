@@ -88,8 +88,17 @@ func _run() -> void:
 	car.reset_pending = true
 	await frames(20)
 	check(car.punctured_tires != 0 and damage.broken_tires() > 0, "driving over the spikes pops the tires")
-	var spike_kind := false
+	# Shredded tires on the road leave a limping car; only the forest ends the ride.
 	world.basic_course = false
+	for wheel in 4:
+		car.flatten_tire(wheel)
+		damage.set_part(wheel, 0.0)
+	await frames(30)
+	check(car.run_state == "driving", "four flat tires on the road do not end the ride")
+	car.recover(world.ground_point(26, 12, 0.17), Vector3.FORWARD)
+	await frames(30)
+	check(car.run_state == "game_over" and car.crash_reason.contains("shredded"), "shredded tires end the ride in the thorn forest")
+	var spike_kind := false
 	world.difficulty = 2
 	var first_new: int = world.roads.size()
 	for i in 12:
