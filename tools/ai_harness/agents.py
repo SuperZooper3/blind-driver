@@ -13,10 +13,10 @@ from pathlib import Path
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
 DEFAULT_MODEL = "command-a-plus-05-2026"
-PROMPT_REVISION = "grounded-copilot-v8"
+PROMPT_REVISION = "grounded-copilot-v9"
 
 from .prompts import prompt, current_task
-from .actions import translate_decision, decision_schema
+from .actions import translate_decision, decision_schema, validate_guidance
 
 
 class InvalidModelResponse(ValueError):
@@ -26,7 +26,7 @@ class InvalidModelResponse(ValueError):
 
 
 def validate_action(value: object, role: str) -> dict:
-    if not isinstance(value, dict) or not {"hold", "tap", "message"} <= set(value) or set(value) - {"hold", "tap", "message", "notes", "steering_pulse_sim", "pedal_pulse_sim"}:
+    if not isinstance(value, dict) or not {"hold", "tap", "message"} <= set(value) or set(value) - {"hold", "tap", "message", "notes", "steering_pulse_sim", "pedal_pulse_sim", "guidance"}:
         raise ValueError("Expected hold, tap, message, and optional notes only")
     for field, allowed in (("hold", HELD_KEYS[role]), ("tap", TAP_KEYS[role])):
         keys = value[field]
@@ -36,6 +36,10 @@ def validate_action(value: object, role: str) -> dict:
             raise ValueError("Duplicate keys")
     held, tap = set(value["hold"]), set(value["tap"])
     value = dict(value)
+    if "guidance" in value:
+        if role != "navigator":
+            raise ValueError("Only navigator can issue guidance")
+        value["guidance"] = validate_guidance(value["guidance"])
     if {"W", "S"} <= held or {"A", "D"} <= held or ("B" in held and "M" in tap):
         raise ValueError("Conflicting keys")
     if not isinstance(value["message"], str) or len(value["message"]) > 240:
@@ -133,7 +137,7 @@ class CohereAgent:
         # A fresh task, with bounded factual records, avoids training the next
         # response to repeat a long run of previous assistant answers.
         current["content"][0]["text"] = self.system_prompt + "\nCurrent situation:\n" + context
-        if self.history:
+        if self.history and self.role == "navigator":
             current["content"][0]["text"] += "\nEarlier own observations (may be stale): " + json.dumps(self.history, ensure_ascii=False)
         if self.response_feedback:
             current["content"][0]["text"] += "\nResponse feedback: " + self.response_feedback

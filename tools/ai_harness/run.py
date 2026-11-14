@@ -95,7 +95,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     directory = output_root / run_id
     directory.mkdir(parents=True, mode=0o700)
     (directory / ".gdignore").touch()
-    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 6,
+    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 7,
                 "prompt_revision": PROMPT_REVISION,
                 "prototype": prototype_number(),
                 "communication_policy": "optional speech; last 4 delivered messages in provider context, last 8 in audit observation; own control acknowledgments",

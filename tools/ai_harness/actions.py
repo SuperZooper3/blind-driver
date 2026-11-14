@@ -6,6 +6,31 @@ is implemented here. All directions/pedals come from the model's decision.
 import math
 
 
+def validate_guidance(value):
+    if not isinstance(value, dict) or set(value) != {"travel", "steering", "target_speed_kmh", "steering_seconds"}:
+        raise ValueError("Guidance needs travel, steering, target_speed_kmh and steering_seconds")
+    if value["travel"] not in {"forward", "reverse", "stop"} or value["steering"] not in {"left", "straight", "right"}:
+        raise ValueError("Invalid travel or steering advice")
+    speed = value["target_speed_kmh"]
+    if isinstance(speed, bool) or not isinstance(speed, (int, float)) or not math.isfinite(speed) or not 0 <= speed <= 110:
+        raise ValueError("Target speed must be 0–110 km/h")
+    result = dict(value)
+    result["steering_seconds"] = _seconds(value["steering_seconds"], .15) if value["steering"] != "straight" else 0
+    if value["travel"] == "stop":
+        result["target_speed_kmh"] = 0
+        result["steering"] = "straight"
+        result["steering_seconds"] = 0
+    return result
+
+
+def guidance_speech(guidance):
+    if guidance["travel"] == "stop":
+        return "Stop; release steering."
+    steering = ("straighten" if guidance["steering"] == "straight" else
+                f"steer {guidance['steering']} for {guidance['steering_seconds']:g}s")
+    return f"{guidance['travel'].capitalize()}; {steering}; target {guidance['target_speed_kmh']:g} km/h."
+
+
 def _seconds(value, default):
     if value is None:
         return default
@@ -44,8 +69,16 @@ def translate_decision(value, role, observation):
             if steering_mode == "pulse":
                 result["steering_pulse_sim"] = _seconds(value.get("steering_seconds"), .15)
     else:
-        if set(value) - {"view", "message", "notes"} or value.get("view") not in {"map", "chase", "rear", "seat"}:
+        if set(value) - {"view", "message", "notes", "guidance"} or value.get("view") not in {"map", "chase", "rear", "seat"}:
             raise ValueError("Choose navigator view map/chase/rear/seat")
+        if "guidance" in value:
+            guidance = validate_guidance(value["guidance"])
+            result["guidance"] = guidance
+            previous = observation.get("active_guidance", {}).get("instruction")
+            # Fresh directional corrections are actionable; an unchanged cruise
+            # target need not be broadcast again. Never derive advice from telemetry.
+            if guidance != previous or guidance["steering"] != "straight":
+                result["message"] = guidance_speech(guidance) + (" " + result["message"] if result["message"] else "")
         desired, current = value["view"], observation.get("view", {})
         if desired == "rear":
             result["hold"] = ["B"]
@@ -70,5 +103,10 @@ def decision_schema(role):
         properties["tap"] = {"type": "array", "items": {"type": "string", "enum": ["H"]}}
     else:
         properties["view"] = {"type": "string", "enum": ["map", "chase", "rear", "seat"]}
-    required = ["notes", "message", "pedal", "steering"] if role == "driver" else ["notes", "message", "view"]
+        properties["guidance"] = {"type": "object", "properties": {
+            "travel": {"type": "string", "enum": ["forward", "reverse", "stop"]},
+            "steering": {"type": "string", "enum": ["left", "straight", "right"]},
+            "target_speed_kmh": {"type": "number"}, "steering_seconds": {"type": "number"}},
+            "required": ["travel", "steering", "target_speed_kmh", "steering_seconds"], "additionalProperties": False}
+    required = ["notes", "message", "pedal", "steering"] if role == "driver" else ["notes", "message", "view", "guidance"]
     return {"type": "object", "properties": properties, "required": required, "additionalProperties": False}

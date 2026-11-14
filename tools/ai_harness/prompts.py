@@ -18,22 +18,35 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
     if role == "driver":
         return common + (
             'Return {"pedal":"accelerate|coast|brake|reverse|park","steering":"left|straight|right","message":"","notes":""}. '
-            "Your view is BLURRED; navigator supplies road direction. Use HUD speed to choose pedal. "
+            "Your view is BLURRED; navigator supplies road direction. active_guidance is the newest accepted instruction and REPLACES every older maneuver. "
+            "Use its target_speed_kmh, travel and steering; old dialogue/notes are NOT pending commands. "
+            "straight means release A/D now, including when an older message said left/right. "
+            "Apply a directional correction only once per guidance id; if already_acted_on=true, straighten and ask for a fresh correction. "
+            "Use HUD speed to choose pedal. "
             "accelerate presses W for 1 game second; coast releases W/S; brake presses S for 0.2 game seconds; "
             "reverse presses S for 0.3 game seconds (only when stopped and rear confirmed clear); park holds SPACE at rest. "
+            "There is NO selected gear: accelerate ALWAYS pushes forward; reverse ALWAYS pushes backward. "
+            "For travel=reverse select pedal=reverse, NEVER accelerate; coast once at reverse target speed. "
             "left/right steers for 0.15 game seconds then straightens; straight releases steering immediately. "
             "Optional pedal_seconds or steering_seconds (0.05–1) changes that pulse's duration. "
             "For continuous input select pedal_mode=hold or steering_mode=hold; it stays pressed until your next accepted action changes it. "
             "pulse mode is the default. Both modes are available: use a hold for a sustained maneuver, a pulse for small adjustments. "
             "Optional tap:[\"H\"] toggles headlights once. Holding accelerate is throttle, NOT a speed governor. "
-            "If current speed exceeds the navigator's target, COAST or BRAKE, never accelerate. "
+            "For travel=forward: if current speed exceeds target, COAST or BRAKE, never accelerate. "
             "At target coast; below target accelerate unless asked to wait. If braking near zero, coast/park so we don't reverse. "
             "Do not invent a clear road from the blurred image. Follow fresh turn advice; ask for direction when uncertain. "
             "After crash/off-road release throttle and follow one recovery step. A requested maneuver is not proof it worked. "
-            "Notes: current speed, target speed, newest instruction; no lengthy narrative."
+            "For travel=stop brake gently until stopped, then park. With no guidance wait and ask for the departure instruction. "
+            "Keep message empty for routine compliance; speak for a new hazard, question, inability or completed recovery. "
+            "Never claim to use the map/chase camera; those belong to navigator. Notes: current speed and target; max 160 characters."
         )
     return common + (
-        'Return {"view":"map|chase|rear|seat","message":"","notes":""}. '
+        'Return {"view":"map|chase|rear|seat","guidance":{"travel":"forward|reverse|stop","steering":"left|straight|right","target_speed_kmh":50,"steering_seconds":0.15},"message":"","notes":""}. '
+        "guidance is your complete CURRENT driving instruction, replacing the previous one. It is sent as clear speech automatically when changed. "
+        "Set steering=straight as soon as aligned; old turns must be canceled explicitly. steering_seconds is a short correction (0.05–1 game seconds); use 0 for straight. "
+        "Use 0.1–0.2s at cruising speed, 0.3–0.6s for a low-speed recovery; inspect the next image before requesting another. "
+        "message is OPTIONAL extra warning, question or answer (max 140 characters); keep empty for unchanged clear driving. "
+        "Do not repeat the generated direction/speed or narrate camera use in message. "
         "You cannot drive. Driver cannot operate your views. Put ONLY driving instructions/questions in message, never view-control instructions or narration. "
         "view selects what YOU look at NEXT: map opens M; chase closes map and selects C chase camera; rear holds B; seat returns forward inside cabin. "
         "Repeated view choices are idempotent. This image is the CURRENT view, not the one you are selecting. "
@@ -44,15 +57,16 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         "In chase view compare the CAR to the nearby road edges AND look farther ahead for bends/rocks. "
         "Road to car's left means steer LEFT, road to right means RIGHT. Call a short correction before the car leaves the road. "
         "Give a concrete target speed and direction. Say straighten once aligned. Recommend 50–55 on clear straight road; slow before hazards. "
+        "A roadside rock outside the car's path is NOT a reason to swerve across the road. Dodge only an obstacle blocking the predicted path. "
         "OFF ROAD/crash: slow, locate road and obstruction in chase view, give one recovery maneuver and verify the next image. "
         "If blocked, check rear before advising reverse. Do not loop 'stop and assess': YOU must locate a clear direction or change view. "
-        "Notes: car left/right/center of road; upcoming bend; hazard; map plan. Mark unknowns, do not invent clearance."
+        "Notes max 300 characters: car left/right/center of road and heading; upcoming bend; hazard; map plan. Mark unknowns, do not invent clearance."
     )
 
 
 def current_task(role: str, observation: dict) -> str:
     if role == "driver":
-        return "Choose pedal from CURRENT speed versus target; choose steering from latest navigator instruction. A coast decision must use pedal=coast."
+        return "Read active_guidance. Newest travel and steering replace all old maneuvers. Coast=coast; reverse=reverse (not accelerate). Compare CURRENT HUD speed to target."
     view, hud = observation.get("view", {}), observation.get("hud", {})
     if view.get("map") == "opening":
         return "Map still opening: keep view=map and wait."

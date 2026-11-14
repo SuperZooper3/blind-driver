@@ -18,6 +18,32 @@ def state(**extra):
 
 
 class NavigatorContextTests(unittest.TestCase):
+    def test_latest_guidance_replaces_old_turn_only_after_acceptance(self):
+        from tools.ai_harness.actions import translate_decision
+        from tools.ai_harness.agents import validate_action
+        team, memory = TeamContext(), WorkingMemory(0)
+        def advise(steering, at, accepted=True):
+            decision = {"view": "chase", "message": "", "notes": "Private road observation",
+                "guidance": {"travel": "forward", "steering": steering, "target_speed_kmh": 40, "steering_seconds": .15}}
+            observation = team.observation("navigator", state(sim_time=at), memory, 0)
+            action = validate_action(translate_decision(decision, "navigator", observation), "navigator")
+            team.acknowledge("navigator", action, accepted=accepted, sim_time=at, observation_sim=at)
+            return action
+        self.assertIn("steer left", advise("left", 1)["message"])
+        first = team.observation("driver", state(sim_time=1.1), memory, 0)["active_guidance"]
+        self.assertFalse(first["already_acted_on"])
+        team.acknowledge("driver", {"hold": ["A"], "tap": [], "message": ""},
+                         accepted=True, sim_time=1.2, observation_sim=1.1)
+        self.assertTrue(team.observation("driver", state(), memory, 0)["active_guidance"]["already_acted_on"])
+        advise("right", 2, accepted=False)
+        self.assertEqual(team.observation("driver", state(), memory, 0)["active_guidance"]["id"], first["id"])
+        self.assertIn("straighten", advise("straight", 3)["message"])
+        latest = team.observation("driver", state(), memory, 0)
+        self.assertEqual(latest["active_guidance"]["instruction"]["steering"], "straight")
+        self.assertFalse(latest["active_guidance"]["already_acted_on"])
+        self.assertEqual(advise("straight", 4)["message"], "")
+        self.assertNotIn("Private road observation", json.dumps(latest))
+
     def test_map_loop_has_recent_dialogue_and_execution_feedback_without_telemetry(self):
         team, memory = TeamContext(), WorkingMemory(0)
         for i in range(3):
