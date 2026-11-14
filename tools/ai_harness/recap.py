@@ -141,6 +141,9 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
 
 def build_recap(directory: Path, fps: int = 15, review_speed: float = 4) -> dict:
     directory = Path(directory).resolve()
+    (directory / "recap_settings.json").write_text(json.dumps({"video_fps": fps,
+        "review_speed": review_speed, "simulation_replay": "measured driver simulation clock",
+        "resolution": [WIDTH, HEIGHT]}, indent=2))
     manifest = json.loads((directory / "manifest.json").read_text())
     events = json_lines(directory / "events.jsonl")
     seats = {role: json_lines(directory / role / "frames.jsonl") for role in ("driver", "navigator")}

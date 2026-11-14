@@ -72,6 +72,8 @@ def stop_process(process: subprocess.Popen) -> None:
 
 
 def run_episode(args, *, prepared: bool = False) -> Path:
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("Install FFmpeg before recording a run")
     godot = find_godot(args.godot)
     key = read_key(Path(args.env_file).expanduser()) if args.provider == "cohere" else ""
     if not prepared:
@@ -102,7 +104,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         port = sock.getsockname()[1]
     processes, logs = {}, []
     sequence = {role: 0 for role in ROLES}
-    requests = input_tokens = output_tokens = 0
+    requests = input_tokens = output_tokens = usage_known_requests = 0
     errors = []
     reason = "infrastructure_error"
     latest = {}
@@ -225,6 +227,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     action = validate_action(action, role)
                     input_tokens += int(usage.get("input_tokens", 0))
                     output_tokens += int(usage.get("output_tokens", 0))
+                    usage_known_requests += 1
                     log("response", role=role, request_id=requests, action=action,
                         latency_seconds=latency, usage=usage,
                         sim_time=latest[role]["sim_time"], observation_sim=request_context["observation"]["sim_time"])
@@ -238,6 +241,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     if isinstance(exc, InvalidModelResponse):
                         input_tokens += int(exc.usage.get("input_tokens", 0))
                         output_tokens += int(exc.usage.get("output_tokens", 0))
+                        usage_known_requests += 1
                         details = {"usage": exc.usage, "details": exc.details}
                     message = str(exc)[:250] if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__
                     errors.append({"role": role, "error": message})
@@ -288,10 +292,12 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         for output in logs:
             output.close()
         log("episode_finished", reason=reason, requests=requests, input_tokens=input_tokens,
-            output_tokens=output_tokens, errors=errors)
+            output_tokens=output_tokens, errors=errors, usage_complete=usage_known_requests == requests)
         events_file.close()
         atomic_json(directory / "result.json", {"reason": reason, "requests": requests,
                     "input_tokens": input_tokens, "output_tokens": output_tokens, "errors": errors,
+                    "usage_complete": usage_known_requests == requests,
+                    "requests_without_usage": requests - usage_known_requests,
                     "terminated": reason == "game_over", "truncated": reason != "game_over",
                     "valid_run": reason not in {"infrastructure_error", "provider_errors", "wall_time_limit", "capture_error", "capture_stalled"}})
     from .recap import build_recap

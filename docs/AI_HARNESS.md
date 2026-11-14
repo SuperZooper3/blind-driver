@@ -37,6 +37,9 @@ Each command launches and cleans up its own two processes, uses a free localhost
 LAN port, and saves personal-best records within the run. It does not control
 existing game instances. Use Ctrl-C to stop; the captured portion is still compiled
 into a recap. API requests already in flight may take up to `--timeout` to finish.
+Do not operate the game controls during a scored run: this sketch does not block
+physical keyboard or mouse input. Runs stopped with an outstanding request mark
+token accounting as incomplete rather than claiming unreturned usage is zero.
 
 The default output is `runs/<timestamp-id>/`, ignored by Git. The initial provider
 default is `scripted` so an accidental invocation does not spend API quota. A
@@ -162,6 +165,7 @@ included in model inputs.
 | `recap.mp4` | Main review video, default 4× real capture speed, two complete views with conversation/controls/metrics |
 | `recap_simulation.mp4` | Normal simulation pace, approximately 20× recording speed for a 5% run |
 | `recap.jpg` | Final recap still |
+| `recap_settings.json` | Playback/export settings used by the latest recap rebuild |
 | `metrics.png` | Speed, progress, road deviation, and distance plots |
 | `metrics.csv`, `summary.json` | Detailed driver telemetry and episode statistics |
 | `transcript.txt`, `events.jsonl` | Delivered dialogue and causal request/action events |
