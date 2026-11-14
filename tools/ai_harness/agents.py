@@ -13,9 +13,10 @@ from pathlib import Path
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
 DEFAULT_MODEL = "command-a-plus-05-2026"
-PROMPT_REVISION = "grounded-copilot-v6"
+PROMPT_REVISION = "grounded-copilot-v7"
 
 from .prompts import prompt, current_task
+from .actions import translate_decision, decision_schema
 
 
 class InvalidModelResponse(ValueError):
@@ -92,6 +93,7 @@ class CohereAgent:
         self.image_detail = image_detail
         self.history: list[dict] = []
         self.response_feedback = ""
+        self.last_decision = None
 
     def decide(self, image: Path, observation: dict, messages: list[dict]) -> tuple[dict, dict]:
         # No metric dictionary is accepted here: caller constructs this small view.
@@ -136,33 +138,21 @@ class CohereAgent:
         if self.response_feedback:
             current["content"][0]["text"] += "\nResponse feedback: " + self.response_feedback
         current["content"].append({"type": "text", "text":
-            ("NAVIGATOR controls ONLY the view: hold must be [] or [\"B\"], tap only M/C. "
-             "Put car steering/braking instructions in message to DRIVER. You cannot press W/S/A/D. "
-             if self.role == "navigator" else "DRIVER chooses W/S/A/D/SPACE in hold, optional H in tap. ") +
+            "Choose the semantic decision for your seat, not raw keyboard keys. "
             "Inspect THIS image and HUD now. Return ONLY the JSON object. "
-            "Put fresh observed facts in notes before choosing keys and any useful message. " + current_task(self.role, observation)})
+            "Put fresh visible facts in notes. " + current_task(self.role, observation)})
         body = {"model": self.model, "messages": [current],
                 "max_tokens": self.max_tokens, "temperature": 0.2}
         if self.model.startswith("command-a-plus") or self.model.startswith("command-a-reasoning"):
             body["thinking"] = ({"type": "enabled", "token_budget": self.thinking_tokens}
                                 if self.thinking_tokens else {"type": "disabled"})
         if self.model.startswith("command-a-plus"):
-            body["response_format"] = {"type": "json_object", "schema": {
-                "type": "object", "properties": {
-                    "hold": {"type": "array", "items": {"type": "string", "enum": sorted(HELD_KEYS[self.role])}},
-                    "tap": {"type": "array", "items": {"type": "string", "enum": sorted(TAP_KEYS[self.role])}},
-                    "message": {"type": "string"},
-                    "notes": {"type": "string"},
-                    "steering_pulse_sim": {"type": "number", "description": "Driver only: release A/D after game seconds; omit or zero when unused"},
-                    "pedal_pulse_sim": {"type": "number", "description": "Driver only: release W/S after game seconds; omit or zero when unused"},
-                }, "required": ["hold", "tap", "message", "notes"], "additionalProperties": False,
-            }}
-            if self.role == "navigator":
-                for field in ("steering_pulse_sim", "pedal_pulse_sim"):
-                    body["response_format"]["schema"]["properties"].pop(field)
+            body["response_format"] = {"type": "json_object", "schema": decision_schema(self.role)}
         content, usage, answer = self._chat(body)
         try:
-            action = validate_action(json.loads(content), self.role)
+            decision = json.loads(content)
+            action = validate_action(translate_decision(decision, self.role, observation), self.role)
+            self.last_decision = decision
         except (ValueError, TypeError) as exc:
             self.response_feedback = ("Your previous output was rejected and no action/message was delivered. "
                 f"Validation: {str(exc)[:160]}. Generate one concise valid JSON object, without a preamble.")

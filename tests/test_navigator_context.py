@@ -119,10 +119,10 @@ class NavigatorContextTests(unittest.TestCase):
         body = requests[-1]
         self.assertEqual(body["thinking"], {"type": "disabled"})
         self.assertEqual(body["response_format"]["type"], "json_object")
-        self.assertEqual(body["response_format"]["schema"]["properties"]["hold"]["items"]["enum"], ["B"])
+        self.assertEqual(body["response_format"]["schema"]["properties"]["view"]["enum"], ["map", "chase", "rear", "seat"])
         self.assertNotIn("steering_pulse_sim", body["response_format"]["schema"]["properties"])
         content = body["messages"][-1]["content"]
-        self.assertIn("as NAVIGATOR", content[0]["text"])
+        self.assertIn("are NAVIGATOR", content[0]["text"])
         self.assertIn("Return ONLY the JSON object", content[-1]["text"])
         self.assertIn("Hit something; now stopped.", content[0]["text"])
         self.assertIn("CRASH", content[0]["text"])
@@ -190,8 +190,8 @@ class NavigatorContextTests(unittest.TestCase):
         question = current_task("navigator", {"hud": {"surface": "OFF ROAD"},
             "view": {"map": "closed"}, "map_check": {"due": True, "last_open_view": None}})
         self.assertIn("LEFT/RIGHT", question)
-        self.assertIn("Do not open the map", question)
-        self.assertIn("don't tap M", current_task("navigator", {"view": {"map": "opening"}}))
+        self.assertIn("No routine map check", question)
+        self.assertIn("keep view=map", current_task("navigator", {"view": {"map": "opening"}}))
 
     def test_invalid_image_reply_is_reported_next_turn_without_fabricating_an_action(self):
         action = {"hold": [], "tap": [], "message": "", "notes": "Road view; awaiting driver question"}

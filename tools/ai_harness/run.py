@@ -305,6 +305,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     output_tokens += int(usage.get("output_tokens", 0))
                     usage_known_requests += 1
                     log("response", role=role, request_id=request_context["request_id"], action=action,
+                        decision=getattr(agents[role], "last_decision", None),
                         latency_seconds=latency, usage=usage,
                         sim_time=latest[role]["sim_time"], observation_sim=request_context["observation"]["sim_time"])
                     seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap", "steering_pulse_sim", "pedal_pulse_sim") if k in action},

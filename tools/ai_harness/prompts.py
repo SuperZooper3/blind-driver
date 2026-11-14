@@ -1,78 +1,65 @@
-"""Short, image-grounded cooperative driving instructions."""
+"""Short tasks with semantic controls and current visible evidence."""
 
 
 def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
     common = (
-        f"Play Blind Driver as {role.upper()}. Reach 500m along the road without crashing. "
-        f"Simulation runs continuously at {speed:g}% speed. Inspect the NEW image; earlier claims can be wrong. "
-        "hud is an exact transcript of the visible instruments, not a route sensor. "
-        "Speech reaches only your teammate; notes stay private. Answer their newest request. "
-        "Send changed instructions, warnings, questions or answers; otherwise message=\"\". "
-        "Never copy a previous 'clear/straight' claim without checking this frame. "
-        "Return ONLY JSON: {\"notes\":\"brief fresh observations and next check\",\"hold\":[],\"tap\":[],\"message\":\"\"}. "
-        "notes <=600 characters, message <=240. hold REPLACES all own held keys until your next action; [] releases. "
-        "tap toggles once. No pause, restart, teleport or hidden state. "
+        f"You are {role.upper()} in Blind Driver, cooperating with the other seat to drive at least 500m safely. "
+        f"Game speed {speed:g}%; it keeps moving while you think. Inspect this NEW image. "
+        "hud is an exact transcript of the visible instruments. Previous notes may be wrong/stale. "
+        "message is spoken to your partner; notes are private, brief visible facts plus what to check next. "
+        "Answer the newest partner request. Send a changed instruction, warning, question, answer or useful acknowledgment; otherwise message=\"\". "
+        "Do not repeat routine clear/straight broadcasts. Notes max 600 characters; message max 240. Return ONLY JSON. "
     )
     if course == "basic":
-        common += "Basic course: bends, rocks, roadside trees/thorns; no police or jumps. Recommend 50–55 km/h on clear straight road, 25–35 for bends. "
+        common += "Basic road has bends, rocks, trees and roadside thorns, no police/jumps. Cruise 50–55 km/h when clear; 25–35 on bends. "
     else:
-        common += "Standard course includes police, forks, cliffs, jumps and bridges; use map and visible signs. "
+        common += "Standard road has forks, cliffs, police, jumps and bridges: heed visible signs and map. "
     if role == "driver":
         return common + (
-            "Your view is BLURRED. Trust fresh navigator directions for steering, not your own claims of clear road. "
-            "Keys: W accelerate, S brake THEN reverse below zero, A left, D right, SPACE handbrake; tap H lights. "
-            "Read HUD speed and newest instruction. W below target speed; coast [] at target; S to slow if too fast. "
-            "Do not accelerate while awaiting the initial route check. Never hold W through uncertainty/off-road/crash. "
-            "For a small steering correction add steering_pulse_sim:0.15 to your JSON with A or D in hold; "
-            "this releases ONLY steering after 0.15 GAME seconds, retaining other keys. "
-            "Likewise pedal_pulse_sim:0.2 releases W/S after 0.2 GAME seconds, retaining steering. "
-            "Use short S pulses (0.1–0.3s) to reduce speed without accidentally stopping/reversing between turns. "
-            "Use 0.1–0.3s pulses, then await fresh guidance; do not hold steering across multiple exchanges. "
-            "A pulse ending is not proof of alignment. Briefly acknowledge a changed maneuver. "
-            "If speed is near zero and stop requested, release S (it would reverse); SPACE holds stationary. "
-            "After impact ask for a concrete escape direction; reverse only with rear clearance reported by navigator."
+            'Return {"pedal":"accelerate|coast|brake|reverse|park","steering":"left|straight|right","message":"","notes":""}. '
+            "Your view is BLURRED; navigator supplies road direction. Use HUD speed to choose pedal. "
+            "accelerate presses W for 1 game second; coast releases W/S; brake presses S for 0.2 game seconds; "
+            "reverse presses S for 0.3 game seconds (only when stopped and rear confirmed clear); park holds SPACE at rest. "
+            "left/right steers for 0.15 game seconds then straightens; straight releases steering immediately. "
+            "Optional pedal_seconds or steering_seconds (0.05–1) changes that pulse's duration. "
+            "If current speed exceeds the navigator's target, COAST or BRAKE, never accelerate. "
+            "At target coast; below target accelerate unless asked to wait. If braking near zero, coast/park so we don't reverse. "
+            "Do not invent a clear road from the blurred image. Follow fresh turn advice; ask for direction when uncertain. "
+            "After crash/off-road release throttle and follow one recovery step. A requested maneuver is not proof it worked. "
+            "Notes: current speed, target speed, newest instruction; no lengthy narrative."
         )
     return common + (
-        "You are the driver's eyes. Your hold keys: B look behind; taps M map, C chase/seat camera. "
-        "The driver CANNOT use M/B/C. Never tell them to open/check/close the map; do that yourself. "
-        "Do not narrate your map/camera operations to the driver; just give the needed driving instruction (e.g. 'Wait'). "
-        "At departure (trip near zero) open M to plan the next bend while asking driver to wait. Map takes 0.38 GAME seconds to open; "
-        "read it on a later image, store the bend/direction in notes, close M, then authorize driving. "
-        "Check map again before your route plan runs out (map_check tells its age); it does not show rocks. "
-        "The scale bar is a distance ruler, NOT the visible route length. "
-        + ("Map is NORTH UP: orange arrow is car heading; clockwise from car heading to road heading = right, counterclockwise = left. "
-           if readable else "Map rotates with the car, forward is up. ") +
-        "Use C for chase view if cabin/roof obscures road or alignment is uncertain; it shows the car and both road edges. "
-        "On each road view, locate the CAR relative to road edges, then follow the road farther ahead for a bend/obstacle. "
-        "Road left of car = guide LEFT; road right = RIGHT. A straight road does not mean we are on it. "
-        "Keep notes short: alignment=left/right/center/unknown; bend=left/right/straight/unknown; hazard; map_plan. Preserve map plan until passed. "
-        "Tell driver concrete speed + steering: e.g. 'Coast; pulse A 0.15 game seconds toward the road center, then release.' "
-        "Use short corrections then inspect the next view; say straighten when aligned, not blindly 'go straight'. "
-        "OFF ROAD or impact overrides the old plan: release W, slow, inspect chase view for road and obstruction. "
-        "Give ONE feasible recovery maneuver, then verify its effect. If blocked inspect rear with B before reversing, "
-        "release B to face forward afterwards. Do not loop 'stop and assess': YOU must assess and give the next step. "
-        "Repeated speech feedback means gather new evidence/change view and resolve the driver's unanswered question. "
-        "Never invent turns, clearance or damage; say what remains unknown."
+        'Return {"view":"map|chase|rear|seat","message":"","notes":""}. '
+        "You cannot drive. Driver cannot operate your views. Put ONLY driving instructions/questions in message, never view-control instructions or narration. "
+        "view selects what YOU look at NEXT: map opens M; chase closes map and selects C chase camera; rear holds B; seat returns forward inside cabin. "
+        "Repeated view choices are idempotent. This image is the CURRENT view, not the one you are selecting. "
+        "At departure read map, then select chase to watch the car against both road edges. "
+        "Map opening needs 0.38 game seconds; wait for a later readable image. "
+        + ("Map is north-up; orange arrow is car heading. Clockwise heading change is right, counterclockwise left. " if readable else "Map rotates with the car, forward is up. ") +
+        "Scale bar is a ruler, not the visible route length. Keep the next bend in notes and recheck map when due. "
+        "In chase view compare the CAR to the nearby road edges AND look farther ahead for bends/rocks. "
+        "Road to car's left means steer LEFT, road to right means RIGHT. Call a short correction before the car leaves the road. "
+        "Give a concrete target speed and direction. Say straighten once aligned. Recommend 50–55 on clear straight road; slow before hazards. "
+        "OFF ROAD/crash: slow, locate road and obstruction in chase view, give one recovery maneuver and verify the next image. "
+        "If blocked, check rear before advising reverse. Do not loop 'stop and assess': YOU must locate a clear direction or change view. "
+        "Notes: car left/right/center of road; upcoming bend; hazard; map plan. Mark unknowns, do not invent clearance."
     )
 
 
 def current_task(role: str, observation: dict) -> str:
-    """Ask for the missing evidence, using only this seat's visible UI/text."""
-    if role != "navigator":
-        return "Implement the navigator's latest maneuver. Check speed before adding throttle."
+    if role == "driver":
+        return "Choose pedal from CURRENT speed versus target; choose steering from latest navigator instruction. A coast decision must use pedal=coast."
     view, hud = observation.get("view", {}), observation.get("hud", {})
     if view.get("map") == "opening":
-        return "The map is still opening; don't tap M again. Wait for a readable map view."
+        return "Map still opening: keep view=map and wait."
     if view.get("map") == "open":
-        return "Read the orange car arrow and road ahead on this map. Record the next bend and how it differs from car heading. Close M to watch the road."
+        return "Read road ahead relative to orange arrow. Record next bend in notes; select view=chase now to watch the road. Tell driver the driving plan, not how to use map."
     if view.get("facing") == "rear":
-        return "Check rear clearance for recovery. Tell driver whether reversing is safe, then release B to return forward."
+        return "Check rear clearance. Tell driver whether reverse is safe, then select chase to face forward."
     if hud.get("surface") == "OFF ROAD" or observation.get("sound_captions"):
-        return ("URGENT: current HUD/captions require reassessment. Which side is the ROAD relative to the CAR? "
-                "Give a concrete slow recovery step with LEFT/RIGHT if visible. If obscured, tap C for chase and request braking. "
-                "Do not open the map while moving off-road or repeat 'assess surroundings'.")
+        return "Recovery priority: select chase; identify road LEFT/RIGHT of CAR and give a specific low-speed recovery step. No routine map check while moving off-road."
     if observation.get("map_check", {}).get("last_open_view") is None:
-        return "No map view obtained yet. Open M now and ask driver to wait for your route instruction."
+        return "Select map now and tell driver to wait for the initial route check."
     if observation.get("map_check", {}).get("due"):
-        return "Route plan needs updating. If current path is safe, open M for the upcoming bend; otherwise correct immediate alignment first."
-    return "Watch nearby road edges AND the bend farther ahead. Route check is recent: keep map closed unless lost. On clear straight road target 50–55 km/h. Give a correction or silence if guidance is still correct."
+        return "If current alignment is safe, select map to plan the approaching bend. Otherwise correct alignment first in chase."
+    return "Keep chase view. Watch alignment and upcoming bend/obstacle. Cruise target 50–55 if clear. Speak only a necessary correction or answer."
