@@ -28,7 +28,7 @@ def snapshot(directory):
     manifest = read_json(directory / "manifest.json")
     # Explicit public-view fields. Never serve arbitrary run files/config/env.
     run = {k: manifest.get(k) for k in ("run_id", "provider", "speed", "course", "seed",
-          "driver_model", "navigator_model", "git_commit", "hold_policy", "engine_mode",
+          "driver_model", "navigator_model", "git_commit", "hold_policy", "engine_mode", "memory_every",
           "prototype", "sim_seconds", "max_tokens", "max_requests")}
     events = json_lines(directory / "events.jsonl")
     accepted, pending = {}, {}

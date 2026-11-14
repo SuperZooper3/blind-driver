@@ -11,6 +11,8 @@ var active := false
 var sim_time := 0.0
 var directory := ""
 var held: Array = []
+var steering_release_sim := -1.0
+var pedal_release_sim := -1.0
 var sequence := -1
 var applied_sequence := -1
 var last_error := ""
@@ -77,6 +79,15 @@ func _physics_process(delta: float) -> void:
 	if leader != null:
 		sim_time = leader.sim_time
 		return
+	if steering_release_sim >= 0.0 and sim_time >= steering_release_sim:
+		var remaining := held.filter(func(key): return key not in ["A", "D"])
+		_set_held(remaining)
+		steering_release_sim = -1.0
+		_event("steering_pulse_finished", {"hold": held.duplicate()})
+	if pedal_release_sim >= 0.0 and sim_time >= pedal_release_sim:
+		_set_held(held.filter(func(key): return key not in ["W", "S"]))
+		pedal_release_sim = -1.0
+		_event("pedal_pulse_finished", {"hold": held.duplicate()})
 	if active and game.car.run_state != "game_over":
 		sim_time += delta
 		if not game.car.remote:
@@ -96,6 +107,8 @@ func _finish(reason: String) -> void:
 	active = false
 	finished_reason = reason
 	_set_held([])
+	steering_release_sim = -1.0
+	pedal_release_sim = -1.0
 	if not game.car.remote: game.car.freeze = true
 	_event("finished", {"reason": reason})
 	if peer != null and peer.active: peer._finish(reason)
@@ -147,12 +160,24 @@ func _read_command() -> void:
 	if ("W" in hold and "S" in hold) or ("A" in hold and "D" in hold) or ("B" in hold and "M" in tap):
 		_reject("conflicting_keys")
 		return
+	var pulse: Variant = command.get("steering_pulse_sim", null)
+	if pulse != null:
+		if options.role != "driver" or not ("A" in hold or "D" in hold) or not (pulse is float or pulse is int) or not is_finite(float(pulse)) or float(pulse) < 0.05 or float(pulse) > 1.0:
+			_reject("invalid_steering_pulse")
+			return
+	var pedal: Variant = command.get("pedal_pulse_sim", null)
+	if pedal != null:
+		if options.role != "driver" or not ("W" in hold or "S" in hold) or not (pedal is float or pedal is int) or not is_finite(float(pedal)) or float(pedal) < 0.05 or float(pedal) > 1.0:
+			_reject("invalid_pedal_pulse")
+			return
+	steering_release_sim = sim_time + float(pulse) if pulse != null else -1.0
+	pedal_release_sim = sim_time + float(pedal) if pedal != null else -1.0
 	_set_held(hold)
 	for key in tap:
 		_key(str(key), true)
 		_key.call_deferred(str(key), false)
 	applied_sequence = sequence
-	_event("keys_applied", {"hold": held.duplicate(), "tap": tap, "observation_sim": observed, "hold_policy": "until_replaced"})
+	_event("keys_applied", {"hold": held.duplicate(), "tap": tap, "observation_sim": observed, "hold_policy": "until_replaced_with_optional_key_pulses"})
 
 func _unique_count(values: Array) -> int:
 	var unique: Dictionary = {}
@@ -239,11 +264,14 @@ func _save_capture(picture: Image, started_us: int, stamp: float) -> void:
 		"monotonic_us": started_us, "sim_time": sim_time, "world_time": game.world.challenge_time,
 		"active": active, "connected": connected, "finished_reason": finished_reason,
 		"sequence": sequence, "applied_sequence": applied_sequence, "input_error": last_error,
-		"held": held, "hold_policy": "until_replaced",
+		"held": held, "hold_policy": "until_replaced_with_optional_key_pulses",
+		"steering_release_sim": steering_release_sim,
+		"pedal_release_sim": pedal_release_sim,
 		"direction_warning": game.ui.direction_warning.status_text(),
 		"pressed_keys": pressed_keys, "input_reassertions": input_reassertions,
 		"engine_pid": OS.get_process_id(), "session_role": game.session.role,
 		"sound_events": game.ui.readable_hud.sounds.duplicate(true) if game.ui.readable_hud != null else [],
+		"hud": game.ui.readable_hud.instrument_text() if game.ui.readable_hud != null else {},
 		"speed_kmh": absf(car.signed_speed) * 3.6, "signed_speed_mps": car.signed_speed,
 		"distance_m": car.distance_driven, "forward_progress_m": maxf(0.0, progress),
 		"position": [car.position.x, car.position.y, car.position.z],

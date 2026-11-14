@@ -95,6 +95,19 @@ func _run() -> void:
 	write_command({"type": "keys", "sequence": 5, "hold": [], "tap": [], "observation_sim": game.ai_capture.sim_time})
 	await frames(4)
 	check(not Input.is_action_pressed("accelerate") and not Input.is_action_pressed("handbrake"), "empty hold releases all keys without automatic braking")
+	write_command({"type": "keys", "sequence": 6, "hold": ["W", "D"], "tap": [], "steering_pulse_sim": 0.1, "observation_sim": game.ai_capture.sim_time})
+	await frames(4)
+	check(Input.is_action_pressed("accelerate") and Input.is_action_pressed("steer_right"), "explicit steering pulse begins with normal keys")
+	await frames(150)
+	check(Input.is_action_pressed("accelerate") and not Input.is_action_pressed("steer_right"), "steering pulse releases only steering after game-time deadline")
+	write_command({"type": "keys", "sequence": 7, "hold": [], "tap": [], "steering_pulse_sim": 0.2, "observation_sim": game.ai_capture.sim_time})
+	await frames(4)
+	check(game.ai_capture.last_error == "invalid_steering_pulse" and Input.is_action_pressed("accelerate"), "invalid pulse is rejected without changing holds")
+	write_command({"type": "keys", "sequence": 8, "hold": ["S", "D"], "tap": [], "pedal_pulse_sim": 0.1, "observation_sim": game.ai_capture.sim_time})
+	await frames(150)
+	check(not Input.is_action_pressed("reverse") and not Input.is_physical_key_pressed(KEY_S) and Input.is_action_pressed("steer_right"), "pedal pulse releases S while preserving steering")
+	var instrument_text: Dictionary = game.ui.readable_hud.instrument_text()
+	check(instrument_text.size() == 5 and instrument_text.speed.ends_with(" km/h") and instrument_text.trip.ends_with(" m"), "accessibility exports only the five rendered instrument strings")
 	# Isolate key persistence from the newly lethal roadside course.
 	game.car.freeze = true
 	game.car.position = Vector3(0, 5, 0)
@@ -115,7 +128,7 @@ func _run() -> void:
 	navigator._key("B", false)
 	await frames(2700)
 	check(Input.is_action_pressed("look_back"), "navigator look-back also stays held until replaced")
-	write_command({"type": "stop", "sequence": 9, "reason": "operator_stop"})
+	write_command({"type": "stop", "sequence": 10, "reason": "operator_stop"})
 	await frames(4)
 	check(not Input.is_action_pressed("look_back") and game.ai_capture.held.is_empty() and navigator.held.is_empty(), "ending the run releases held keys")
 	game.ai_capture.active = true

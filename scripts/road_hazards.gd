@@ -2,6 +2,21 @@ extends RefCounted
 ## Immutable obstacle records travel with the road graph. Only the driver simulates hits.
 const Geo = preload("res://scripts/geometry.gd")
 const KINDS := ["rock", "tree", "ramp", "bumps", "construction", "cliff", "lake", "jump_gap", "timed_bridge"]
+const AI_ORANGE := Color("ff6a00")
+
+static func orange_material() -> StandardMaterial3D:
+	var material := Geo.material(AI_ORANGE)
+	# Slight emission retains orange in shade without flattening the silhouette.
+	material.emission_enabled = true
+	material.emission = AI_ORANGE
+	material.emission_energy_multiplier = 0.15
+	return material
+
+static func highlight_obstacles(root: Node) -> void:
+	for child in root.get_children():
+		if child is MeshInstance3D or child is MultiMeshInstance3D:
+			child.material_override = orange_material()
+		highlight_obstacles(child)
 
 static func is_void(hazard: Dictionary) -> bool:
 	return hazard.kind in ["cliff", "lake", "jump_gap", "timed_bridge"]
@@ -18,9 +33,9 @@ static func contains(hazard: Dictionary, point: Vector3, margin: float = 0.0) ->
 	var inset := 24.0 if end_distance == 0 else (16.0 if end_distance == 1 else (8.0 if end_distance % 3 == 2 else 0.0))
 	return absf(point.x - hazard.position.x) < hazard.size.x * 0.5 - inset
 
-static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh) -> void:
+static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh, ai_colors := false) -> void:
 	if is_void(hazard):
-		_render_void(parent, hazard)
+		_render_void(parent, hazard, ai_colors)
 		return
 	var root := Node3D.new()
 	root.name = hazard.kind
@@ -61,6 +76,7 @@ static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh) -> void:
 				var p := Vector3(-0.9 + i * 0.45, 0, 3.0 + i * 2.0)
 				Geo.box(root, Vector3(0.65, 0.12, 0.65), p, dark)
 				Geo.cylinder(root, 0.28, 0.85, p + Vector3.UP * 0.45, orange, 0.05).create_convex_collision()
+	if ai_colors and hazard.kind != "tree": highlight_obstacles(root)
 
 static func _wedge(parent: Node3D, at: Vector3, width: float, length: float, height: float, mat: Material, rounded: bool = false) -> void:
 	var a := at + Vector3(-width / 2, 0, length / 2)
@@ -93,10 +109,10 @@ static func rim_edges(hazard: Dictionary) -> Array:
 				edges.append([a, b])
 	return edges
 
-static func _render_void(parent: Node3D, hazard: Dictionary) -> void:
+static func _render_void(parent: Node3D, hazard: Dictionary, ai_colors := false) -> void:
 	var p: Vector3 = hazard.position
 	var size: Vector3 = hazard.size
-	var earth := Geo.material(Color("514b40"))
+	var earth := orange_material() if ai_colors else Geo.material(Color("514b40"))
 	var floor_mesh := Geo.box(parent, Vector3(size.x, 1, size.z), p - Vector3.UP * 0.5, earth)
 	floor_mesh.name = "RavineFloor" if hazard.kind == "cliff" else "LakeBed"
 	floor_mesh.create_convex_collision()
@@ -123,15 +139,15 @@ static func _render_void(parent: Node3D, hazard: Dictionary) -> void:
 		var outer_a := a - inward * 1.1 + Vector3.UP * 0.025
 		var outer_b := b - inward * 1.1 + Vector3.UP * 0.025
 		rim_vertices.append_array(PackedVector3Array([a + Vector3.UP * 0.03, b + Vector3.UP * 0.03, outer_a, b + Vector3.UP * 0.03, outer_b, outer_a]))
-	var rock := Geo.material(Color.WHITE)
-	rock.vertex_color_use_as_albedo = true
+	var rock := orange_material() if ai_colors else Geo.material(Color.WHITE)
+	rock.vertex_color_use_as_albedo = not ai_colors
 	rock.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var walls := Geo.instance(parent, Geo.mesh_from_triangles(vertices, colors), Vector3.ZERO, rock)
 	walls.name = "RavineWalls"
 	walls.create_trimesh_collision()
-	Geo.instance(parent, Geo.mesh_from_triangles(rim_vertices), Vector3.ZERO, Geo.material(Color("a29a73")))
+	Geo.instance(parent, Geo.mesh_from_triangles(rim_vertices), Vector3.ZERO, orange_material() if ai_colors else Geo.material(Color("a29a73")))
 	if hazard.kind == "lake":
-		var water := Geo.material(Color("488c96"), 0.25)
+		var water := orange_material() if ai_colors else Geo.material(Color("488c96"), 0.25)
 		Geo.box(parent, Vector3(size.x - 0.1, 0.1, size.z - 0.1), p + Vector3.UP * (size.y - 3.0), water)
 	else:
 		for i in 18:

@@ -14,6 +14,7 @@ import uuid
 
 from .agents import CohereAgent, InvalidModelResponse, ScriptedAgent, PROMPT_REVISION, prompt, validate_action
 from .context import TeamContext
+from .vision import road_edges
 from .monitor import ConsoleMonitor
 from .memory import RateBudget, WorkingMemory
 from .scoring import DEFAULT_SCORING
@@ -95,19 +96,21 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     directory = output_root / run_id
     directory.mkdir(parents=True, mode=0o700)
     (directory / ".gdignore").touch()
-    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 5,
+    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 7,
                 "prompt_revision": PROMPT_REVISION,
                 "prototype": prototype_number(),
-                "communication_policy": "optional speech; last 8 delivered messages with ages; own action acknowledgments",
-                "hold_policy": "until_replaced",
+                "communication_policy": "timestamped current navigator guidance replaces old maneuvers; optional additional speech; last 4 delivered messages in provider context, last 8 in audit observation; own control acknowledgments",
+                "hold_policy": "until_replaced_with_optional_key_pulses",
                 "scoring": DEFAULT_SCORING.copy(),
                 "basic_course_version": "roadside_thorns_v2",
+                "obstacle_palette": "ai_orange_green_trees_v2",
+                "visual_measurement_tool": "screenshot_road_edges_v1" if args.visual_road_tool and args.readable_ui else None,
                 "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
                 "godot_version": subprocess.check_output([godot, "--version"], text=True).strip(),
                 "capture": "one 2560x800 engine frame, two complete 1280x800 seat crops",
                 "engine_mode": "shared_local",
-                "history_policy": f"last {args.history_turns} own text turns + rolling recap; one current screenshot",
+                "history_policy": f"navigator: last {args.history_turns} own factual notes; driver: current guidance without old maneuver notes; compact delivered dialogue; one current screenshot and visible HUD transcript",
                 "benchmark_label": args.label,
                 "provider": args.provider}
     manifest.pop("func", None)
@@ -118,7 +121,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         if path.is_file() and path.suffix in {".gd", ".py", ".godot", ".tscn"}:
             source_hash.update(name.encode() + b"\0" + path.read_bytes())
     manifest["source_sha256"] = source_hash.hexdigest()
-    manifest["thinking"] = "disabled for Cohere reasoning models"
+    manifest["thinking"] = {"token_budget": args.thinking_tokens, "supported_models_only": True}
     atomic_json(directory / "manifest.json", manifest)
     monitor = ConsoleMonitor(directory, manifest)
     processes, logs = {}, []
@@ -226,7 +229,9 @@ def run_episode(args, *, prepared: bool = False) -> Path:
             (directory / role / "prompt.txt").write_text(system, encoding="utf-8")
             model = getattr(args, role + "_model")
             agents[role] = (ScriptedAgent(role) if args.provider == "scripted" else
-                            CohereAgent(role, model, key, system, args.timeout, args.max_output_tokens, args.history_turns))
+                            CohereAgent(role, model, key, system, args.timeout, args.max_output_tokens, args.history_turns,
+                                        thinking_tokens=args.thinking_tokens, image_width=args.image_width,
+                                        image_detail=getattr(args, role + "_image_detail")))
             manifest[role + "_prompt_sha256"] = hashlib.sha256(system.encode()).hexdigest()
         atomic_json(directory / "manifest.json", manifest)
         for role in ROLES:
@@ -237,6 +242,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         inbox = {role: [] for role in ROLES}
         turn = 0
         next_request = start
+        next_observation_sim = 0.0
         request_context = {}
         pending_ack = None
         error_streak = {role: 0 for role in ROLES}
@@ -304,9 +310,10 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     output_tokens += int(usage.get("output_tokens", 0))
                     usage_known_requests += 1
                     log("response", role=role, request_id=request_context["request_id"], action=action,
+                        decision=getattr(agents[role], "last_decision", None),
                         latency_seconds=latency, usage=usage,
                         sim_time=latest[role]["sim_time"], observation_sim=request_context["observation"]["sim_time"])
-                    seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap")},
+                    seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap", "steering_pulse_sim", "pedal_pulse_sim") if k in action},
                                   observation_sim=request_context["observation"]["sim_time"])
                     pending_ack = role, seq, action, latency, request_context
                     error_streak[role] = 0
@@ -331,7 +338,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     reason = "provider_errors"
                     break
 
-            if not future and not pending_ack and time.monotonic() >= next_request:
+            if (not future and not pending_ack and time.monotonic() >= next_request
+                    and driver.get("sim_time", 0) >= next_observation_sim):
                 if requests >= args.max_requests:
                     reason = "request_budget"
                     break
@@ -347,6 +355,10 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     continue
                 state = latest[role]
                 observation = team.observation(role, state, memories[role], heard[role])
+                if role == "navigator" and args.visual_road_tool and args.readable_ui:
+                    measured = road_edges(directory / role / state["image"], observation["view"])
+                    if measured:
+                        observation["visible_road_edges"] = measured
                 heard_before = heard[role]
                 heard[role] = max([heard[role]] + [e["id"] for e in observation["sound_captions"]])
                 delivered = inbox[role][:]
@@ -358,6 +370,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 future = executor.submit(agents[role].decide, directory / role / state["image"], observation, delivered)
                 interval = args.scripted_interval if args.provider == "scripted" else 0
                 next_request = time.monotonic() + interval
+                next_observation_sim = state["sim_time"] + args.decision_interval_sim
                 # Recap only when a second slot is available; never delay a
                 # driving decision just to accumulate background recap quota.
                 if recap_slot:

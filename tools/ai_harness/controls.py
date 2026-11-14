@@ -15,12 +15,16 @@ def restart_command(directory, env_file=None):
     fields = ("provider", "driver_model", "navigator_model", "driver_instructions", "navigator_instructions",
         "speed", "seed", "course", "sim_seconds", "capture_fps", "video_fps", "review_speed", "rpm",
         "max_requests", "max_tokens", "max_output_tokens", "history_turns", "memory_every", "timeout",
-        "max_action_age_sim", "scripted_interval", "label", "godot")
+        "max_action_age_sim", "scripted_interval", "decision_interval_sim", "thinking_tokens", "image_width", "driver_image_detail", "navigator_image_detail", "label", "godot")
     for field in fields:
         value = manifest.get(field)
         if value is not None:
             command.extend(["--" + field.replace("_", "-"), str(value)])
+    for field, legacy in (("thinking_tokens", 0), ("image_width", 1280), ("decision_interval_sim", 0), ("driver_image_detail", "auto"), ("navigator_image_detail", "auto")):
+        if field not in manifest:
+            command.extend(["--" + field.replace("_", "-"), str(legacy)])
     command.append("--readable-ui" if manifest.get("readable_ui", True) else "--no-readable-ui")
+    command.append("--visual-road-tool" if manifest.get("visual_road_tool", False) else "--no-visual-road-tool")
     if manifest.get("keep_frames"):
         command.append("--keep-frames")
     if env_file is not None:

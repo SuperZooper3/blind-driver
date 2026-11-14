@@ -39,7 +39,9 @@ var stripe_material: StandardMaterial3D
 var terrain_material: StandardMaterial3D
 var trunk_material: StandardMaterial3D
 var leaf_material: StandardMaterial3D
+var thorn_material: StandardMaterial3D
 var rock_material: StandardMaterial3D
+var ai_obstacle_colors := false
 var timer := 0.0
 var last_tile := Vector2i(99999, 99999)
 var tree_mesh: ArrayMesh
@@ -61,6 +63,10 @@ func _ready() -> void:
 	leaf_material.vertex_color_use_as_albedo = true
 	leaf_material.vertex_color_is_srgb = true
 	rock_material = Geo.material(Color("838a7e"))
+	thorn_material = leaf_material
+	if ai_obstacle_colors:
+		thorn_material = Hazards.orange_material()
+		rock_material = Hazards.orange_material()
 	_build_tree_mesh()
 	if allow_generation:
 		_add_road(Vector3(0, 0, 40 if basic_course else 150), 0.0, 0, 0, 180.0 if basic_course else 360.0)
@@ -377,11 +383,11 @@ func _render_road(road: Dictionary) -> void:
 	var challenges: Array[Node3D] = []
 	var points: PackedVector3Array = road.points
 	for hazard: Dictionary in road.hazards:
-		Hazards.render(root, hazard, tree_mesh)
+		Hazards.render(root, hazard, tree_mesh, ai_obstacle_colors)
 		if Challenge.is_challenge(hazard):
 			var challenge := Challenge.new()
 			root.add_child(challenge)
-			challenge.setup(hazard)
+			challenge.setup(hazard, ai_obstacle_colors)
 			challenge.set_clock(challenge_time)
 			challenges.append(challenge)
 	root.set_meta("challenges", challenges)
@@ -650,7 +656,7 @@ func _build_tile(key: Vector2i) -> void:
 				continue
 			var rotation := fposmod(p.x * 7.13 + p.z * 3.71, TAU)
 			thorns.append(Transform3D(Basis(Vector3.UP, rotation), p))
-	_multimesh(root, thorn_mesh, leaf_material, thorns)
+	_multimesh(root, thorn_mesh, thorn_material, thorns)
 	_multimesh(root, tree_mesh, leaf_material, trees)
 	_multimesh(root, trunk_mesh, trunk_material, trunks)
 	_multimesh(root, rock_mesh, rock_material, rocks)

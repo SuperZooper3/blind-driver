@@ -10,6 +10,11 @@ class TeamContext:
         self.last_messages = {}
         self.message_repeats = {}
         self.map_toggles = 0
+        self.last_map_view = None
+        self.previous_hud = {}
+        self.guidance = None
+        self.guidance_sequence = 0
+        self.driver_guidance_sequence = 0
 
     def acknowledge(self, role, action, *, accepted, sim_time, observation_sim, error=""):
         self.results[role] = {"accepted": accepted, "sim_time": sim_time,
@@ -19,6 +24,12 @@ class TeamContext:
             return None
         if role == "navigator":
             self.map_toggles = self.map_toggles + 1 if "M" in action["tap"] else 0
+            if "guidance" in action:
+                self.guidance_sequence += 1
+                self.guidance = {"id": self.guidance_sequence, "at": sim_time,
+                    "observed_at": observation_sim, "instruction": deepcopy(action["guidance"])}
+        else:
+            self.driver_guidance_sequence = self.guidance_sequence
         speech = action["message"].strip()
         normalized = " ".join(speech.casefold().split())
         self.message_repeats[role] = (self.message_repeats.get(role, 0) + 1
@@ -52,10 +63,25 @@ class TeamContext:
                     "facing": "rear" if state.get("look_back") else "forward",
                     "map": ("open" if reveal >= .99 else "opening") if state.get("map_open")
                         else ("closing" if reveal > .01 else "closed")}
+        # Only the exact rendered strings, never the evaluator's precise metrics.
+        hud = {k: str(v) for k, v in state.get("hud", {}).items()
+               if k in {"speed", "trip", "surface", "motion", "damage"}}
+        extra = {"hud": hud, "previous_hud": deepcopy(self.previous_hud.get(role))}
+        if self.guidance:
+            extra["active_guidance"] = {**deepcopy(self.guidance),
+                "age_seconds": round(max(0, now - self.guidance["at"]), 2),
+                "already_acted_on": self.driver_guidance_sequence == self.guidance_sequence}
+        self.previous_hud[role] = {"at": round(now, 2), **hud}
+        if role == "navigator":
+            if view["map"] == "open":
+                self.last_map_view = {"at": round(now, 2), "trip": hud.get("trip", "unknown")}
+            extra["map_check"] = {"last_open_view": deepcopy(self.last_map_view),
+                "due": self.last_map_view is None or now - self.last_map_view["at"] >= 8}
         return {"frame": state["frame"], "sim_time": now, "held_keys": list(state["held"]),
                 "input_feedback": state.get("input_error", ""), "view": view,
                 "direction_warning": state.get("direction_warning", ""),
                 "own_turn": memory.turn + 1, "working_memory": deepcopy(memory.recap),
                 "coordination": coordination,
+                **extra,
                 "sound_captions": [{k: e[k] for k in ("id", "sim_time", "text")}
                     for e in state.get("sound_events", []) if e["id"] > heard]}
