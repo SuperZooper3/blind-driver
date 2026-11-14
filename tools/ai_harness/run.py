@@ -5,6 +5,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -19,6 +20,10 @@ from .scoring import DEFAULT_SCORING
 
 ROOT = Path(__file__).resolve().parents[2]
 ROLES = ("navigator", "driver")
+
+
+def prototype_number() -> int:
+    return int(re.search(r"const PROTOTYPE\s*:=\s*(\d+)", (ROOT / "scripts/version.gd").read_text())[1])
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -92,6 +97,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     (directory / ".gdignore").touch()
     manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 5,
                 "prompt_revision": PROMPT_REVISION,
+                "prototype": prototype_number(),
                 "communication_policy": "optional speech; last 8 delivered messages with ages; own action acknowledgments",
                 "hold_policy": "until_replaced",
                 "scoring": DEFAULT_SCORING.copy(),

@@ -52,10 +52,11 @@ def main():
     watch = sub.add_parser("watch", help="Follow both agents and game status in one read-only terminal")
     watch.add_argument("directory", type=Path)
     watch.add_argument("--latest", action="store_true", help="Follow the newest run under this output directory, including future runs")
-    live = sub.add_parser("serve", help="Local game views, messages, Stop and Restart controls")
+    live = sub.add_parser("serve", help="Local game views, messages, New/Stop/Repeat controls")
     live.add_argument("directory", type=Path)
     live.add_argument("--latest", action="store_true")
     live.add_argument("--port", type=int, default=8766)
+    live.add_argument("--env-file", default=str(ROOT / ".env"), help="Cohere configuration for new/repeated runs")
     summarize = sub.add_parser("summarize", help="Export CSV and graphs across recorded runs")
     summarize.add_argument("directory", type=Path)
     cleanup = sub.add_parser("cleanup", help="Remove raw screenshots from a successfully rendered run")
@@ -69,7 +70,7 @@ def main():
         if not 0 <= args.port <= 65535:
             parser.error("Port must be 0–65535 (0 chooses an available port)")
         from .dashboard import serve
-        serve(args.directory, args.latest, args.port)
+        serve(args.directory, args.latest, args.port, args.env_file)
         return
     if args.command == "watch":
         from .monitor import watch
