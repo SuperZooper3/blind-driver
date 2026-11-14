@@ -73,6 +73,15 @@ class HarnessContractTests(unittest.TestCase):
                 self.assertFalse(summary["terminated"])
                 self.assertEqual(summary["forward_progress_m"], 4)
                 self.assertIsNone(summary["cost_usd"])
+                # Stop/cleanup overhead must not make a 100% simulation appear
+                # slower. Use the game's own start/end timestamps for its clock.
+                (directory/"driver").mkdir()
+                (directory/"driver"/"input_events.jsonl").write_text(
+                    json.dumps({"event":"started", "unix_time":10})+"\n"+
+                    json.dumps({"event":"finished", "unix_time":10+2/(speed/100)})+"\n")
+                summary = export_metrics(directory, frames, [{"event":"episode_started","unix_time":9},
+                    {"event":"episode_finished","unix_time":20+2/(speed/100)}])
+                self.assertAlmostEqual(summary["effective_speed_percent"], speed)
             summarize_runs(root)
             groups = json.loads((root/"benchmark.json").read_text())
             self.assertEqual({g["speed_percent"] for g in groups}, {5, 25})

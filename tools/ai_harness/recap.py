@@ -108,10 +108,17 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
     starts = [e["unix_time"] for e in events if e["event"] == "episode_started"]
     start = starts[0] if starts else 0
     endings = [e["unix_time"] for e in events if e["event"] == "episode_finished"]
-    summary["real_seconds"] = endings[-1]-start if starts and endings else None
+    summary["orchestration_real_seconds"] = endings[-1]-start if starts and endings else None
+    game_events = json_lines(directory / "driver" / "input_events.jsonl")
+    game_starts = [e["unix_time"] for e in game_events if e["event"] == "started"]
+    game_ends = [e["unix_time"] for e in game_events if e["event"] == "finished"]
+    summary["real_seconds"] = game_ends[0]-game_starts[0] if game_starts and game_ends else summary["orchestration_real_seconds"]
     summary["effective_speed_percent"] = 100*sim_duration/summary["real_seconds"] if summary["real_seconds"] else None
     summary["applied_actions"] = sum(e["event"] == "action_ack" and e.get("accepted", False) for e in events)
     summary["invalid_responses"] = sum(e["event"] == "request_error" for e in events)
+    ages = [max(0, e["sim_time"]-e["observation_sim"]) for e in events if e["event"] == "message"]
+    summary["observation_age_sim_p50"] = statistics.median(ages) if ages else None
+    summary["observation_age_sim_max"] = max(ages) if ages else None
     (directory / "summary.json").write_text(json.dumps(summary, indent=2))
     for event in events:
         if event["event"] == "message":
