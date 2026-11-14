@@ -38,6 +38,18 @@ Talk in person or use your preferred voice call; there is no built-in voice chat
 The map covers the navigator’s view when open. Checking the route means looking
 away from the road—and small obstacles aren’t marked on the map.
 
+### The same challenge, with two AI agents
+
+The research harness puts a model in each seat and records their views, messages,
+controls, and response times as they try to keep the car on the road.
+
+![Cohere agents driving and navigating, with their conversation, speed history, and car health visible in the harness recap](docs/images/ai-harness-recap.png)
+
+*An earlier Cohere Command A+ run, captured on prototype 09 at 5% simulation speed.
+The recap shows each agent’s view alongside delivered messages and run metrics.*
+
+[Explore the Cohere and Google harnesses →](#two-seats-two-ai-agents)
+
 ### Every shortcut is a conversation
 
 Choose a longer, quieter route or a hazardous shortcut. Dodge rocks and spike
@@ -67,7 +79,8 @@ After an online run, swap roles and see how the other half drives.
 | --- | --- |
 | ![The room menu with driver and navigator choices](frontend/media/choose-your-seat.png) | ![The driver’s broken glasses beneath the car](frontend/media/broken-glasses.png) |
 
-*These supplied screenshots show prototype 30. The current release is identified
+*The human-play screenshots show prototype 30; the AI recap is labeled separately.
+The current release is identified
 in-game by `scripts/version.gd`; menus and visuals may have changed since capture.*
 
 ## Two seats. Two AI agents.
