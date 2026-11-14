@@ -213,14 +213,18 @@ class HarnessContractTests(unittest.TestCase):
         self.assertIn("until next instruction", text)
         self.assertNotIn("\x1b", text)
 
-    def test_cli_defaults_to_aya_and_normal_motion(self):
+    def test_cli_defaults_to_command_a_and_normal_motion(self):
         from tools.ai_harness.__main__ import main
         with patch("sys.argv", ["ai_harness", "run", "--provider", "cohere"]), \
              patch("tools.ai_harness.__main__.run_episode") as run:
             main()
             args = run.call_args.args[0]
-            self.assertEqual(args.driver_model, "c4ai-aya-vision-32b")
-            self.assertEqual(args.navigator_model, "c4ai-aya-vision-32b")
+            self.assertEqual(args.driver_model, "command-a-plus-05-2026")
+            self.assertEqual(args.navigator_model, "command-a-plus-05-2026")
+            self.assertEqual(args.memory_every, 8)
+            self.assertEqual(args.sim_seconds, 60)
+            self.assertEqual(args.max_requests, 100)
+            self.assertEqual(args.max_tokens, 200000)
             self.assertEqual(args.speed, 25)
             self.assertIsNone(args.review_speed)
 

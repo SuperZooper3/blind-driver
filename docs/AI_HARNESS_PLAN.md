@@ -11,11 +11,12 @@ per episode, with separate model/role/speed benchmarks. The sketch uses a small
 file-based screenshot/key/telemetry adapter, not a new WebSocket control service.
 The later input correction also supersedes all timed-hold/expiry proposals below:
 both agents' held keys now persist until their next accepted instruction replaces
-them or the episode ends. Current runs default to Aya in both seats at 25% speed,
+them or the episode ends. Current runs default to Command A+ in both seats at 25% speed,
 with a live terminal and normal-game-speed recaps; see the implementation document.
 Sections below retain longer-term design ideas; they are not a list of completed
 features. In particular, RL training, Google support, route-aware scoring, and
-automatic memory summaries remain future work.
+training-time memory optimization remain future work. Runtime conversation recaps
+are implemented; see the implementation document for their current policy.
 
 ## Recommendation
 

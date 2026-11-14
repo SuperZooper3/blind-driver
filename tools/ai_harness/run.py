@@ -11,7 +11,8 @@ import subprocess
 import time
 import uuid
 
-from .agents import CohereAgent, InvalidModelResponse, ScriptedAgent, prompt, validate_action
+from .agents import CohereAgent, InvalidModelResponse, ScriptedAgent, PROMPT_REVISION, prompt, validate_action
+from .context import TeamContext
 from .monitor import ConsoleMonitor
 from .memory import RateBudget, WorkingMemory
 from .scoring import DEFAULT_SCORING
@@ -89,7 +90,9 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     directory = output_root / run_id
     directory.mkdir(parents=True, mode=0o700)
     (directory / ".gdignore").touch()
-    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 4,
+    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 5,
+                "prompt_revision": PROMPT_REVISION,
+                "communication_policy": "optional speech; last 8 delivered messages with ages; own action acknowledgments",
                 "hold_policy": "until_replaced",
                 "scoring": DEFAULT_SCORING.copy(),
                 "basic_course_version": "roadside_thorns_v2",
@@ -122,6 +125,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     future = None
     request_context = {}
     memories = {role: WorkingMemory(args.memory_every) for role in ROLES}
+    team = TeamContext()
     heard = {role: 0 for role in ROLES}
     heartbeat = 0.0
     rate = RateBudget(args.rpm if args.provider == "cohere" else 120 / args.scripted_interval)
@@ -269,13 +273,16 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     accepted = state.get("applied_sequence") == seq
                     log("action_ack", role=role, sequence=seq, accepted=accepted,
                         sim_time=state["sim_time"], held=state["held"], error=state.get("input_error", ""))
+                    message = team.acknowledge(role, action, accepted=accepted,
+                        sim_time=state["sim_time"], observation_sim=observed["sim_time"],
+                        error=state.get("input_error", ""))
                     if accepted:
-                        other = "driver" if role == "navigator" else "navigator"
-                        message = log("message", role=role, to=other, message=action["message"],
-                                      sim_time=state["sim_time"], observation_sim=observed["sim_time"],
-                                      latency_seconds=latency, hold=action["hold"], tap=action["tap"])
                         memories[role].record(observed, context["delivered"], action, state["sim_time"])
-                        inbox[other].append({k: message[k] for k in ("role", "message", "sim_time", "observation_sim")})
+                        if message:
+                            other = "driver" if role == "navigator" else "navigator"
+                            log("message", **message, to=other, latency_seconds=latency,
+                                hold=action["hold"], tap=action["tap"])
+                            inbox[other].append(message)
                     pending_ack = None
                     turn += 1
 
@@ -326,16 +333,12 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 role = ROLES[turn % 2]
                 other = "driver" if role == "navigator" else "navigator"
                 recap_due = memories[other].due() and requests + 1 < args.max_requests
-                if not rate.take(2 if recap_due else 1):
+                recap_slot = recap_due and rate.take(2)
+                if not recap_slot and not rate.take():
                     time.sleep(0.04)
                     continue
                 state = latest[role]
-                # Explicit whitelist: precise telemetry never enters model inputs.
-                observation = {"frame": state["frame"], "sim_time": state["sim_time"],
-                               "held_keys": state["held"], "input_feedback": state.get("input_error", ""),
-                               "own_turn": memories[role].turn + 1, "working_memory": memories[role].recap.copy(),
-                               "sound_captions": [{k: e[k] for k in ("id", "sim_time", "text")}
-                                   for e in state.get("sound_events", []) if e["id"] > heard[role]]}
+                observation = team.observation(role, state, memories[role], heard[role])
                 heard_before = heard[role]
                 heard[role] = max([heard[role]] + [e["id"] for e in observation["sound_captions"]])
                 delivered = inbox[role][:]
@@ -347,9 +350,9 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 future = executor.submit(agents[role].decide, directory / role / state["image"], observation, delivered)
                 interval = args.scripted_interval if args.provider == "scripted" else 0
                 next_request = time.monotonic() + interval
-                # Reserve both slots together so background work cannot starve
-                # behind fast actions. The non-acting seat recaps concurrently.
-                if recap_due:
+                # Recap only when a second slot is available; never delay a
+                # driving decision just to accumulate background recap quota.
+                if recap_slot:
                     requests += 1
                     pending = memories[other].start(executor, agents[other], requests)
                     log("memory_request", role=other, request_id=requests,

@@ -26,7 +26,7 @@ python3 -m venv .venv
 
 # With COHERE_API_KEY already exported in this terminal:
 .venv/bin/python -m tools.ai_harness run \
-  --provider cohere --speed 25 --sim-seconds 30 --max-requests 36
+  --provider cohere --speed 25 --sim-seconds 60 --max-tokens 200000 --max-requests 100
 ```
 
 Set `GODOT` or pass `--godot /path/to/Godot` if the executable is not detected.
@@ -50,10 +50,13 @@ scripted result is prominently labeled and is not a model-performance claim.
 
 ## Model choices, prompts, and speeds
 
-Both seats default to `c4ai-aya-vision-32b`, our initial smaller-model baseline.
-The stronger-model candidate is `command-a-plus-05-2026`; these are experiment
-choices, not an established performance ranking. Both support image input.
-[Aya Vision documentation](https://docs.cohere.com/docs/aya-vision).
+Both seats default to `command-a-plus-05-2026` (Command A+). It supports image
+input and JSON Schema responses. The original `command-a-03-2025` is text-only
+and cannot operate this screenshot harness. `command-a-vision-07-2025` and
+`c4ai-aya-vision-32b` remain explicit alternatives. This model change is an
+experiment, not a measured driving-performance ranking.
+[Cohere model capabilities](https://docs.cohere.com/docs/models),
+[Command A+](https://docs.cohere.com/docs/command-a-plus).
 
 ```sh
 .venv/bin/python -m tools.ai_harness run --provider cohere \
@@ -73,7 +76,7 @@ turns are retained by default; previous images are never sent. Each action may a
 contain short `notes` recording observations, its decision, and unresolved questions.
 Notes belong to that seat; only `message` goes to its partner. These are concise
 working records, not private chain-of-thought transcripts.
-Every three own accepted actions (`--memory-every 3`), that seat updates a rolling
+Every eight own accepted actions (`--memory-every 8`), that seat updates a rolling
 recap while the other seat makes its next action request. Recap calls are text-only,
 use the same model, and receive immutable snapshots of conversation/notes. They do
 not select controls, pause play, or overwrite live history. The latest completed
@@ -81,8 +84,33 @@ recap, with a `through_turn` watermark, accompanies later current-image requests
 Recent turns remain verbatim even while a recap is pending. Set `--memory-every 0`
 to disable this. Errors retain the previous recap and are recorded separately.
 The history policy and exact prompts are saved. Use `--history-turns` to change it.
+Older text turns retain observations and notes without repeatedly embedding earlier
+recap/dialogue windows. This keeps the context from growing with duplicate summaries.
 Optional `--driver-instructions file.txt` and `--navigator-instructions file.txt`
 append coaching instructions; use `--label coached-v1` to identify the experiment.
+
+The `cooperative-navigation-v2` prompt makes the navigator an active copilot:
+
+- Give immediate steering/braking directions, timing, and when to straighten.
+  Distinguish a straight road from a car that is actually aligned with it.
+- Read the latest driver question/acknowledgment, check whether the last advice
+  worked, and correct it using current evidence. Speech is optional: `message: ""`
+  means silence; private map-check narration belongs in `notes`.
+- Prefer watching the road. Open the map for a route question, read it on a later
+  screenshot, then close it. The driver cannot check the map. North-up map directions
+  must be converted to the driver's left/right using the car's heading.
+- Reassess after crash/pop captions, loss of movement, or visible drift. Inspect
+  clearance before proposing recovery; an impact caption alone cannot identify a tree.
+
+Each current observation includes the last eight **delivered** messages from both
+seats with delivery/evidence ages, the seat's latest control acknowledgment, and
+repetition counts for its speech and navigator map toggles. Discrete view labels
+(`open/opening/closing/closed`, seat/chase, forward/rear) describe the visible UI.
+They contain no road geometry, obstacle positions, partner controls, or partner
+private notes. Rejected actions never deliver speech; whitespace-only messages
+never create a chat event. Repeated urgent instructions are still delivered.
+The harness does not fabricate directions or silently rewrite a model's advice.
+Recaps distinguish observations, speech, and control acceptance from actual outcomes.
 
 Cohere is the first implemented provider. Command A+ uses JSON Schema output and
 disables thinking for the initial latency baseline. Aya Vision and Command A Vision use JSON
@@ -98,8 +126,11 @@ invalid output still counts as an error.
 
 The shared limiter defaults to 18 requests/minute across both seats, including
 background recap calls, with a two-call burst for concurrent action/recap requests.
-A due action/recap pair reserves both rate slots together. Recapping therefore
-uses quota and can reduce action frequency; it is an explicit benchmark condition. Bound runs with `--max-requests`, `--max-tokens`, and
+A due action/recap pair uses two rate slots when available. If only one is available,
+the action proceeds and the recap waits. Recapping still uses quota; it is an explicit
+benchmark condition. Defaults allow 60 simulation seconds (about four real minutes
+at 25% speed), 200,000 combined input/output tokens, and 100 requests including recaps.
+Bound runs with `--sim-seconds`, `--max-requests`, `--max-tokens`, and
 `--timeout`; the token cap is checked between requests and can overshoot by an
 in-flight group (up to three calls). Three consecutive provider/format errors stop the trial. No hidden
 provider/model fallback occurs. Dollar cost is recorded as unknown, not zero;
@@ -257,7 +288,8 @@ FPS, capture cost, applied keys, hold policy, and real/simulation clocks. Impact
 events come from the game's impact signal, not every physics contact. Per-request
 logs include observations, image references, dialogue, latencies, tokens,
 responses, validation failures, and acknowledgments. Precise telemetry is never
-included in model inputs (sound captions are the explicit accessibility exception).
+included in model inputs. Sound captions and discrete own-seat view labels are
+explicit accessibility exceptions; exact map-reveal fractions stay in telemetry.
 
 The versioned evaluation score is:
 
@@ -347,6 +379,7 @@ trainable policy weights, rewards, and a training loop; none is claimed here.
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -p 'test_ai_harness.py' -v
+.venv/bin/python -m unittest discover -s tests -p 'test_navigator_context.py' -v
 godot --headless --path . --fixed-fps 60 --script tests/ai_harness_smoke.gd
 python3 tests/run_checks.py --relay
 npm --prefix server test
@@ -357,5 +390,7 @@ actions, holds persisting beyond the old timeout, explicit release, stop cleanup
 continued simulation, the readable map/captions, roadside thorns, and terminal
 all-tire punctures in the basic course at 5% speed. Unit tests cover one-image
 requests, text history, concurrent immutable recaps, score terms, and scoped HTTP controls.
+Navigator regressions cover the repeated-map conversation, crash captions, dialogue
+ages, silent/rejected delivery, map animation labels, and exclusion of hidden telemetry.
 Rendered scripted runs verify the complete-seat capture/recap path. Live provider
 trials are separate from those deterministic checks.

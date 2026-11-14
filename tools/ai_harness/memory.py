@@ -31,7 +31,10 @@ class WorkingMemory:
 
     def record(self, observation, messages, action, accepted_sim):
         self.turn += 1
-        self.turns.append(deepcopy({"turn": self.turn, "observation": observation,
+        # The recap already receives its predecessor plus the exact exchanges.
+        # Avoid resending embedded recap/dialogue windows for every recorded turn.
+        compact = {k: v for k, v in observation.items() if k not in {"working_memory", "coordination"}}
+        self.turns.append(deepcopy({"turn": self.turn, "observation": compact,
             "partner_messages": messages, "action": action, "accepted_sim": accepted_sim}))
         # Separate from provider history; recaps always operate on immutable snapshots.
         self.turns = self.turns[-32:]

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .run import ROOT, find_godot, prepare, run_episode
 from .recap import build_recap, summarize_runs
+from .agents import DEFAULT_MODEL
 
 
 def main():
@@ -13,23 +14,23 @@ def main():
     batch = sub.add_parser("benchmark", help="Run model-pair × speed × seed comparisons")
     for p in (run, batch):
         p.add_argument("--provider", choices=["scripted", "cohere"], default="scripted")
-        p.add_argument("--driver-model", default="c4ai-aya-vision-32b")
-        p.add_argument("--navigator-model", default="c4ai-aya-vision-32b")
+        p.add_argument("--driver-model", default=DEFAULT_MODEL)
+        p.add_argument("--navigator-model", default=DEFAULT_MODEL)
         p.add_argument("--driver-instructions", help="Optional coaching text appended to the driver's prompt")
         p.add_argument("--navigator-instructions", help="Optional coaching text appended to the navigator's prompt")
         p.add_argument("--speed", type=float, default=25, help="Simulation speed percentage (1–100)")
         p.add_argument("--seed", type=int, default=72419)
         p.add_argument("--course", choices=["basic", "standard"], default="basic")
-        p.add_argument("--sim-seconds", type=float, default=10)
+        p.add_argument("--sim-seconds", type=float, default=60)
         p.add_argument("--capture-fps", type=int, default=6)
         p.add_argument("--video-fps", type=int, default=15)
         p.add_argument("--review-speed", type=float, help="Override normal-game-speed recap with this multiplier of real capture time")
         p.add_argument("--rpm", type=float, default=18, help="Combined API requests/minute across both seats")
-        p.add_argument("--max-requests", type=int, default=60)
-        p.add_argument("--max-tokens", type=int, default=100000)
+        p.add_argument("--max-requests", type=int, default=100)
+        p.add_argument("--max-tokens", type=int, default=200000)
         p.add_argument("--max-output-tokens", type=int, default=512)
         p.add_argument("--history-turns", type=int, default=32)
-        p.add_argument("--memory-every", type=int, default=3, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
+        p.add_argument("--memory-every", type=int, default=8, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
         p.add_argument("--readable-ui", action=argparse.BooleanOptionalAction, default=True)
         p.add_argument("--keep-frames", action="store_true", help="Keep raw screenshots for debugging/rebuilding; otherwise clean them after the recap")
         p.add_argument("--timeout", type=float, default=30)
