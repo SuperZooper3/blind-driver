@@ -1,4 +1,5 @@
 """Short tasks with semantic controls and current visible evidence."""
+from .driving_guidance import DRIVING_MECHANICS
 
 
 def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
@@ -15,6 +16,7 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         common += "Basic road has bends, rocks, trees and roadside thorns, no police/jumps. Cruise 50–55 km/h when clear; 25–35 on bends. "
     else:
         common += "Standard road has forks, cliffs, police, jumps and bridges: heed visible signs and map. "
+    common += DRIVING_MECHANICS
     if role == "driver":
         return common + (
             'Return {"pedal":"accelerate|coast|brake|reverse|park","steering":"left|straight|right","message":"","notes":""}. '
@@ -29,6 +31,8 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
             "For travel=reverse select pedal=reverse, NEVER accelerate; coast once at reverse target speed. "
             "left/right uses the current guidance steering_seconds (otherwise 0.15 game seconds) then straightens; straight releases steering immediately. "
             "Optional pedal_seconds or steering_seconds (0.05–1) changes that pulse's duration. "
+            "For a clear turn from rest, combine pedal=accelerate with steering=left/right and overlapping pulses long enough to start rolling (about 0.5s), or explicit holds. "
+            "A tiny steering pulse that expires before motion starts does not accomplish a turn. At cruising speed use shorter corrections and coast when appropriate. "
             "For continuous input select pedal_mode=hold or steering_mode=hold; it stays pressed until your next accepted action changes it. "
             "pulse mode is the default. Both modes are available: use a hold for a sustained maneuver, a pulse for small adjustments. "
             "Optional tap:[\"H\"] toggles headlights once. Holding accelerate is throttle, NOT a speed governor. "
@@ -45,6 +49,7 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         "guidance is your complete CURRENT driving instruction, replacing the previous one. It is sent as clear speech automatically when changed. "
         "Set steering=straight as soon as aligned; old turns must be canceled explicitly. steering_seconds is a short correction (0.05–1 game seconds); use 0 for straight. "
         "Use 0.1–0.2s at cruising speed, 0.3–0.6s for a low-speed recovery; inspect the next image before requesting another. "
+        "To turn from rest, first confirm clear space, then specify travel=forward (or rear-checked reverse), a low nonzero target speed and steering together. travel=stop cannot turn in place. "
         "message is OPTIONAL extra warning, question or answer (max 140 characters); label it with message_kind=warning/question/answer. "
         "Routine status ('clear ahead') and duplicate instructions ('continue straight') are not sent: message_kind=status/instruction/none are silent. Use none with empty message when nothing new. "
         "Do not repeat the generated direction/speed or narrate camera use in message. "
@@ -69,6 +74,10 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
 
 
 def current_task(role: str, observation: dict) -> str:
+    if observation.get("direction_warning") == "WRONG WAY":
+        if role == "driver":
+            return "WRONG WAY is visible: slow down and coordinate a moving turn with the navigator. Steering alone cannot turn a stopped car. Do not continue a stale cruise instruction."
+        return "WRONG WAY is visible: slow the driver, use road/map/rear views to find clear turning space, then give one slow MOVING turn step and verify it. Do not try stationary tank steering."
     if role == "driver":
         return "Read active_guidance. Newest travel and steering replace all old maneuvers. Coast=coast; reverse=reverse (not accelerate). Compare CURRENT HUD speed to target."
     view, hud = observation.get("view", {}), observation.get("hud", {})

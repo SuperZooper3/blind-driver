@@ -79,6 +79,7 @@ class TeamContext:
                 "due": self.last_map_view is None or now - self.last_map_view["at"] >= 8}
         return {"frame": state["frame"], "sim_time": now, "held_keys": list(state["held"]),
                 "input_feedback": state.get("input_error", ""), "view": view,
+                "direction_warning": state.get("direction_warning", ""),
                 "own_turn": memory.turn + 1, "working_memory": deepcopy(memory.recap),
                 "coordination": coordination,
                 **extra,

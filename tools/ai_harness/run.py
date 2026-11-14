@@ -284,7 +284,9 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 if state.get("sequence", -1) >= seq:
                     accepted = state.get("applied_sequence") == seq
                     log("action_ack", role=role, sequence=seq, accepted=accepted,
-                        sim_time=state["sim_time"], held=state["held"], error=state.get("input_error", ""))
+                        sim_time=state["sim_time"], held=state["held"], error=state.get("input_error", ""),
+                        request_id=context["request_id"],
+                        action={k: action[k] for k in ("hold", "tap", "steering_pulse_sim", "pedal_pulse_sim") if k in action})
                     message = team.acknowledge(role, action, accepted=accepted,
                         sim_time=state["sim_time"], observation_sim=observed["sim_time"],
                         error=state.get("input_error", ""))

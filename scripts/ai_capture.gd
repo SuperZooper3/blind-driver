@@ -267,6 +267,7 @@ func _save_capture(picture: Image, started_us: int, stamp: float) -> void:
 		"held": held, "hold_policy": "until_replaced_with_optional_key_pulses",
 		"steering_release_sim": steering_release_sim,
 		"pedal_release_sim": pedal_release_sim,
+		"direction_warning": game.ui.direction_warning.status_text(),
 		"pressed_keys": pressed_keys, "input_reassertions": input_reassertions,
 		"engine_pid": OS.get_process_id(), "session_role": game.session.role,
 		"sound_events": game.ui.readable_hud.sounds.duplicate(true) if game.ui.readable_hud != null else [],

@@ -4,10 +4,18 @@ const Geo = preload("res://scripts/geometry.gd")
 const Challenge = preload("res://scripts/road_challenge.gd")
 const HEAD_START := 6.0
 const START_GAP := 85.0
+## Beyond LEASH_START the patrol starts matching the car's own pace; by
+## BOOST_FULL_GAP it is fully leashed, so a lead stops growing instead of escaping.
+const LEASH_START := 150.0
 const BOOST_FULL_GAP := 240.0
-## About 61 km/h, just under a car on two flat tires (~62 km/h): driving cleanly
-## with one or two flats still pulls away, while a bad crash or a dead end does not.
-const CATCH_UP_SPEED := 17.0
+## The patrol starts slow and gains speed the longer the chase lasts, up to about
+## 111 km/h: a healthy car's sustained top speed, so perfect driving is never overtaken.
+const START_SPEED := 14.0
+const SPEED_GAIN := 0.04
+const MAX_SPEED := 31.0
+## Only while leashed far behind may it briefly go faster, to make up corners the
+## car took faster; inside LEASH_START it is back at MAX_SPEED and cannot close in.
+const LEASH_SPEED := 35.0
 const BRAKING := 9.0
 const CATCH_SECONDS := 2.0
 const CAPTURE_RADIUS := 24.0
@@ -173,13 +181,15 @@ func advance(delta: float, running: bool) -> void:
 			return
 		phase = "chasing"
 	var direction: int = route.direction
-	var cruise := 14.0 + clampf(car.distance_driven / 2000.0, 0, 1) * 2.5
-	# Earned space gives breathing room, then the patrol gradually reels it back in.
-	# Fade the boost out before capture range; never jump the patrol toward the car.
-	var boost := smoothstep(START_GAP, BOOST_FULL_GAP, gap)
-	var pace := lerpf(1.0, 1.3, boost)
+	var cruise := cruise_speed()
+	# Earned space gives breathing room, but a rubber band stops the lead growing:
+	# far behind, the patrol matches the car's measured pace (plus a little) up to
+	# its own top speed, and fades back to cruising before capture range.
+	var car_speed := speed - closing_speed
+	var boost := smoothstep(LEASH_START, BOOST_FULL_GAP, gap)
+	cruise = lerpf(cruise, clampf(car_speed + 1.5, cruise, LEASH_SPEED), boost)
+	var pace := lerpf(1.0, 1.8, clampf((maxf(cruise, speed) - START_SPEED) / (MAX_SPEED - START_SPEED), 0, 1))
 	var guidance := _guidance(direction, pace)
-	cruise = lerpf(cruise, CATCH_UP_SPEED, boost)
 	var desired_speed: float = minf(cruise, guidance.speed_limit)
 	speed = move_toward(speed, desired_speed, delta * (lerpf(3.2, 6.0, boost) if desired_speed > speed else BRAKING * pace * pace))
 	lateral = move_toward(lateral, guidance.lateral, delta * 2.0 * pace)
@@ -217,7 +227,7 @@ func _guidance(direction: int, pace: float = 1.0) -> Dictionary:
 	var forward: Vector3 = sample.direction * direction
 	var side: Vector3 = sample.direction.cross(Vector3.UP).normalized()
 	var desired := 0.0
-	var speed_limit := CATCH_UP_SPEED
+	var speed_limit := LEASH_SPEED
 	var strongest := 0.0
 	var stop_distance := INF
 	# Scale braking and dodging with pursuit pace, so bends and obstacles still
@@ -251,9 +261,9 @@ func _guidance(direction: int, pace: float = 1.0) -> Dictionary:
 				var crossing_speed := bump_speed if hazard.kind == "bumps" else obstacle_speed
 				speed_limit = minf(speed_limit, sqrt(crossing_speed * crossing_speed + 2.0 * braking * maxf(0, ahead - 16.0)))
 			if hazard.kind == "bumps":
-				speed_limit = minf(speed_limit, lerpf(CATCH_UP_SPEED, bump_speed, strength))
+				speed_limit = minf(speed_limit, lerpf(LEASH_SPEED, bump_speed, strength))
 			else:
-				speed_limit = minf(speed_limit, lerpf(CATCH_UP_SPEED, obstacle_speed, strength))
+				speed_limit = minf(speed_limit, lerpf(LEASH_SPEED, obstacle_speed, strength))
 				if strength > strongest:
 					strongest = strength
 					desired = (-2.6 if relative.dot(side) >= 0 else 2.6) * strength
@@ -277,6 +287,10 @@ func _place(direction: int, weight: float) -> void:
 		if hazard.kind == "jump_gap": point.y += Challenge.jump_height(hazard, point)
 	global_position = point
 	global_basis = global_basis.orthonormalized().slerp(Basis.looking_at(sample.direction * direction), weight)
+
+## Normal cruising pace: slow at first, rising through the chase to MAX_SPEED.
+func cruise_speed() -> float:
+	return minf(MAX_SPEED, START_SPEED + SPEED_GAIN * maxf(0, elapsed - HEAD_START))
 
 func eta() -> float:
 	return maxf(0, gap - 11.0) / closing_speed if phase == "chasing" and not paused and closing_speed > 0.75 else -1.0

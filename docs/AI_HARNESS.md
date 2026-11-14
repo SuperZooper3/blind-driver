@@ -84,7 +84,7 @@ passed to either agent. The previous visible-instrument snapshot helps distingui
 motion from stalling. Discrete own-seat view labels and audible-event captions
 remain available. The map itself must still be interpreted visually.
 
-The `grounded-copilot-v11` instructions and context:
+The `grounded-copilot-v12-steering` instructions and context:
 
 - Plan with the map before departure, read a later fully opened frame, close it,
   and remember the upcoming bend. A map-check reminder tracks the last offered
@@ -142,6 +142,18 @@ retained for the account's pricing. A formatted response is not proof of good dr
 inspect the live run, saved images, actions, and measured road progress.
 
 ## Live terminal or browser
+
+Each seat shows **Keys held now** and **Last accepted turn** separately. The latter
+keeps the accepted request number, game timestamp, held keys, one-shot taps and
+explicit pulse durations after release or episode end. Pending/rejected actions
+do not replace it. Older recordings are reconstructed from response/ack pairs;
+new acknowledgments store their controls explicitly.
+
+Both prompts explain rolling steering (W+A/W+D from rest; steering while
+coasting; reversed yaw response when backing up), handbrake release, and B versus
+C. The game and map show a large **WRONG WAY** banner; its exact visible text also
+appears as `direction_warning` in each seat's observation. This is a rendered
+game warning, not hidden route geometry or an automatic driving correction.
 
 `run` now prints a single chronological stream for both agents: requests, inference
 latency, proposed keys, accepted messages, errors, token usage, and periodic game
@@ -460,10 +472,14 @@ trials are separate from those deterministic checks.
 
 ## Development checkpoint — 14 November 2026
 
-Work is checkpointed on `codex/navigator-500m`, integrated with PROTOTYPE 10
-(`a9a23e7`), and is not merged into `main`. The user requested wrapping up the
+Work is checkpointed on `codex/navigator-500m`, now integrated with PROTOTYPE 12
+(`849b56f`). The experimental harness is not merged into `main`; the steering
+instructions, wrong-way warnings and last-turn dashboard are merged separately.
+The user requested wrapping up the
 attempt before the latest candidate completed a driving evaluation. **500 m has
-not been demonstrated.** Prototype stays 10 until a completed change is merged.
+not been demonstrated.** The subsequent steering/warning integration passed 41
+Python tests and the combined driving/LAN suite; it has not had another full
+Cohere driving evaluation.
 
 Selected recordings under `runs/aya-25` and `runs/navigator-500m`:
 
@@ -497,9 +513,11 @@ controls, captions and instrumentation. The combined driving/LAN suite passed
 after integrating upstream PROTOTYPE 10. The green-tree palette was visually
 confirmed in the v10 live run. No relay protocol changes or deployment were made.
 
-Next evaluation should run v11 from this checkpoint for the full 60 game seconds
+Next evaluation should run the current prompt from this checkpoint for the full 60 game seconds
 at 5% speed with the 200,000-token cap, inspect early alignment corrections and
 obstacle avoidance, and only claim 500 m after the measured forward-progress
-metric reaches it. The development viewer is at `http://127.0.0.1:8767/`; the old
-8766 viewer still serves its earlier checkout. The ignored project `.env` is
+metric reaches it. The development viewer is at `http://127.0.0.1:8767/`; the
+8766 viewer serves current main (PROTOTYPE 12) and its main-branch model defaults.
+Both viewers show last accepted controls. Old recordings keep their original version labels.
+The ignored project `.env` is
 read on each launch; credentials are not in source or recordings.

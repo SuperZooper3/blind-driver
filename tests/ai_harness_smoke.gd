@@ -45,6 +45,20 @@ func _run() -> void:
 	game.car.rotation.y = 1.0
 	check(game.ui.map._project(game.car.global_position + Vector3(0, 0, -10)).is_equal_approx(north_before), "map stays north up while car heading changes")
 	game.car.rotation.y = 0.0
+	var warning: Control = game.ui.direction_warning
+	warning.set_process(false)
+	game.car.grounded_wheels = 4
+	game.car.linear_velocity = Vector3.ZERO
+	game.car.rotation.y = PI
+	warning._process(0.3)
+	check(warning.status_text().is_empty(), "brief heading change does not flash wrong-way warning")
+	warning._process(0.31)
+	check(warning.status_text() == "WRONG WAY", "backward car gets a large visible wrong-way warning")
+	check(game.ui.map.direction_warning == warning, "map shares the same wrong-way state")
+	game.car.rotation.y = 0.0
+	warning._process(0.31)
+	check(warning.status_text().is_empty(), "warning clears after facing forward again")
+	warning.set_process(true)
 	for road in game.world.roads:
 		check(not road.danger, "basic route has no fatal branch")
 		for hazard in road.hazards:

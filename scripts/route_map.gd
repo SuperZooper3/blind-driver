@@ -9,6 +9,7 @@ var unfolded := false
 var zoom := 1.5
 var ink := Color("305449")
 var readable_ui := false
+var direction_warning: Control
 var draw_size: Vector2:
 	get: return size / (2.0 if readable_ui else 1.0)
 
@@ -109,3 +110,5 @@ func _draw() -> void:
 	draw_string(font, Vector2(18, draw_size.y - 17), ("SMALL ROCKS & TREES NOT MAPPED" if readable_ui else "X CLIFF / O DEAD END / AMBER ROUGH / SMALL OBSTACLES UNMAPPED"), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, ink)
 	draw_line(Vector2(draw_size.x - 82, draw_size.y - 31), Vector2(draw_size.x - 22, draw_size.y - 31), ink, 2.0)
 	draw_string(font, Vector2(draw_size.x - 80, draw_size.y - 38), "%d m" % int(60.0 / zoom), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ink)
+	if unfolded and is_instance_valid(direction_warning) and not direction_warning.status_text().is_empty():
+		preload("res://scripts/direction_warning.gd").draw_banner(self, Rect2(18, 60 if readable_ui else 40, draw_size.x - 36, 74))
