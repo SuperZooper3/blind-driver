@@ -99,6 +99,7 @@ func _ready() -> void:
 	blur_material.shader = preload("res://shaders/driver_blur.gdshader")
 	ui.driver_screen.material = blur_material
 	ui.blur_slider.value_changed.connect(func(value: float): blur_material.set_shader_parameter("blur_amount", value))
+	blur_material.set_shader_parameter("blur_amount", ui.blur_slider.value)
 	ui.map.world = world
 	ui.map.car = car
 	ui.play_requested.connect(_start)

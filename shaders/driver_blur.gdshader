@@ -1,6 +1,6 @@
 shader_type canvas_item;
 
-uniform float blur_amount : hint_range(0.0, 0.08) = 0.025;
+uniform float blur_amount : hint_range(0.0, 0.08) = 0.040;
 uniform float blind_strength : hint_range(0.0, 1.0) = 1.0;
 
 void fragment() {
