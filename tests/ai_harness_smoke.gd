@@ -37,6 +37,8 @@ func _run() -> void:
 	check(game.world.thorn_at(Vector3(100, 0, 100)), "basic course restores deep roadside thorns")
 	check(not game.world.thorn_at(Vector3(0, 0, 0)), "road center remains clear of thorns")
 	check(game.ui.readable_hud != null and game.ui.map.readable_ui, "readable HUD and larger map enabled")
+	game.session._use_pose({"time": 10.0, "transform": Transform3D.IDENTITY, "velocity": Vector3(0, 0, -20), "angular_velocity": Vector3.ZERO}, true)
+	check(is_equal_approx(game.session.predictor.predict_at(10.4).origin.z, -0.4), "navigator prediction scales real-time motion to 5% simulation speed")
 	# North-up map orientation must not rotate the road when the car turns.
 	var north_before: Vector2 = game.ui.map._project(game.car.global_position + Vector3(0, 0, -10))
 	game.car.rotation.y = 1.0

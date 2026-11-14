@@ -201,7 +201,9 @@ long runs need a disk-space budget or a streaming-video upgrade.
 
 The existing LAN connection supplies the navigator's world. Only harness instances
 use wall-clock LAN send intervals, so 5% simulation speed does not reduce snapshot
-frequency to 1.5 Hz. Existing network interpolation still adds its normal delay.
+frequency to 1.5 Hz. Navigator pose prediction converts simulation velocity to
+real-time velocity at the configured speed; damage and other full-snapshot state
+still have their normal network delay.
 The two captured windows are aligned by timestamps rather than claimed to be
 pixel-simultaneous. A capture stall over three seconds invalidates the run.
 

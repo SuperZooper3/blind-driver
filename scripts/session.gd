@@ -530,7 +530,10 @@ func _sync_clock(data: Dictionary, now: float) -> bool:
 	return false
 
 func _use_pose(data: Dictionary, snap: bool) -> void:
-	if predictor.accept(float(data.time), data.transform, data.velocity, data.angular_velocity, snap):
+	# Pose timestamps use real time; velocities use simulation seconds. Harness
+	# sessions share a fixed time scale, so prediction must use metres/real second.
+	var scale := Engine.time_scale if wall_clock_intervals else 1.0
+	if predictor.accept(float(data.time), data.transform, data.velocity * scale, data.angular_velocity * scale, snap):
 		latest_pose = data
 
 func _forget_poses() -> void:
@@ -562,7 +565,8 @@ func _interpolate(delta: float) -> void:
 	var driver_now := now - clock_offset + _prediction_lead()
 	if not latest_pose.is_empty():
 		# Optimistic continuation: show where the driver's car is now, not where it was.
-		car.global_transform = predictor.step(driver_now, delta)
+		var render_delta := delta / maxf(Engine.time_scale, 0.001) if wall_clock_intervals else delta
+		car.global_transform = predictor.step(driver_now, render_delta)
 		car.signed_speed = latest_pose.speed
 		car.steering = latest_pose.steering
 		car.throttle = latest_pose.throttle
@@ -594,6 +598,7 @@ func _interpolate(delta: float) -> void:
 	police.apply_snapshot(a.police, b.police, weight)
 	# The crossing clock runs while the ride does: carry it forward to the driver's now.
 	var clock_ahead := clampf(driver_now - float(newest.time), 0.0, 0.5) if newest.run_state == "driving" else 0.0
+	if wall_clock_intervals: clock_ahead *= Engine.time_scale
 	world.set_challenge_time(float(newest.challenge_time) + clock_ahead)
 	for light: SpotLight3D in car.headlights:
 		light.visible = newest.lights
