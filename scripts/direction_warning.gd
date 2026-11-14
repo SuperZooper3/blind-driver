@@ -77,7 +77,9 @@ static func draw_banner(canvas: CanvasItem, box: Rect2) -> void:
 	canvas.draw_string(ThemeDB.fallback_font, at + Vector2(0, box.size.y * 0.29), "Slow down. Turn around when clear.", HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(10, int(title_size * 0.44)), gold)
 
 func _draw() -> void:
-	if not wrong_way: return
+	# Repairs already show a prominent stop-driving heading in both views.
+	# Keep tracking the direction so its warning returns when repairs stop.
+	if not wrong_way or game.car.repairing: return
 	var split: bool = game.ui.mode == "split"
 	var width := size.x * (0.5 if split else 1.0)
 	var readable: bool = game.ui.readable_ui or game.ui.complete_seats
