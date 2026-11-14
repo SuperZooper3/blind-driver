@@ -651,3 +651,4 @@ func _animate_wheels(delta: float) -> void:
 	car.wheel_spin += car.signed_speed * delta / car.WHEEL_RADIUS
 	car.steering_wheel.rotation.z = car.steering * 1.9
 	car.update_wheel_visuals()
+	car.update_cabin(delta)

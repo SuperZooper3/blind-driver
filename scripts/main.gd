@@ -71,19 +71,14 @@ func _ready() -> void:
 	navigator_view = _make_view("NavigatorView")
 	driver_camera = _make_camera(driver_view)
 	navigator_camera = _make_camera(navigator_view)
+	# Each seat sees the other occupant in its peripheral view, never its own head.
+	driver_camera.cull_mask = 1 | Car.NAVIGATOR_BODY_LAYER
 	ui = UI.new()
 	ui.readable_ui = bool(ai_options.get("readable_ui", false))
 	ui.complete_seats = bool(ai_options.get("shared_screens", false))
 	ui.readable_game = self
 	add_child(ui)
 	ui.driver_screen.texture = driver_view.get_texture()
-	# Draw the driver's cracks inside their low-resolution view, so the blur pass
-	# smears them along with the road.
-	var driver_glass := CanvasLayer.new()
-	driver_view.add_child(driver_glass)
-	ui.driver_cracks.reparent(driver_glass, false)
-	ui.driver_cracks.line_scale = 0.8
-	ui.driver_cracks.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.navigator_screen.texture = navigator_view.get_texture()
 	blur_material = ShaderMaterial.new()
 	blur_material.shader = preload("res://shaders/driver_blur.gdshader")
@@ -313,7 +308,6 @@ func _process(delta: float) -> void:
 	elif not car.damage.alive(car.damage.ENGINE) and car.run_state == "driving":
 		ui.surface_label.text = "ENGINE WRECKED"
 	ui.damage_label.text = car.damage.summary() if started else ""
-	ui.set_windshield_crack(car.damage.windshield_crack(), ui.in_menu or chase_camera)
 	motor.roughness = car.damage.engine_roughness()
 
 func _physics_process(delta: float) -> void:
@@ -391,7 +385,7 @@ func _update_cameras(delta: float) -> void:
 	if looking_back:
 		nav_target.basis = seat_basis * Basis(Vector3.UP, PI)
 		nav_target.origin = car.global_transform * Vector3(0.43, 1.30, 0.9)
-	navigator_camera.cull_mask = 3 if chase else 1
+	navigator_camera.cull_mask = (3 | Car.DRIVER_BODY_LAYER | Car.NAVIGATOR_BODY_LAYER) if chase else (1 | Car.DRIVER_BODY_LAYER)
 	if chase:
 		var offset := Vector3(5.8, 3.8, 7.0) if ui.in_menu else Vector3(0, 3.5, 7.8)
 		var target_position := car.global_position + stable * offset

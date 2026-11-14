@@ -68,7 +68,7 @@ Hits under about 13 km/h are harmless. Harder hits on rocks, trees, barriers and
 | Engine (under the hood) | The hood flies off, the engine smokes and knocks, and power drops to 45%. | ~56 km/h; with 2 flats ~32; everything broken ~18 |
 | Front bumper | Falls off. Front hits reach the engine, windshield and front wheels at full strength, and the headlights break. | |
 | Rear bumper | Falls off. Rear hits reach the rear wheels at full strength. | |
-| Windshield | Cracks spread across both seat views (blurred for the driver, like the road), then shatter into a hazy web. | |
+| Windshield | Cracks spread across the glass itself, so each seat sees them in perspective (blurred for the driver, like the road) and third person sees them from outside; they then shatter into a hazy web. | |
 
 Damage lasts the whole run. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot. Tuning lives at the top of `scripts/car_damage.gd` (`SAFE_SPEED`, `CURVE`, `RATE`, breakdown penalties) and `scripts/car.gd` (`THORN_WEAR`, `FLAT_TIRE_DRAG`, `HUB_SCRAPE`).
 
@@ -127,7 +127,7 @@ godot --path . -- --join=127.0.0.1
 ## What's in the prototype
 
 - A physical 1,050 kg car with four raycast suspension springs, tire grip, rear-wheel handbrake slip, braking, reverse, aerodynamic drag, and a low center of mass. It can bounce, slide, collide, and overturn. Starting a new ride resets the car and score.
-- Gravel and off-road grip/rolling resistance, physical road surfaces, gentle hills, collidable trunks and rocks, working steering/wheel visuals, primitive occupants, headlights, and synthesized engine/tire sound.
+- Gravel and off-road grip/rolling resistance, physical road surfaces, gentle hills, collidable trunks and rocks, working steering/wheel visuals, two simple occupants (a head, a body and two floating sphere hands each; the driver's hands ride the steering wheel, the navigator's hold a map), each seat camera hiding only its own occupant so the other shows in your peripheral view, headlights, and synthesized engine/tire sound.
 - Breakable wheels, hood, bumpers and windshield. Each one has health, its own handling penalty, and debris when it breaks.
 - Two independent seat cameras sharing one simulation, a low-resolution blurred driver render, a clear navigator render, a heading-relative map, and a solo chase view.
 - A survival run: wrong forks end in broad, 36 m deep ravines (up to 160 × 112 m), with broken rims, layered rock walls around the whole drop, and rubble below, roadside lakes are fatal, and Game Over reports the distance driven. The driver can restart with **Drive again** without leaving the room. There is no recovery key or gamepad binding.
@@ -187,7 +187,8 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/police_pursuit.gd` | Driver-owned patrol navigation, obstacle avoidance, gap estimates, and capture |
 | `scripts/impact_audio.gd` | Synthesized crash and tire-pop sounds |
 | `scripts/car_damage.gd` | Part health, impact zones, dents, breakdown penalties, debris; `SAFE_SPEED` and `RATE` tune how fragile the car is |
-| `scripts/windshield_cracks.gd` | Crack overlay drawn over both seat views |
+| `scripts/windshield_cracks.gd` | Procedural crack pattern, painted onto the 3D windshield glass |
+| `scripts/map_hands.gd` | The navigator's hands gripping the paper map |
 | `shaders/driver_blur.gdshader` | Driver's vision |
 
 Edit a script, save, stop the running game, and press F5 again. Start with Solo practice to tune the handling, then test the same change with two people in local co-op. Use the Debugger and Output panels for errors. Godot's generated `.godot/` cache stays out of Git; script `.uid` files belong in Git.
