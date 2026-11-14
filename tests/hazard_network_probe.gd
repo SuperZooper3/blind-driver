@@ -65,7 +65,7 @@ func _tick() -> void:
 			phase_at = elapsed
 		if phase == 4 and elapsed - phase_at > 1.5:
 			game.car.distance_driven = 2345.0
-			game.car.recover(game.world.ground_point(26, 12, 0.17), Vector3.FORWARD)
+			game.car.recover(game.world.ground_point(-26, 12, 0.17), Vector3.FORWARD)
 			phase = 5
 		if phase == 5 and game.car.punctured_tires != 0 and game.car.run_state == "driving":
 			# Shredding a third tire ends the run on its own; this stands in if it has not yet.

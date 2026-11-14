@@ -95,7 +95,7 @@ func _run() -> void:
 		damage.set_part(wheel, 0.0)
 	await frames(30)
 	check(car.run_state == "driving", "four flat tires on the road do not end the ride")
-	car.recover(world.ground_point(26, 12, 0.17), Vector3.FORWARD)
+	car.recover(world.ground_point(-26, 12, 0.17), Vector3.FORWARD)
 	await frames(30)
 	check(car.run_state == "game_over" and car.crash_reason.contains("shredded"), "shredded tires end the ride in the thorn forest")
 	var spike_kind := false
