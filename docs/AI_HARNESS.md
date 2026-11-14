@@ -143,6 +143,18 @@ token usage is retained for calculating it using the account's actual pricing.
 
 ## Live terminal or browser
 
+Each seat shows **Keys held now** and **Last accepted turn** separately. The latter
+keeps the accepted request number, game timestamp, held keys, one-shot taps and
+explicit pulse durations after release or episode end. Pending/rejected actions
+do not replace it. Older recordings are reconstructed from response/ack pairs;
+new acknowledgments store their controls explicitly.
+
+Both prompts explain rolling steering (W+A/W+D from rest; steering while
+coasting; reversed yaw response when backing up), handbrake release, and B versus
+C. The game and map show a large **WRONG WAY** banner; its exact visible text also
+appears as `direction_warning` in each seat's observation. This is a rendered
+game warning, not hidden route geometry or an automatic driving correction.
+
 `run` now prints a single chronological stream for both agents: requests, inference
 latency, proposed keys, accepted messages, errors, token usage, and periodic game
 status (simulation/real time, speed, progress, hits, and held keys).

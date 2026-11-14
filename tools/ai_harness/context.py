@@ -54,6 +54,7 @@ class TeamContext:
                         else ("closing" if reveal > .01 else "closed")}
         return {"frame": state["frame"], "sim_time": now, "held_keys": list(state["held"]),
                 "input_feedback": state.get("input_error", ""), "view": view,
+                "direction_warning": state.get("direction_warning", ""),
                 "own_turn": memory.turn + 1, "working_memory": deepcopy(memory.recap),
                 "coordination": coordination,
                 "sound_captions": [{k: e[k] for k in ("id", "sim_time", "text")}

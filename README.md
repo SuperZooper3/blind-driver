@@ -48,6 +48,14 @@ Talk to each other in person or over your preferred voice call. The navigator se
 
 Hold **B / RB** or the on-screen **Hold to look back** button for the full passenger rear view. This folds the map and shows the patrol’s distance along the route, whether it is closing, and an approximate catch time at the current pace. Release to face forward again. The driver keeps their forward view in shared-screen play.
 
+Steering needs rolling wheels: from rest, combine **W+A** or **W+D** and release
+the handbrake. While coasting, A/D can steer without more gas. Reverse steering
+swings the nose the opposite way. **B** looks behind; **C** switches seat/chase view.
+A large **WRONG WAY** banner appears in both seat views and on the unfolded map
+when travel (or heading at rest) opposes the local road. Slow down and turn around
+where clear. Short heading changes are filtered; returning from marked dead ends
+is allowed.
+
 ### Car damage
 
 Crashes and thorns break the car. A damaged car limps on, slower and slower, but the police never follow you into the forest, so the car **breaks down and the run ends** once three tires are broken, or the engine is blown and two tires are broken.
@@ -151,6 +159,8 @@ Cohere runs default to Command A Vision in both seats at 25% speed, with up to 6
 of game time, 200,000 tokens and 100 requests per run. The navigator is coached to
 give actionable directions, respond to the driver, and reassess after crashes;
 recent dialogue and accepted-control feedback accompany each screenshot.
+The web dashboard separates **Keys held now** from **Last accepted turn**, which
+retains each seat's holds, taps and pulse durations after keys have been released.
 The [research plan](docs/AI_HARNESS_PLAN.md) describes
 the longer path toward reinforcement learning.
 

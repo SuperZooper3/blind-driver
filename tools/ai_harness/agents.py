@@ -6,12 +6,13 @@ import json
 import urllib.error
 import urllib.request
 from pathlib import Path
+from .driving_guidance import DRIVING_MECHANICS
 
 
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
 DEFAULT_MODEL = "command-a-vision-07-2025"
-PROMPT_REVISION = "cooperative-navigation-v3"
+PROMPT_REVISION = "cooperative-navigation-v4-steering"
 
 
 class InvalidModelResponse(ValueError):
@@ -93,6 +94,7 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         if course == "basic" else
         "This is the normal course: forks, dead ends, police, damage, jumps, and timed bridges. "
     )
+    common += DRIVING_MECHANICS
     if role == "driver":
         return common + (
             "You are DRIVER. Your vision is blurred; rely on your navigator and the dashboard. "

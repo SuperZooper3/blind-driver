@@ -31,6 +31,19 @@ def snapshot(directory):
           "driver_model", "navigator_model", "git_commit", "hold_policy", "engine_mode",
           "prototype", "sim_seconds", "max_tokens", "max_requests")}
     events = json_lines(directory / "events.jsonl")
+    accepted, pending = {}, {}
+    control_fields = ("hold", "tap", "steering_pulse_sim", "pedal_pulse_sim", "hold_sim_seconds")
+    for event in events:
+        role = event.get("role")
+        if event["event"] == "response":
+            pending[role] = event
+        elif event["event"] == "action_ack":
+            response = pending.pop(role, {})
+            if event.get("accepted"):
+                action = event.get("action", response.get("action", {}))
+                accepted[role] = {"request_id": event.get("request_id", response.get("request_id")),
+                    "sim_time": event.get("sim_time"),
+                    **{key: action[key] for key in control_fields if key in action}}
     starts = [e["unix_time"] for e in events if e["event"] == "episode_started"]
     seats = {}
     fields = ("frame", "sim_time", "unix_time", "speed_kmh", "forward_progress_m", "distance_m",
@@ -38,6 +51,7 @@ def snapshot(directory):
     for role in ("driver", "navigator"):
         state = read_json(directory / role / "latest.json")
         seats[role] = {k: state.get(k) for k in fields}
+        seats[role]["last_action"] = accepted.get(role)
         if role == "driver":
             seats[role].update(score_frame(state, manifest.get("scoring")))
             seats[role]["offroad_sim_seconds"] = state.get("offroad_sim_seconds", 0)
