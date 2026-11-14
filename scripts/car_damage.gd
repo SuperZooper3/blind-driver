@@ -29,6 +29,11 @@ const TIRE_SPEED_LOSS := 0.12
 const ENGINE_BROKEN_POWER := 0.45
 const ENGINE_BROKEN_SPEED := 0.55
 const DEBRIS_LIFETIME := 20.0
+## Repairs fix one part at a time, most crucial first: the engine, then the tires
+## (worst first), then the glass, the headlight bumper and the rear bumper.
+const REPAIR_ORDER := [ENGINE, WHEEL_FL, WHEEL_FR, WHEEL_RL, WHEEL_RR, WINDSHIELD, FRONT_BUMPER, REAR_BUMPER]
+## Health restored per second: a fully broken part takes 5 seconds.
+const REPAIR_RATE := 0.2
 
 signal part_broken(part: int)
 ## Health lost by any part this frame, summed: drives the crash sound on both seats.
@@ -178,6 +183,35 @@ func set_part(part: int, value: float) -> void:
 	_update_visual(part)
 	if was_alive and not alive(part):
 		_break(part)
+	elif not was_alive and alive(part):
+		_restore(part)
+
+## The part that repairs work on next, or -1 when the car is whole.
+func next_repair() -> int:
+	var best := -1
+	for part: int in REPAIR_ORDER:
+		if health[part] >= 1.0:
+			continue
+		if best == -1:
+			best = part
+		# Among the tires, fix the most damaged one first.
+		elif best <= WHEEL_RR and part <= WHEEL_RR and health[part] < health[best]:
+			best = part
+	return best
+
+## Spend `delta` seconds of repair work. Returns the part worked on, or -1.
+func repair_step(delta: float) -> int:
+	var part := next_repair()
+	if part != -1:
+		set_part(part, minf(1.0, health[part] + REPAIR_RATE * delta))
+	return part
+
+## A repaired part goes back on the car.
+func _restore(part: int) -> void:
+	for node: Node3D in visuals[part]:
+		node.visible = true
+	if car.has_method("_part_repaired"):
+		car._part_repaired(part)
 
 func health_array() -> Array:
 	var result: Array = []
@@ -185,8 +219,8 @@ func health_array() -> Array:
 		result.append(snappedf(value, 0.01))
 	return result
 
-## Mirror the driver's state. Parts can only get worse during a ride; a reset
-## (all parts healthy again) arrives as a new ride.
+## Mirror the driver's state, including repairs. A reset (all parts healthy
+## again) may also arrive as a new ride.
 func set_health_array(values: Array) -> void:
 	if values.size() != PART_COUNT:
 		return

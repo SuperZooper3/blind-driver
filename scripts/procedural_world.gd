@@ -21,6 +21,9 @@ const MIDDLE_HOLE_SIZE := Vector3(64, 36, 64)
 ## Three-way junctions put the dead end in the middle half the time; otherwise
 ## it is equally likely on the left or the right (25% each).
 const MIDDLE_HOLE_CHANCE := 0.5
+## A spike strip covers half the road's width and is half a metre deep.
+const SPIKE_HALF_WIDTH := ROAD_WIDTH * 0.25
+const SPIKE_HALF_DEPTH := 0.25
 const PROFILES := ["main", "scenic", "rough", "culdesac", "cliff"]
 var difficulty := 0
 ## Opt-in harness curriculum; ordinary play retains the original generator.
@@ -226,7 +229,7 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 			# terrain cut is separate from its narrow crossing surface.
 			hazards.append({"kind": challenge_kind, "position": center, "size": Vector3(64, 18, 16), "yaw": 0.0, "lane_x": points[16].x, "level": difficulty})
 		elif depth > 0 or basic_course:
-			var kinds := ["rock", "tree", "ramp", "bumps", "construction"]
+			var kinds := ["rock", "tree", "ramp", "bumps", "construction", "spikes"]
 			var count := 2 + difficulty / 2
 			if basic_course:
 				kinds = ["rock"]
@@ -262,6 +265,9 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 				var direction := (points[index + 1] - points[index]).normalized()
 				var side := direction.cross(Vector3.UP)
 				var offset := 0.0 if kind in ["tree", "bumps"] else rng.randf_range(1.4, 2.2) * (-1.0 if rng.randf() < 0.5 else 1.0)
+				# A spike strip lies across exactly one half of the road.
+				if kind == "spikes":
+					offset = (-1.0 if rng.randf() < 0.5 else 1.0) * ROAD_WIDTH * 0.25
 				if basic_course:
 					offset = -2.0 if rng.randf() < 0.5 else 2.0
 				var at := points[index] + side * offset
@@ -542,6 +548,23 @@ func puncture_mask(car: RigidBody3D) -> int:
 		var contact: Vector3 = car.wheel_pivots[i].global_position - car.global_basis.y * car.WHEEL_RADIUS
 		if absf(contact.y - height_at(contact.x, contact.z)) < 0.8 and thorn_at(contact):
 			result |= 1 << i
+	return result
+
+## Wheels currently rolling over a spike strip, as a bitmask.
+func spike_mask(car: RigidBody3D) -> int:
+	if car.grounded_wheels == 0:
+		return 0
+	var result := 0
+	for road: Dictionary in roads:
+		for hazard: Dictionary in road.hazards:
+			if hazard.kind != "spikes" or hazard.position.distance_squared_to(car.global_position) > 100.0:
+				continue
+			var basis := Basis(Vector3.UP, float(hazard.yaw))
+			for i in car.wheel_pivots.size():
+				var contact: Vector3 = car.wheel_pivots[i].global_position - car.global_basis.y * car.WHEEL_RADIUS
+				var local: Vector3 = basis.inverse() * (contact - hazard.position)
+				if absf(local.x) < SPIKE_HALF_WIDTH and absf(local.z) < SPIKE_HALF_DEPTH + 0.15 and absf(local.y) < 0.8:
+					result |= 1 << i
 	return result
 
 func road_distance(at: Vector3) -> float:

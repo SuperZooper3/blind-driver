@@ -44,6 +44,8 @@ var audio_muted := false
 var local_navigator_pid := -1
 var local_pair_deadline := 0
 var input_ready := false
+var repair_notice := ""
+var repair_notice_time := 0.0
 
 func _ready() -> void:
 	ai_options = AICapture.read_options()
@@ -323,6 +325,11 @@ func _process(delta: float) -> void:
 		ui.surface_label.text = "FLAT TIRE" if car.run_state == "driving" else "TIRES PUNCTURED"
 	elif not car.damage.alive(car.damage.ENGINE) and car.run_state == "driving":
 		ui.surface_label.text = "ENGINE WRECKED"
+	repair_notice_time = maxf(0.0, repair_notice_time - delta)
+	if car.repairing and car.repair_part != -1 and car.run_state == "driving":
+		ui.surface_label.text = "REPAIRING %s  %d%%" % [car.damage.NAMES[car.repair_part], floori(car.damage.health[car.repair_part] * 100.0)]
+	elif repair_notice_time > 0.0:
+		ui.surface_label.text = repair_notice
 	ui.damage_label.text = car.damage.summary() if started else ""
 	motor.roughness = car.damage.engine_roughness()
 
@@ -353,6 +360,10 @@ func _physics_process(delta: float) -> void:
 	if car.run_state == "driving":
 		car.check_rollover(delta)
 		car.wear_tires(world.puncture_mask(car), delta)
+		var spikes: int = world.spike_mask(car)
+		for wheel in 4:
+			if spikes & (1 << wheel):
+				car.damage.wear_tire(wheel, 1.0)
 		# The practice course has no police to catch a crippled car. Exhausting
 		# all four tires in its roadside thorns is therefore a terminal failure.
 		if world.basic_course and car.punctured_tires == 15:
@@ -727,11 +738,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		chase_camera = not chase_camera
 	if event.is_action_pressed("lights") and mode != "join":
 		car.toggle_lights()
+	if event.is_action_pressed("repair") and mode != "join":
+		var refusal: String = car.start_repair()
+		var notices := {"too_fast": "SLOW BELOW 15 KM/H TO REPAIR", "nothing": "NOTHING TO REPAIR"}
+		if notices.has(refusal):
+			repair_notice = notices[refusal]
+			repair_notice_time = 2.0
 	if event.is_action_pressed("mute"):
 		audio_muted = not audio_muted
 
 func _setup_input() -> void:
-	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "look_back": [KEY_B], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F], "mute": [KEY_V]}
+	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "look_back": [KEY_B], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F], "mute": [KEY_V], "repair": [KEY_R]}
 	for action: String in bindings:
 		InputMap.add_action(action)
 		for key: int in bindings[action]:

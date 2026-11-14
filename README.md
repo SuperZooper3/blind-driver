@@ -61,6 +61,7 @@ research harness remains separate.
 | C | Navigator/solo: switch seat and chase cameras |
 | B (hold) | Navigator/solo: look behind and check police distance |
 | H | Headlights |
+| R | Repair (driver, below 15 km/h) |
 | V | Mute/unmute motor, tire, and siren audio |
 | F | Fullscreen/windowed |
 | F8 | Connection check, live network metrics, and logs |
@@ -68,7 +69,7 @@ research harness remains separate.
 
 Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, holding the right shoulder button (RB) looks behind, and Start opens the menu. Keyboard and gamepad can be used together. **Settings** has the driver-blur slider. There is no recovery shortcut. Use **Start a new ride** in the pause menu, or **Drive again** after Game Over; both reset the run and trip odometer while keeping your personal best. Landing on the roof/side ends the run automatically. A badly damaged car keeps driving, slowly, until three tires are broken (or the engine and two tires), which ends the run.
 
-Talk to each other in person or over your preferred voice call. The navigator sees only the top edge of a folded map at the bottom of their view. **M / Tab** slides it up to cover their entire screen (their half in shared-screen mode), so checking the map means looking away from the road. Red **X / CLIFF** marks a fatal dead end. A circular **DEAD END / TURN AROUND** marks a solid cul-de-sac. Green **LONG / QUIETER** and amber **SHORT / HEAVY HAZARDS** routes rejoin; check the map to choose between extra distance and more dodging. Jump gaps, timed bridges, lakes, and construction zones are mapped; small obstacles are not. The navigator must also watch the clear road view and call out rocks, trees, ramps, bumps, and cones.
+Talk to each other in person or over your preferred voice call. The navigator sees only the top edge of a folded map at the bottom of their view. **M / Tab** slides it up to cover their entire screen (their half in shared-screen mode), so checking the map means looking away from the road. Red **X / CLIFF** marks a fatal dead end. A circular **DEAD END / TURN AROUND** marks a solid cul-de-sac. Green **LONG / QUIETER** and amber **SHORT / HEAVY HAZARDS** routes rejoin; check the map to choose between extra distance and more dodging. Jump gaps, timed bridges, lakes, and construction zones are mapped; small obstacles are not. The navigator must also watch the clear road view and call out rocks, trees, ramps, bumps, cones, and spike strips.
 
 Hold **B / RB** or the on-screen **Hold to look back** button for the full passenger rear view. This folds the map and shows the patrol’s distance along the route, whether it is closing, and an approximate catch time at the current pace. Release to face forward again. The driver keeps their forward view in shared-screen play.
 
@@ -94,7 +95,11 @@ Hits under about 13 km/h are harmless. Harder hits on rocks, trees, barriers and
 | Rear bumper | Falls off. Rear hits reach the rear wheels at full strength. | |
 | Windshield | Cracks spread across the glass itself, so each seat sees them in perspective (blurred for the driver, like the road) and third person sees them from outside; they then shatter into a hazy web. | |
 
-Damage lasts the whole run. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot. Tuning lives at the top of `scripts/car_damage.gd` (`SAFE_SPEED`, `CURVE`, `RATE`, breakdown penalties) and `scripts/car.gd` (`THORN_WEAR`, `FLAT_TIRE_DRAG`, `HUB_SCRAPE`).
+**Spike strips** lie across one half of the road and pop every tire that rolls over them; steer into the clear half.
+
+**R** repairs the car when it is going under 15 km/h. Repairs fix one part at a time, most crucial first: the engine, then the tires (worst first), the windshield, the front bumper and the rear bumper, at 5 seconds for a fully broken part. The car stays parked until every part is whole, then drives normally. Lost wheels and bumpers go back on, and flats are reinflated.
+
+Damage lasts until you repair it or start over. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot. Tuning lives at the top of `scripts/car_damage.gd` (`SAFE_SPEED`, `CURVE`, `RATE`, breakdown penalties) and `scripts/car.gd` (`THORN_WEAR`, `FLAT_TIRE_DRAG`, `HUB_SCRAPE`).
 
 ## Two windows or two computers
 

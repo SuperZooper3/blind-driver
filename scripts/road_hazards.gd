@@ -1,7 +1,7 @@
 extends RefCounted
 ## Immutable obstacle records travel with the road graph. Only the driver simulates hits.
 const Geo = preload("res://scripts/geometry.gd")
-const KINDS := ["rock", "tree", "ramp", "bumps", "construction", "cliff", "lake", "jump_gap", "timed_bridge"]
+const KINDS := ["rock", "tree", "ramp", "bumps", "construction", "spikes", "cliff", "lake", "jump_gap", "timed_bridge"]
 
 static func is_void(hazard: Dictionary) -> bool:
 	return hazard.kind in ["cliff", "lake", "jump_gap", "timed_bridge"]
@@ -61,6 +61,16 @@ static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh) -> void:
 				var p := Vector3(-0.9 + i * 0.45, 0, 3.0 + i * 2.0)
 				Geo.box(root, Vector3(0.65, 0.12, 0.65), p, dark)
 				Geo.cylinder(root, 0.28, 0.85, p + Vector3.UP * 0.45, orange, 0.05).create_convex_collision()
+
+		"spikes":
+			# No collider: the car rolls straight over it, and every tire it touches pops.
+			var base := Geo.box(root, Vector3(4.0, 0.06, 0.5), Vector3(0, 0.03, 0), dark)
+			base.name = "SpikeStrip"
+			var steel := Geo.material(Color("c9ccc8"))
+			for i in 16:
+				for row in [-0.12, 0.12]:
+					var spike := Geo.cylinder(root, 0.05, 0.22, Vector3(-1.875 + i * 0.25, 0.12, row), steel, 0.0, 6)
+					spike.rotation.x = 0.35 if row < 0 else -0.35
 
 static func _wedge(parent: Node3D, at: Vector3, width: float, length: float, height: float, mat: Material, rounded: bool = false) -> void:
 	var a := at + Vector3(-width / 2, 0, length / 2)

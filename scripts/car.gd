@@ -47,6 +47,11 @@ const FLAT_LOOK := 0.55
 const HUB_SCRAPE := 240.0
 var rollover_time := 0.0
 var driving_enabled := false
+## Repairs hold the car still until every part is whole again.
+var repairing := false
+var repair_part := -1
+## Repairs only start below this speed: 15 km/h.
+const REPAIR_MAX_SPEED := 15.0 / 3.6
 var remote := false
 var on_road := true
 var grounded_wheels := 0
@@ -225,7 +230,11 @@ func _physics_process(delta: float) -> void:
 	handbrake = false
 	if run_state != "driving":
 		driving_enabled = false
-	if driving_enabled:
+	if repairing:
+		repair_part = damage.repair_step(delta) if run_state == "driving" else -1
+		if repair_part == -1:
+			repairing = false
+	if driving_enabled and not repairing:
 		steer_target = Input.get_axis("steer_right", "steer_left")
 		var forward := Input.get_action_strength("accelerate")
 		var reverse := Input.get_action_strength("reverse")
@@ -452,7 +461,34 @@ func _on_part_broken(part: int) -> void:
 	if part == Damage.ENGINE:
 		smoke.emitting = true
 
+## Starts repairs when the car is slow enough and something is damaged.
+## Returns "" on success, otherwise why repairs could not start.
+func start_repair() -> String:
+	if remote or run_state != "driving":
+		return "unavailable"
+	if repairing:
+		return "already"
+	if damage.next_repair() == -1:
+		return "nothing"
+	if absf(signed_speed) >= REPAIR_MAX_SPEED:
+		return "too_fast"
+	repairing = true
+	repair_part = damage.next_repair()
+	return ""
+
+func _part_repaired(part: int) -> void:
+	if part <= Damage.WHEEL_RR:
+		punctured_tires &= ~(1 << part)
+		update_tire_visuals()
+	if part == Damage.FRONT_BUMPER:
+		lamp_material.emission_enabled = true
+		lamp_material.albedo_color = Color("f8e6ae")
+	if part == Damage.ENGINE:
+		smoke.emitting = false
+
 func _damage_reset() -> void:
+	repairing = false
+	repair_part = -1
 	thorn_contact = 0
 	smoke.emitting = false
 	lamp_material.emission_enabled = true

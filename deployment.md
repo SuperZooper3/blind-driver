@@ -51,7 +51,7 @@ for this implementation. You do not need to install Docker or Godot locally.
 5. Open the frontend URL. Players click **Get in the car**; one creates a room
    and shares its code or invite link (`…/?room=K7Q4MZ`), the other joins with
    it. Its `/healthz` verifies the exported files; the relay's `/healthz`
-   must separately report **protocol 10** for online play.
+   must separately report **protocol 11** for online play.
 
 Before online play, upgrade the existing relay using the next section. If you
 already created a Static Site, create the Web Service above as a separate
@@ -70,11 +70,11 @@ References: [Render Web Services](https://render.com/docs/web-services),
 
 ## Upgrade the existing service first
 
-This revision uses **protocol 10**: WebRTC peer-to-peer negotiation between browsers, short room codes, seat choice when creating a room, and seat assignment on join, on top of route choices, cul-de-sacs, rejoining connections, and heat levels, including ramp gaps, timed bridges, and the shared crossing clock, alongside police pursuit, punctured tires, ravines, named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
+This revision uses **protocol 11**: spike-strip obstacles, WebRTC peer-to-peer negotiation between browsers, short room codes, seat choice when creating a room, and seat assignment on join, on top of route choices, cul-de-sacs, rejoining connections, and heat levels, including ramp gaps, timed bridges, and the shared crossing clock, alongside police pursuit, punctured tires, ravines, named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
 
 1. Push these commits to the branch linked to your existing Render service (`git push origin main` if it uses main).
 2. Open **blind-driver-relay** in Render, then **Manual Deploy → Deploy latest commit**. Auto-deploy is off in the supplied configuration.
-3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":10`.
+3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":11`.
 4. Update/restart **both games** from this same revision. Old clients and old servers cannot use the new protocol together.
 5. One player presses **Create a room** and shares the 6-character code; the other types it and presses **Join**. The online server is already configured.
 
@@ -168,7 +168,7 @@ https://blind-driver-relay.onrender.com/healthz
 Open that address in your browser. A ready relay returns:
 
 ```json
-{"ok":true,"protocol":10,"instance":"example-instance","uptime_seconds":123}
+{"ok":true,"protocol":11,"instance":"example-instance","uptime_seconds":123}
 ```
 
 Or check from Terminal:

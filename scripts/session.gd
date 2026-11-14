@@ -496,7 +496,7 @@ func _process(delta: float) -> void:
 				full_timer = 0.0
 				last_full_signature = signature
 				sequence += 1
-				var snapshot := {"seq": sequence, "time": now, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength, "tires": car.punctured_tires, "police": police.snapshot(), "challenge_time": world.challenge_time, "damage": car.damage.health_array()}
+				var snapshot := {"seq": sequence, "time": now, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength, "tires": car.punctured_tires, "police": police.snapshot(), "challenge_time": world.challenge_time, "damage": car.damage.health_array(), "repairing": car.repairing, "repair_part": car.repair_part}
 				if online:
 					if not (link != null and link.send({"type": "snapshot", "state": Wire.snapshot_to_json(snapshot)})):
 						relay.send_snapshot(snapshot)
@@ -645,6 +645,8 @@ func _interpolate(delta: float) -> void:
 		light.visible = newest.lights
 	if newest.has("damage"):
 		car.damage.set_health_array(newest.damage)
+	car.repairing = bool(newest.get("repairing", false))
+	car.repair_part = int(newest.get("repair_part", -1))
 	_animate_wheels(delta)
 
 func _animate_wheels(delta: float) -> void:

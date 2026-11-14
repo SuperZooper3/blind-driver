@@ -225,6 +225,10 @@ if __name__ == "__main__":
         print(obstacles.stdout)
         if obstacles.returncode or "FAIL:" in obstacles.stdout or "SCRIPT ERROR" in obstacles.stderr:
             sys.exit(obstacles.stderr or "Obstacle check failed")
+        repair = subprocess.run(command("tests/repair_smoke.gd", temporary / "repair.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=45)
+        print(repair.stdout)
+        if repair.returncode or "FAIL:" in repair.stdout or "SCRIPT ERROR" in repair.stderr:
+            sys.exit(repair.stderr or "Repair check failed")
         launcher = subprocess.run(command("tests/local_pair_smoke.gd", temporary / "launcher.log"), capture_output=True, text=True, timeout=25)
         print(launcher.stdout)
         if launcher.returncode or "FAIL:" in launcher.stdout or "SCRIPT ERROR" in launcher.stderr:
