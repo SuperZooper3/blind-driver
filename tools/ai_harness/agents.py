@@ -10,7 +10,7 @@ from pathlib import Path
 
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
-DEFAULT_MODEL = "command-a-plus-05-2026"
+DEFAULT_MODEL = "command-a-vision-07-2025"
 PROMPT_REVISION = "cooperative-navigation-v3"
 
 

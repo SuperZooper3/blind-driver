@@ -112,7 +112,7 @@ class NavigatorContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             image = Path(tmp) / "current.jpg"
             image.write_bytes(b"fixture")
-            agent = CohereAgent("navigator", DEFAULT_MODEL, "unused", prompt("navigator", 25, "basic"), 10, 512, 1)
+            agent = CohereAgent("navigator", "command-a-plus-05-2026", "unused", prompt("navigator", 25, "basic"), 10, 512, 1)
             with patch.object(agent, "_chat", side_effect=chat):
                 for _ in range(3):
                     agent.decide(image, team.observation("navigator", state(), memory, 0), [])
@@ -146,6 +146,9 @@ class NavigatorContextTests(unittest.TestCase):
                     agent.decide(image, {}, [])
                 self.assertEqual(agent.history, [])
                 self.assertEqual(agent.decide(image, {}, [])[0], action)
+            self.assertEqual(requests[1]["model"], "command-a-vision-07-2025")
+            self.assertNotIn("thinking", requests[1])
+            self.assertNotIn("response_format", requests[1])
             self.assertIn("no action/message was delivered", requests[1]["messages"][-1]["content"][0]["text"])
             self.assertEqual(agent.response_feedback, "")
 

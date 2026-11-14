@@ -50,13 +50,15 @@ scripted result is prominently labeled and is not a model-performance claim.
 
 ## Model choices, prompts, and speeds
 
-Both seats default to `command-a-plus-05-2026` (Command A+). It supports image
-input and JSON Schema responses. The original `command-a-03-2025` is text-only
-and cannot operate this screenshot harness. `command-a-vision-07-2025` and
-`c4ai-aya-vision-32b` remain explicit alternatives. This model change is an
-experiment, not a measured driving-performance ranking.
+Both seats default to `command-a-vision-07-2025` (Command A Vision), using image
+input and locally validated JSON instructions. The original `command-a-03-2025`
+is text-only and cannot operate this screenshot harness. `command-a-plus-05-2026`
+and `c4ai-aya-vision-32b` remain explicit alternatives. The initial live A+ run
+returned malformed navigator actions despite its schema; bounded probes on the
+same saved views produced valid directions and driver controls with Command A
+Vision. This is a compatibility choice, not a general driving-performance ranking.
 [Cohere model capabilities](https://docs.cohere.com/docs/models),
-[Command A+](https://docs.cohere.com/docs/command-a-plus).
+[Command A Vision](https://docs.cohere.com/docs/command-a-vision).
 
 ```sh
 .venv/bin/python -m tools.ai_harness run --provider cohere \

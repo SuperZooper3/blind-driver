@@ -147,7 +147,7 @@ model/role/speed comparisons, a live terminal timeline for both agents, and reca
 that restore normal game speed. It includes a large-display profile with sound
 captions, background conversation recaps, safety scoring, and local Stop/Restart
 controls. The basic AI course restores roadside thorns and ends on four punctures.
-Cohere runs default to Command A+ in both seats at 25% speed, with up to 60 seconds
+Cohere runs default to Command A Vision in both seats at 25% speed, with up to 60 seconds
 of game time, 200,000 tokens and 100 requests per run. The navigator is coached to
 give actionable directions, respond to the driver, and reassess after crashes;
 recent dialogue and accepted-control feedback accompany each screenshot.
