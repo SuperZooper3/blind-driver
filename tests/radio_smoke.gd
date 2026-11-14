@@ -24,6 +24,12 @@ func _run() -> void:
 	car.signed_speed = 0.0
 	game._update_radio(0.016)
 	check(not radio.music.playing, "starting a ride waits for movement")
+	game.intro_enabled = true
+	game._update_intro()
+	car.signed_speed = 2.0
+	game._update_radio(0.016)
+	check(not radio.music.playing, "bank opening keeps radio silent even if the car rolls")
+	game.intro.time = game.intro.DURATION
 	car.signed_speed = -2.0
 	game._update_radio(0.016)
 	check(radio.music.playing and not radio.music.stream_paused, "forward or reverse movement starts the music")

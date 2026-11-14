@@ -62,7 +62,7 @@ research harness remains separate.
 | B (hold) | Navigator/solo: look behind and check police distance |
 | H | Headlights |
 | R (hold) | Repair (navigator; the car must be under 15 km/h) |
-| V | Mute/unmute all audio, including the driving radio |
+| V | Mute/unmute driving audio, including the radio |
 | F | Fullscreen/windowed |
 | F8 | Connection check, live network metrics, and logs |
 | Escape | Menu; driver applies brakes while the menu is open |
@@ -83,7 +83,7 @@ is allowed.
 
 ### Car damage
 
-The car radio starts when you first move, playing the supplied **Chip Chase**
+The car radio starts when you first move after the opening, playing the supplied **Chip Chase**
 music from the beginning. Its last half second before **2:04** crossfades into
 **0:13–0:13.5**, then continues from **0:13.5**, looping indefinitely. Brief
 stops keep the music going. Crashes instantly cut it with electrical static and

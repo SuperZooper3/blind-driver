@@ -346,7 +346,7 @@ func _process(delta: float) -> void:
 	motor.roughness = car.damage.engine_roughness()
 
 func _update_radio(delta: float) -> void:
-	var available: bool = started and not ui.in_menu and not session.recovering and not session.stale and session.role != "disconnected" and not car.reset_pending and car.recovery_grace == 0
+	var available: bool = started and not intro_playing() and not ui.in_menu and not session.recovering and not session.stale and session.role != "disconnected" and not car.reset_pending and car.recovery_grace == 0
 	if mode == "ai":
 		available = available and ai_navigator.ready_to_drive
 	if ai_capture != null:
