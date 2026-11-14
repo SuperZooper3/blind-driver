@@ -76,7 +76,7 @@ static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh, ai_color
 				var p := Vector3(-0.9 + i * 0.45, 0, 3.0 + i * 2.0)
 				Geo.box(root, Vector3(0.65, 0.12, 0.65), p, dark)
 				Geo.cylinder(root, 0.28, 0.85, p + Vector3.UP * 0.45, orange, 0.05).create_convex_collision()
-	if ai_colors: highlight_obstacles(root)
+	if ai_colors and hazard.kind != "tree": highlight_obstacles(root)
 
 static func _wedge(parent: Node3D, at: Vector3, width: float, length: float, height: float, mat: Material, rounded: bool = false) -> void:
 	var a := at + Vector3(-width / 2, 0, length / 2)

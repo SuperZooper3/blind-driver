@@ -42,6 +42,15 @@ class SemanticActionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.driver(pedal_mode="automatic")
 
+    def test_brake_opposes_current_travel_and_cannot_select_reverse_at_rest(self):
+        decision = {"pedal": "brake", "steering": "straight", "message": "", "notes": ""}
+        for motion, speed, key in (("MOVING", "35 km/h", "S"), ("REVERSING", "12 km/h", "W"),
+                                   ("STATIONARY", "0 km/h", "SPACE"), ("MOVING", "1 km/h", "SPACE")):
+            with self.subTest(motion=motion, speed=speed):
+                action = validate_action(translate_decision(decision, "driver", {"hud": {"motion": motion, "speed": speed}}), "driver")
+                self.assertEqual(action["hold"], [key])
+                self.assertEqual("pedal_pulse_sim" in action, key != "SPACE")
+
     def test_navigator_view_selection_is_idempotent_and_can_close_map_into_chase(self):
         def select(desired, map_state="closed", camera="seat", facing="forward"):
             return validate_action(translate_decision({"view": desired, "message": "Wait", "notes": "private"}, "navigator",

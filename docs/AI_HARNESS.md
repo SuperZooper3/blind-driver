@@ -84,7 +84,7 @@ passed to either agent. The previous visible-instrument snapshot helps distingui
 motion from stalling. Discrete own-seat view labels and audible-event captions
 remain available. The map itself must still be interpreted visually.
 
-The `grounded-copilot-v8` instructions and context:
+The `grounded-copilot-v10` instructions and context:
 
 - Plan with the map before departure, read a later fully opened frame, close it,
   and remember the upcoming bend. A map-check reminder tracks the last offered
@@ -94,19 +94,29 @@ The `grounded-copilot-v8` instructions and context:
   off-road/impact, route check due, or ordinary road watching.
 - Give the driver an actionable speed/steering correction. The driver cannot use
   navigator controls. Map-check narration and visual notes stay private.
+- Deliver a complete, timestamped `active_guidance`: travel direction, steering,
+  target speed and correction duration. New guidance replaces the previous
+  maneuver, so an old left turn cannot remain the current instruction after
+  “straighten.” Only accepted actions update it. The driver also sees whether it
+  has already acted on that instruction.
 - Reassess after impact/off-road evidence; identify the road side, use chase view
   if obscured, inspect rear clearance before reversing, and verify each recovery
   step. Do not repeat an unresolved “stop and assess” message.
 - Use short explicit steering/pedal pulses when appropriate. Continuous holds, short pulses and toggles are all available. These are explicit
   model-selected gestures, not an automatic lane follower or speed governor.
 
-Each seat keeps its last two short factual notes by default. Requests are fresh
+The navigator keeps its last two short factual notes by default. The driver uses
+current guidance and HUD rather than carrying old visual/maneuver notes forward. Requests are fresh
 image tasks rather than a long conversation of repetitive assistant answers.
 The current context includes recent delivered speech, the newest partner message,
 actual held keys, rejected-action feedback, and repetition feedback. Private notes
 never cross seats. The full accepted dialogue and action history remain on disk.
-Speech is optional: empty/whitespace messages create no chat event; repeated urgent
-warnings remain deliverable. Invalid controls/format do not deliver speech.
+Speech is optional. Changed navigator guidance is rendered as a concise driving
+instruction; unchanged straight cruise guidance is silent unless the model adds a
+warning, answer or question. A fresh directional correction remains deliverable.
+Empty/whitespace messages create no chat event. Invalid controls/format do not
+deliver speech or replace guidance. Raw model decisions and translated controls
+are both retained for auditing mismatches.
 
 `--history-turns` controls factual-note history. Optional background text recaps
 are disabled by default (`--memory-every 0`) to avoid reinforcing stale visual
@@ -180,7 +190,7 @@ idempotent, so repeatedly selecting `map` does not accidentally close it, and
 selecting `chase` reliably closes the map and returns to the clear road view:
 
 ```json
-{"view":"chase","message":"Ease to 35 km/h; steer left toward the road center.","notes":"Car right of the road; left side is clear."}
+{"view":"chase","guidance":{"travel":"forward","steering":"left","target_speed_kmh":35,"steering_seconds":0.15},"message":"Road center is to our left.","notes":"Car right of the road; left side is clear."}
 ```
 
 The driver can combine **continuous holds**, **timed pulses**, and **taps**:
@@ -201,6 +211,10 @@ agents' inference. Coast releases W/S; straight releases A/D. Pulse defaults are
 steering. Optional `pedal_seconds` / `steering_seconds` select 0.05–1 game seconds;
 zero means the gesture default. Park holds SPACE; optional `tap:["H"]` toggles lights.
 Holding throttle accelerates; it does not maintain a specified speed automatically.
+`brake` resolves to the opposing pedal using the visible motion label (S forward,
+W reversing), or SPACE at a visible speed of 5 km/h or below so it does not select
+reverse at rest. This maps a model-selected braking intent; it does not choose a
+route, speed target, or when to brake.
 
 The translator chooses no road direction or pedal from telemetry: it implements
 only the model's chosen intent. It saves both the original `decision` and translated
@@ -249,7 +263,7 @@ already accepted hold. Ending the episode (including errors, Ctrl-C, and limits)
 releases every held key. Game menus/network recovery retain their ordinary pause
 behavior. Pause/restart and changes to speed are not model actions.
 
-Schema version 6 adds semantic decisions, bounded gestures and instrument transcription; new runs record `hold_policy: until_replaced_with_optional_key_pulses`. Older timed-hold runs remain
+Schema version 7 adds timestamped current guidance to semantic decisions, bounded gestures and instrument transcription; new runs record `hold_policy: until_replaced_with_optional_key_pulses`. Older timed-hold runs remain
 readable, with their fallback metrics retained, but should not be pooled with new
 runs. The source/configuration fingerprint keeps those benchmark groups separate.
 
@@ -301,10 +315,11 @@ heading degrees. The map still covers the road but leaves the instruments visibl
 Collision, tire-pop, engine-knock and siren captions appear in the game itself;
 unheard caption events with timestamps also accompany the next model request.
 No map obstacle detector, angle advice, or hidden damage/location values are added
-to model inputs. The five visible instrument strings are also delivered as text. AI sessions also render rocks, trees, thorns, ramps, barriers, cones and dangerous
+to model inputs. The five visible instrument strings are also delivered as text. AI sessions also render rocks, thorns, ramps, barriers, cones and dangerous
 course surfaces in bright orange. Road/terrain colors and all collisions/physics
 remain unchanged. Bridge signal and text colors retain their open/closed meanings.
-The `ai_orange_v1` palette is recorded in the benchmark fingerprint. Ordinary human
+Trees retain their green foliage and brown trunks, including collidable trees.
+The `ai_orange_green_trees_v2` palette is recorded in the benchmark fingerprint. Ordinary human
 sessions retain their existing colors and UI.
 `--course standard` selects the existing human game and all its hazards.
 

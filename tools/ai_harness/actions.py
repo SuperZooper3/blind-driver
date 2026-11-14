@@ -59,8 +59,21 @@ def translate_decision(value, role, observation):
         if pedal not in {"accelerate", "coast", "brake", "reverse", "park"} or steering not in {"left", "straight", "right"}:
             raise ValueError("Choose a valid pedal and steering intent")
         if pedal in {"accelerate", "brake", "reverse"}:
-            result["hold"].append("W" if pedal == "accelerate" else "S")
-            if pedal_mode == "pulse":
+            key = "W" if pedal == "accelerate" else "S"
+            if pedal == "brake":
+                # S is NOT a brake while reversing (and selects reverse below
+                # the game's 3.6 km/h crossover). Resolve the requested braking
+                # gesture from the same visible instrument strings, no geometry.
+                hud = observation.get("hud", {})
+                if hud.get("motion") == "REVERSING":
+                    key = "W"
+                try:
+                    if float(hud.get("speed", "").split()[0]) <= 5:
+                        key = "SPACE"
+                except (ValueError, IndexError):
+                    pass
+            result["hold"].append(key)
+            if pedal_mode == "pulse" and key != "SPACE":
                 result["pedal_pulse_sim"] = _seconds(value.get("pedal_seconds"), {"accelerate": 1, "brake": .2, "reverse": .3}[pedal])
         elif pedal == "park":
             result["hold"].append("SPACE")

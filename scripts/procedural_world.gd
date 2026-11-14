@@ -38,6 +38,7 @@ var stripe_material: StandardMaterial3D
 var terrain_material: StandardMaterial3D
 var trunk_material: StandardMaterial3D
 var leaf_material: StandardMaterial3D
+var thorn_material: StandardMaterial3D
 var rock_material: StandardMaterial3D
 var ai_obstacle_colors := false
 var timer := 0.0
@@ -61,9 +62,9 @@ func _ready() -> void:
 	leaf_material.vertex_color_use_as_albedo = true
 	leaf_material.vertex_color_is_srgb = true
 	rock_material = Geo.material(Color("838a7e"))
+	thorn_material = leaf_material
 	if ai_obstacle_colors:
-		trunk_material = Hazards.orange_material()
-		leaf_material = Hazards.orange_material()
+		thorn_material = Hazards.orange_material()
 		rock_material = Hazards.orange_material()
 	_build_tree_mesh()
 	if allow_generation:
@@ -597,7 +598,7 @@ func _build_tile(key: Vector2i) -> void:
 				continue
 			var rotation := fposmod(p.x * 7.13 + p.z * 3.71, TAU)
 			thorns.append(Transform3D(Basis(Vector3.UP, rotation), p))
-	_multimesh(root, thorn_mesh, leaf_material, thorns)
+	_multimesh(root, thorn_mesh, thorn_material, thorns)
 	_multimesh(root, tree_mesh, leaf_material, trees)
 	_multimesh(root, trunk_mesh, trunk_material, trunks)
 	_multimesh(root, rock_mesh, rock_material, rocks)

@@ -153,7 +153,7 @@ give actionable directions, respond to the driver, and reassess after crashes;
 recent dialogue, a transcript of the visible instruments, and accepted-control feedback
 accompany each screenshot. Explicit short steering pulses prevent a small correction
 from staying held through both agents’ model calls. Continuous holds and toggles
-remain selectable, and AI-mode obstacles use a bright orange palette.
+remain selectable, and AI-mode rocks and hazards use bright orange while trees stay green.
 The [research plan](docs/AI_HARNESS_PLAN.md) describes
 the longer path toward reinforcement learning.
 

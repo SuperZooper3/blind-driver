@@ -13,7 +13,7 @@ from pathlib import Path
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
 DEFAULT_MODEL = "command-a-plus-05-2026"
-PROMPT_REVISION = "grounded-copilot-v9"
+PROMPT_REVISION = "grounded-copilot-v10"
 
 from .prompts import prompt, current_task
 from .actions import translate_decision, decision_schema, validate_guidance
