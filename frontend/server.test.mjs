@@ -29,6 +29,7 @@ test('frontend serves playable files, runtime configuration, readiness, and comp
   assert.equal((await fetch(`${base}/healthz`)).status, 503);
   mkdirSync(join(directory, 'media'));
   for (const file of ['game.html', 'game.js', 'game.wasm', 'game.pck', 'launcher.js', 'style.css', 'favicon.svg',
+    'favicon.ico', 'apple-touch-icon.png', 'media/social-preview.png',
     'media/bank-getaway.png', 'media/two-seats.png', 'media/field-map.png',
     'media/broken-glasses.png', 'media/police-pursuit.png']) writeFileSync(join(directory, file), `contents:${file}`);
   writeFileSync(join(directory, 'secret.cfg'), 'private');

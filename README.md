@@ -11,6 +11,10 @@
 A chaotic co-op getaway through an endless low-poly forest.<br>
 One steering wheel. Two very different views. Keep talking.
 
+### [▶ Watch the trailer](https://www.youtube.com/watch?v=1p73m_NQv9k)
+
+[![Watch the Blind Driver trailer on YouTube](https://img.youtube.com/vi/1p73m_NQv9k/maxresdefault.jpg)](https://www.youtube.com/watch?v=1p73m_NQv9k)
+
 [How to play](#how-to-play) · [Pick your crew](#pick-your-crew) · [AI experiments](#two-seats-two-ai-agents) · [Setup & deployment](deployment.md)
 
 ![The orange getaway car outside the bank, surrounded by forest](frontend/media/bank-getaway.png)

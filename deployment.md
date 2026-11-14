@@ -361,8 +361,16 @@ The Web export uses a single thread and Stream playback for procedural audio.
 Browser-specific mode controls and downloadable logs are included. Invite links
 use `?room=CODE` and preserve the invitation through the landing-page launch.
 The page uses the supplied screenshots in `frontend/media/`; CSS crops their
-views without altering the source images. There is no video embed yet. Add the
-finished demo only when a real video is available.
+views without altering the source images. The trailer near the top uses YouTube's
+privacy-enhanced player (`youtube-nocookie.com`), loads lazily, and does not autoplay.
+The README links its trailer thumbnail to the same video because GitHub does not
+render embedded players.
+
+The yellow-car logo lives in `frontend/favicon.svg`, with ICO and Apple touch icon
+fallbacks. `frontend/media/social-preview.png` is the 1200 × 630 split-screen share
+card. Open Graph and Twitter card metadata in `frontend/shell.html` use the public
+frontend URL; update the canonical, `og:url`, and image URLs there if the domain
+changes. Social services may cache an older preview until they fetch the page again.
 
 ```sh
 GODOT=/path/to/godot bash tools/export_web.sh

@@ -1,1 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#153b32"/><path d="M19 45 45 19M22 19h23v23" fill="none" stroke="#edb85c" stroke-width="7" stroke-linecap="square"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Blind Driver — yellow getaway car on a forest road</title>
+  <defs><clipPath id="edge"><rect width="64" height="64" rx="12"/></clipPath></defs>
+  <g clip-path="url(#edge)">
+    <path fill="#a8bd98" d="M0 0h64v64H0z"/>
+    <path fill="#608362" d="M0 29 22 23l18 2 24 8v31H0z"/>
+    <path fill="#d8d5a5" d="m27 24-25 40h60L37 24z"/>
+    <path fill="#777c64" d="M29 24 8 64h48L35 24z"/>
+    <path stroke="#f4f1d7" stroke-width="3" d="M32 28v6m0 23v7"/>
+    <path fill="#183c32" d="M9 25h4v13H9zm42-2h4v14h-4z"/>
+    <path fill="#245443" d="m11 5-11 26h22zm42-3L41 30h24z"/>
+    <path fill="#3f7352" d="m11 5 1 26h10zm42-3 1 28h11z"/>
+    <path fill="#102d28" d="M18 44h7v12h-7zm21 0h7v12h-7z"/>
+    <path fill="#e89b35" d="m23 25-5 17v9h28v-9l-5-17z"/>
+    <path fill="#ffcf61" d="M24 25h16l3 13H21z"/>
+    <path fill="#173e36" d="M26 29h12l2 8H24z"/>
+    <path fill="#42685c" d="M26 29h5v8h-7z"/>
+    <path fill="#ffca4e" d="M18 39h28v11H18z"/>
+    <path fill="#fff2c4" d="M20 42h6v4h-6zm18 0h6v4h-6z"/>
+    <path fill="#c27c2b" d="M28 44h8v3h-8z"/>
+    <path fill="#f0e5b7" d="M18 50h28v3H18z"/>
+  </g>
+</svg>

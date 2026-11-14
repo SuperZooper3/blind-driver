@@ -26,6 +26,7 @@ export function createFrontend({ directory = defaultDirectory,
   const root = resolve(directory);
   const relayUrl = relayAddress(relay);
   const ready = () => ['game.html', 'game.js', 'game.wasm', 'game.pck', 'launcher.js', 'style.css', 'favicon.svg',
+    'favicon.ico', 'apple-touch-icon.png', 'media/social-preview.png',
     'media/bank-getaway.png', 'media/two-seats.png', 'media/field-map.png',
     'media/broken-glasses.png', 'media/police-pursuit.png']
     .every(file => existsSync(resolve(root, file)));
