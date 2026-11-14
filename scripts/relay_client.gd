@@ -3,6 +3,8 @@ extends Node
 signal room_created(code: String)
 ## The relay decides each seat: the creator picks one and a friend joining by code gets the other.
 signal seat_assigned(seat: String)
+## Both players' seats were swapped (after a run ends); `seat` is ours now.
+signal seats_swapped(seat: String)
 signal joined
 signal waiting(message: String)
 signal navigator_joined
@@ -313,6 +315,15 @@ func _handle(message: Dictionary) -> void:
 				if rtts.size() > 300:
 					rtts.pop_front()
 				last_pong = now()
+		"seat_swapped":
+			var seat := str(message.get("role", ""))
+			if not seat in ["driver", "navigator"]:
+				_fail("Relay sent an invalid seat.")
+				return
+			seat_role = seat
+			Log.event("seat_swapped", {"role": seat})
+			seat_assigned.emit(seat)
+			seats_swapped.emit(seat)
 		"navigator_joined": navigator_joined.emit()
 		"navigator_left": navigator_left.emit()
 		"peer_reconnecting":
@@ -349,6 +360,9 @@ func _send(message: Dictionary) -> bool:
 		_lost("Sending to relay failed", error)
 		return false
 	return true
+
+func request_swap() -> bool:
+	return is_ready and _send({"type": "swap"})
 
 func send_graph(roads: Array) -> bool:
 	return is_ready and _send({"type": "graph", "roads": Wire.graph_to_json(roads)})

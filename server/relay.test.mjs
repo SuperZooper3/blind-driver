@@ -115,6 +115,45 @@ test('short share codes join either seat and the creator can choose to navigate'
   assert.equal((await stranger.next()).code, 'not_found');
 });
 
+test('either player swaps seats; the new driver sends state and resume follows the seat', async t => {
+  const { connect } = await setup(t);
+  const first = await connect();
+  first.send({ type: 'create', version: 9 });
+  const created = await first.next();
+  const second = await connect();
+  second.send({ type: 'join', version: 9, room: created.share });
+  const joined = await second.next();
+  await first.next();
+  second.send({ type: 'swap' });
+  assert.deepEqual(await first.next(), { type: 'seat_swapped', role: 'navigator' });
+  assert.deepEqual(await second.next(), { type: 'seat_swapped', role: 'driver' });
+  second.send({ type: 'snapshot', state });
+  assert.deepEqual(await first.next(), { type: 'snapshot', state });
+  first.send({ type: 'snapshot', state });
+  assert.equal((await first.next()).code, 'not_driver');
+  // A dropped connection resumes into its new seat with its original credential.
+  const closed = once(second.socket, 'close');
+  second.socket.terminate();
+  await closed;
+  assert.equal((await first.next()).type, 'peer_reconnecting');
+  const back = await connect();
+  back.send({ type: 'resume', version: 9, room: joined.room, token: joined.token, role: 'driver' });
+  const resumed = await back.next();
+  assert.equal(resumed.type, 'resumed');
+  assert.equal(resumed.role, 'driver');
+  first.send({ type: 'swap' });
+  assert.equal((await back.next()).type, 'seat_swapped');
+});
+
+test('swapping needs both players connected', async t => {
+  const { connect } = await setup(t);
+  const alone = await connect();
+  alone.send({ type: 'create', version: 9 });
+  await alone.next();
+  alone.send({ type: 'swap' });
+  assert.equal((await alone.next()).code, 'swap_unavailable');
+});
+
 test('rooms are isolated and malformed state is rejected', async t => {
   const { connect } = await setup(t);
   const first = await connect();

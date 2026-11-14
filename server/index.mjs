@@ -219,6 +219,20 @@ export function createRelay(options = {}) {
         return;
       }
       if (message.type === 'leave') { detach(client, true); socket.close(1000, 'Left room'); return; }
+      if (message.type === 'swap') {
+        // Either player may swap seats, but only while both are connected.
+        const room = rooms.get(client.room);
+        if (!room || room[client.role]?.client !== client || !room.driver?.client || !room.navigator?.client) {
+          fail(client, 'swap_unavailable', 'Both players need to be connected to swap seats.'); return;
+        }
+        [room.driver, room.navigator] = [room.navigator, room.driver];
+        for (const role of ['driver', 'navigator']) {
+          room[role].client.role = role;
+          send(room[role].client, { type: 'seat_swapped', role });
+        }
+        log('seats_swapped', client);
+        return;
+      }
       if (client.role !== 'driver') { fail(client, 'not_driver', 'Only the driver can send game state.'); return; }
       const room = rooms.get(client.room);
       if (!room || room.driver.client !== client) return;

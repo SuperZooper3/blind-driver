@@ -3,6 +3,7 @@ extends CanvasLayer
 signal play_requested(mode: String)
 signal resume_requested
 signal restart_requested
+signal swap_requested
 signal connect_requested(address: String)
 signal host_requested
 signal leave_requested
@@ -58,6 +59,7 @@ var result_panel: PanelContainer
 var result_title: Label
 var result_detail: Label
 var restart_button: Button
+var swap_button: Button
 var mode := "split"
 var settings_panel: PanelContainer
 var local_panel: PanelContainer
@@ -607,14 +609,23 @@ func _build_run_result() -> void:
 	box.add_child(result_detail)
 	restart_button = _button("Drive again", func(): restart_requested.emit())
 	box.add_child(restart_button)
+	# Online only: one click swaps both players' seats for the next ride.
+	swap_button = _button("Swap roles   ⇄", func():
+		swap_button.disabled = true
+		swap_requested.emit())
+	box.add_child(swap_button)
 	result_panel.hide()
 
-func show_run_result(state: String, reason: String, distance: float, navigator: bool, best: float = 0.0, new_best: bool = false) -> void:
+func show_run_result(state: String, reason: String, distance: float, navigator: bool, best: float = 0.0, new_best: bool = false, can_swap: bool = false) -> void:
 	result_panel.visible = state == "game_over" and not in_menu
 	if state != "game_over":
+		swap_button.disabled = false
 		return
-	result_detail.text = "%s.\nYou made it %.2f km.\n%s: %.2f km%s" % [reason, distance / 1000.0, "NEW PERSONAL BEST" if new_best else "Personal best", best / 1000.0, "\nWaiting for the driver to restart." if navigator else ""]
+	var waiting := "\nWaiting for the driver to restart%s." % (", or swap roles" if can_swap else "") if navigator else ""
+	result_detail.text = "%s.\nYou made it %.2f km.\n%s: %.2f km%s" % [reason, distance / 1000.0, "NEW PERSONAL BEST" if new_best else "Personal best", best / 1000.0, waiting]
 	restart_button.visible = not navigator
+	swap_button.visible = can_swap
+	swap_button.text = "Swap roles: you drive next   ⇄" if navigator else "Swap roles: you navigate next   ⇄"
 
 func set_mode(value: String) -> void:
 	mode = value

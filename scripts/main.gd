@@ -112,6 +112,12 @@ func _ready() -> void:
 		car.driving_enabled = not ui.in_menu and session.can_drive())
 	session.room_created.connect(ui.display_lobby_ready)
 	session.seat_changed.connect(_apply_seat)
+	session.seats_swapped.connect(func(value: String):
+		if value == "host":
+			# The new driver owns the next ride: start it fresh for both players.
+			_restart_run()
+			_resume())
+	ui.swap_requested.connect(func(): session.request_swap())
 	session.online_joined.connect(_online_ready)
 	session.ride_restored.connect(func(): car.driving_enabled = not ui.in_menu and session.can_drive())
 	ui.network_session = session
@@ -248,7 +254,7 @@ func _process(delta: float) -> void:
 		_update_route()
 		if not car.remote:
 			car.on_road = world.road_distance(car.global_position) < 4.6
-	ui.show_run_result(car.run_state, car.crash_reason, car.distance_driven, mode == "join", records.best_distance, records.new_best)
+	ui.show_run_result(car.run_state, car.crash_reason, car.distance_driven, mode == "join", records.best_distance, records.new_best, session.can_swap())
 	ui.hint_label.text = "Thorns tear your tires — stay near the road" if car.run_state == "driving" and world.road_distance(car.global_position) > 12.0 else ""
 	if car.thorn_contact != 0 and car.run_state == "driving":
 		ui.surface_label.text = "THORNS / TIRES TEARING"

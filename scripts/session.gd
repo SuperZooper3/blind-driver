@@ -10,6 +10,8 @@ signal online_error(message: String)
 signal ride_restored
 ## "host" (this game drives) or "join" (this game navigates), as the relay assigns seats.
 signal seat_changed(role: String)
+## Seats were swapped between rides; main starts the new ride as `role`.
+signal seats_swapped(role: String)
 
 const Log = preload("res://scripts/network_log.gd")
 const PORT := 18765
@@ -60,6 +62,13 @@ func _ready() -> void:
 	relay.name = "Relay"
 	add_child(relay)
 	relay.seat_assigned.connect(func(seat: String): _take_seat("host" if seat == "driver" else "join"))
+	relay.seats_swapped.connect(func(seat: String):
+		if seat == "driver":
+			# Our partner is still connected; they are now the navigator.
+			_online_peer_joined()
+		else:
+			status_changed.emit("SEATS SWAPPED / WAITING FOR THE NEW DRIVER")
+		seats_swapped.emit(role))
 	relay.room_created.connect(func(code: String):
 		room_code = code
 		status_changed.emit("Room %s ready. Waiting for your friend…" % code)
@@ -150,6 +159,16 @@ func _online_restored(peer_connected: bool) -> void:
 		if role == "join" and peer_connected and not graph_received:
 			online_joined.emit()
 		ride_restored.emit()
+
+## Both players are in the room right now, so seats can be swapped.
+func can_swap() -> bool:
+	if not online or recovering or not relay.is_ready:
+		return false
+	return navigator_id != 0 if role == "host" else (role == "join" and not stale and snapshots_received > 0)
+
+func request_swap() -> void:
+	if can_swap():
+		relay.request_swap()
 
 func can_drive() -> bool:
 	return role == "local" or (role == "host" and navigator_id != 0 and not recovering and (not online or relay.is_ready))
