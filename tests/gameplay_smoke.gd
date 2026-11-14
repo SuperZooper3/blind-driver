@@ -63,7 +63,8 @@ func _run() -> void:
 		if car.run_state == "game_over":
 			break
 	Input.action_release("accelerate")
-	check(saw_fall and lowest < cliff.position.y + 2, "car physically drives off the edge and falls to the pit bottom")
+	# The run ends once the car is within 2.5 m of the floor (see main.gd).
+	check(saw_fall and lowest <= cliff.position.y + 2.5, "car physically drives off the edge and falls to the pit bottom")
 	check(car.run_state == "game_over" and not car.reset_pending, "fatal fall cannot be recovered and ends the run")
 	await frames(2)
 	check(ui.result_panel.visible and ui.result_detail.text.contains("1.2"), "Game Over reports the distance driven")

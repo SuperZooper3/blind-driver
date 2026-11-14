@@ -127,6 +127,8 @@ func check_middle_holes() -> void:
 	var middle := 0
 	var straight := 0
 	var clear := true
+	var kinds_by_depth := {}
+	var sides := {}
 	for seed in 3:
 		var w := World.new()
 		w.world_seed = 5000 + seed * 977
@@ -137,6 +139,13 @@ func check_middle_holes() -> void:
 			if f.is_empty(): break
 			w.grow_near(f.points[-1])
 			for road: Dictionary in w.roads:
+				if road.profile == "rough" and not road.hazards.is_empty():
+					var first: Dictionary = road.hazards[0]
+					if not kinds_by_depth.has(road.depth): kinds_by_depth[road.depth] = {}
+					kinds_by_depth[road.depth][first.kind] = true
+					if not first.kind in ["tree", "bumps"]:
+						var direction: Vector3 = road.points[-1] - road.points[0]
+						sides[signf(direction.cross(Vector3.UP).dot(first.position - road.points[0]))] = true
 				if seen.has(road.id) or road.profile != "rough": continue
 				seen[road.id] = true
 				var hole: Dictionary = {}
@@ -158,4 +167,8 @@ func check_middle_holes() -> void:
 		w.free()
 	print("Three-way forks: %d straight middle, %d middle hole" % [straight, middle])
 	check(middle > 0 and straight > middle, "later three-way forks sometimes put the pit in the middle, but not usually")
+	var varied := 0
+	for depth in kinds_by_depth:
+		if kinds_by_depth[depth].size() > 1: varied += 1
+	check(varied >= 2 and sides.size() == 2, "obstacle kinds and shoulder sides vary between worlds instead of following the road depth")
 	check(clear, "a middle pit sits straight ahead while both through routes swing around it and rejoin")
