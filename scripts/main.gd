@@ -37,6 +37,7 @@ var session: Node
 var audio_muted := false
 var local_navigator_pid := -1
 var local_pair_deadline := 0
+var input_ready := false
 
 func _ready() -> void:
 	ai_options = AICapture.read_options()
@@ -190,6 +191,7 @@ func _ready() -> void:
 			navigator_capture.leader = ai_capture
 			ai_capture.peer = navigator_capture
 			add_child(navigator_capture)
+	input_ready = true
 
 func _setup_environment() -> void:
 	var env := Environment.new()
@@ -650,6 +652,10 @@ func _leave_online() -> void:
 	_resize_views()
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Building the world can dispatch window events before the UI/session exist.
+	# Godot already reports this node ready while its _ready() is still running.
+	if not input_ready:
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F8:
 		ui.toggle_diagnostics()
 	if event.is_action_pressed("menu") and started:

@@ -18,7 +18,23 @@ func _run() -> void:
 	check(old.get_value("unrelated", "preserve") == "yes", "saving a lobby preserves unrelated preferences")
 	check(Settings.normalize_name(" Forest  Friends ") == "forest-friends" and Settings.normalize_name("bad/name").is_empty(), "friendly names normalize consistently and invalid names are rejected")
 	var game = load("res://scenes/main.tscn").instantiate()
+	# Window events can arrive while _ready() is still constructing the world,
+	# before the UI exists. Exercise the real viewport input dispatch at that point.
+	var startup_input := {"sent": false}
+	var diagnostics_key := InputEventKey.new()
+	diagnostics_key.physical_keycode = KEY_F8
+	diagnostics_key.pressed = true
+	game.child_entered_tree.connect(func(child: Node):
+		if child.name == "World":
+			check(game.ui == null, "startup input arrives before the menu is constructed")
+			root.push_input(InputEventMouseMotion.new())
+			root.push_input(diagnostics_key)
+			startup_input.sent = true)
 	root.add_child(game)
+	check(startup_input.sent and game.is_node_ready() and not game.ui.diagnostics_panel.visible, "startup completes with early mouse and keyboard input ignored")
+	root.push_input(diagnostics_key)
+	check(game.ui.diagnostics_panel.visible, "F8 opens diagnostics after startup")
+	root.push_input(diagnostics_key)
 	game.ui._load_preferences(path)
 	check(game.ui.preferred_seat == "navigator", "start screen remembers the preferred seat")
 	check(game.ui.room_code_field.is_visible_in_tree() and game.ui.create_room_button.is_visible_in_tree() and not game.ui.share_box.visible, "start screen offers Create a room and a room-code box")
