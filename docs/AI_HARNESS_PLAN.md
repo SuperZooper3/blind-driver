@@ -1,13 +1,23 @@
 # Two-agent AI harness: prototype plan
 
-Status: proposal for discussion; no harness or gameplay changes implemented.
-Research checked on 2026-11-14. Repository inspected at `10900d0`.
+Status: original research proposal, revised after the first sketch request.
+Research checked on 2026-11-14. Original repository inspection: `10900d0`.
+
+The implemented sketch and runnable commands are documented in [AI harness](AI_HARNESS.md).
+The user's follow-up supersedes the split-screen crop proposal: use **two complete
+normal game windows**, preserving both full dashboards, and ordinary keyboard
+inputs for both seats. The primary output is the recap video. Speed is adjustable
+per episode, with separate model/role/speed benchmarks. The sketch uses a small
+file-based screenshot/key/telemetry adapter, not a new WebSocket control service.
+Sections below retain longer-term design ideas; they are not a list of completed
+features. In particular, RL training, Google support, route-aware scoring, and
+automatic memory summaries remain future work.
 
 ## Recommendation
 
 This is a feasible way to test visual perception, driving, communication, and
-cooperation. Build a **Python harness controlling one rendered Godot game in
-shared-screen mode**, with a separately configurable model for each seat. Each
+cooperation. Build a **Python harness controlling two complete Godot game windows**,
+with a separately configurable model for each seat. Each
 model receives only its own finished screen and its conversation history. The
 navigator sends one message, the driver chooses controls and replies, and the
 exchange repeats while the simulation continues running.
@@ -43,10 +53,9 @@ Three details need deliberate handling:
    on `ui.driver_screen`, outside its `SubViewport`; the map and HUD are overlays.
    Capture after composition. Reading camera textures directly would omit
    important restrictions and information.
-2. **The shared HUD is asymmetric.** The dashboard is at the left of the window,
-   and the route card and map are on the navigator's side. Define and visually
-   verify seat capture rectangles at a fixed layout. Do not give both agents the
-   whole screen. Giving each seat a dashboard later would be an explicit UI change.
+2. **The shared HUD is asymmetric.** Cropping the split screen loses information.
+   The implemented approach captures the driver's complete host window and the
+   navigator's complete joined window, each with its normal dashboard and HUD.
 3. **Restarting does not reproduce the initial seed alone.** `reset_world()`
    preserves increasing road IDs, which also affect generation. Launch a fresh
    game process for each episode initially, preserving multiplayer's ID rules.

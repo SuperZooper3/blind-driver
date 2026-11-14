@@ -102,6 +102,10 @@ if __name__ == "__main__":
             reservation.bind(("127.0.0.1", 0))
             os.environ["BLIND_DRIVER_LAN_PORT"] = str(reservation.getsockname()[1])
         os.environ["BLIND_DRIVER_RECORDS_PATH"] = str(temporary / "records.cfg")
+        harness = subprocess.run(command("tests/ai_harness_smoke.gd", temporary / "ai-harness.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=30)
+        print(harness.stdout)
+        if harness.returncode or "FAIL:" in harness.stdout or "SCRIPT ERROR" in harness.stderr:
+            sys.exit(harness.stderr or "AI harness input/course check failed")
         routes = subprocess.run(command("tests/route_choices_smoke.gd", temporary / "routes.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=30)
         print(routes.stdout)
         if routes.returncode or "FAIL:" in routes.stdout or "SCRIPT ERROR" in routes.stderr:

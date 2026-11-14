@@ -8,6 +8,9 @@ const Session = preload("res://scripts/session.gd")
 const Pursuit = preload("res://scripts/police_pursuit.gd")
 const Siren = preload("res://scripts/police_siren.gd")
 const ImpactAudio = preload("res://scripts/impact_audio.gd")
+const AICapture = preload("res://scripts/ai_capture.gd")
+var ai_options: Dictionary = {}
+var ai_capture: Node
 var impact_audio: Node
 var police: Node3D
 var siren: AudioStreamPlayer
@@ -36,10 +39,15 @@ var local_navigator_pid := -1
 var local_pair_deadline := 0
 
 func _ready() -> void:
+	ai_options = AICapture.read_options()
+	if not ai_options.is_empty():
+		Engine.time_scale = float(ai_options.speed_percent) / 100.0
 	records.load_record()
 	_setup_input()
 	_setup_environment()
 	world = World.new()
+	world.basic_course = ai_options.get("course", "standard") == "basic"
+	world.world_seed = int(ai_options.get("seed", world.world_seed))
 	world.name = "World"
 	add_child(world)
 	car = Car.new()
@@ -52,6 +60,7 @@ func _ready() -> void:
 	police.world = world
 	add_child(police)
 	police.reset()
+	police.visible = not world.basic_course
 	driver_view = _make_view("DriverView")
 	navigator_view = _make_view("NavigatorView")
 	driver_camera = _make_camera(driver_view)
@@ -128,13 +137,18 @@ func _ready() -> void:
 		elif argument == "--local-seat=navigator":
 			_arrange_local_window(true)
 		elif argument == "--host":
-			_host()
+			_host("127.0.0.1" if not ai_options.is_empty() else "*")
 		elif argument.begins_with("--join="):
 			_join(argument.trim_prefix("--join="))
 		elif argument == "--solo":
 			_start("solo")
 		elif argument == "--split":
 			_start("split")
+	if not ai_options.is_empty():
+		ai_capture = AICapture.new()
+		ai_capture.game = self
+		ai_capture.options = ai_options
+		add_child(ai_capture)
 
 func _setup_environment() -> void:
 	var env := Environment.new()
@@ -201,6 +215,9 @@ func _process(delta: float) -> void:
 		ui.close_map()
 	_update_cameras(delta)
 	ui.update_pursuit(police, looking_back, car.run_state == "driving")
+	if world.basic_course:
+		ui.pursuit_title.text = "PRACTICE COURSE"
+		ui.pursuit_detail.text = "No pursuit / static obstacles"
 	siren.enabled = started and not audio_muted and not ui.in_menu and car.run_state == "driving" and not session.recovering and not session.stale and session.role != "disconnected"
 	motor.enabled = started and not audio_muted and not ui.in_menu
 	impact_audio.enabled = started and not audio_muted
@@ -230,7 +247,7 @@ func _process(delta: float) -> void:
 	ui.dashboard.speed_kmh = absf(car.signed_speed) * 3.6
 	ui.dashboard.distance_km = car.distance_driven / 1000.0
 	ui.surface_label.text = "GRAVEL" if car.on_road else "OFF ROAD"
-	ui.heat_label.text = "HEAT %d / 5" % (World.heat_for_distance(car.distance_driven) + 1)
+	ui.heat_label.text = "HEAT OFF" if world.basic_course else "HEAT %d / 5" % (World.heat_for_distance(car.distance_driven) + 1)
 	ui.heat_label.modulate = Color("ef9364").lerp(Color("ef554a"), World.heat_for_distance(car.distance_driven) / 4.0)
 	if car.grounded_wheels == 0 and started:
 		ui.surface_label.text = "AIRBORNE"
@@ -254,12 +271,14 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not car.remote:
-		world.difficulty = World.heat_for_distance(car.distance_driven)
+		world.difficulty = 0 if world.basic_course else World.heat_for_distance(car.distance_driven)
 		var running: bool = started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive()
+		if ai_capture != null:
+			running = running and ai_capture.active
 		if running:
 			world.set_challenge_time(world.challenge_time + delta)
 			world.assist_jump(car)
-		police.advance(delta, running)
+		police.advance(delta, running and not world.basic_course)
 	if not started or car.remote or car.reset_pending or car.recovery_grace > 0:
 		return
 	var hole: Dictionary = world.void_at(car.global_position)
@@ -329,6 +348,10 @@ func _update_cameras(delta: float) -> void:
 	navigator_camera.fov = lerpf(navigator_camera.fov, 76.0 + absf(car.signed_speed) * 0.24, delta * 2.0)
 
 func _update_route() -> void:
+	if world.basic_course:
+		ui.route_label.text = "Follow the road"
+		ui.route_distance.text = "Practice course / avoid the rocks"
+		return
 	# The navigator can read the approaching challenge while watching the road.
 	for road: Dictionary in world.roads:
 		for hazard: Dictionary in road.hazards:

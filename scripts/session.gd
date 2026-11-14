@@ -23,6 +23,8 @@ var role := "local"
 var navigator_id := 0
 var last_graph_revision := -1
 var snapshot_timer := 0.0
+## Harness slow motion must not slow the LAN transport or trigger stale detection.
+var wall_clock_intervals := false
 var graph_timer := 0.0
 var sequence := 0
 var last_sequence := -1
@@ -286,8 +288,9 @@ func _process(delta: float) -> void:
 		last_metrics = time
 		Log.event("game_network_summary", {"role": role, "online": online, "recovering": recovering, "snapshots_received": snapshots_received, "snapshot_age_ms": roundi((time - last_received_at) * 1000) if last_received_at > 0.0 else -1, "graph_revision": world.graph_revision, "last_sequence": last_sequence})
 	if role == "host" and navigator_id != 0:
-		snapshot_timer += delta
-		graph_timer += delta
+		var network_delta := delta / maxf(Engine.time_scale, 0.001) if wall_clock_intervals else delta
+		snapshot_timer += network_delta
+		graph_timer += network_delta
 		# Do not pile new snapshots behind a slow connection.
 		var buffered: int = relay.buffered_bytes() if online else peer.get_peer(navigator_id).get_current_outbound_buffered_amount()
 		if buffered > 32768:
