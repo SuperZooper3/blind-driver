@@ -16,6 +16,9 @@ const Settings = preload("res://scripts/lobby_settings.gd")
 const Version = preload("res://scripts/version.gd")
 const Dashboard = preload("res://scripts/dashboard.gd")
 const FOOTER_HEIGHT := 148.0
+## Keep experimental entry points out of the player-facing menus.
+const SHOW_AI_PLAY := false
+const SHOW_P2P_UI := false
 const Map = preload("res://scripts/route_map.gd")
 const ReadableHUD = preload("res://scripts/readable_hud.gd")
 const DirectionWarning = preload("res://scripts/direction_warning.gd")
@@ -293,7 +296,8 @@ func _build_menu() -> void:
 	resume_button = _button("Resume the ride   →", func(): resume_requested.emit())
 	resume_button.hide()
 	box.add_child(resume_button)
-	box.add_child(_button("Single Player Play with AI", func(): play_requested.emit("ai")))
+	if SHOW_AI_PLAY:
+		box.add_child(_button("Single Player Play with AI", func(): play_requested.emit("ai")))
 	box.add_child(HSeparator.new())
 	box.add_child(_label("PLAY ONLINE", 12, amber))
 	var seat_row := HBoxContainer.new()
@@ -341,6 +345,7 @@ func _build_menu() -> void:
 	# Same-network shortcut: game data goes straight between the two computers.
 	direct_toggle = CheckButton.new()
 	direct_toggle.text = "Direct connection (peer-to-peer)"
+	direct_toggle.visible = SHOW_P2P_UI
 	direct_toggle.add_theme_font_size_override("font_size", 14)
 	direct_toggle.toggled.connect(func(on: bool):
 		_save_preferences()
@@ -405,17 +410,18 @@ func _build_settings() -> void:
 	relay_address = LineEdit.new()
 	relay_address.placeholder_text = Settings.DEFAULT_RELAY
 	advanced.add_child(relay_address)
-	var help := _label("This website supplies the online server automatically." if OS.has_feature("web") else "Leave this as it is for normal online play.\nSame Wi-Fi? Use \"Direct connection\" on the start screen, under the room code box: it works with room codes and needs no IP. The manual Direct LAN buttons below are the older way.", 12, muted)
+	var help := _label("This website supplies the online server automatically." if OS.has_feature("web") else "Leave this as it is for normal online play. Create a room and share its code with your friend.", 12, muted)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	advanced.add_child(help)
 	address = LineEdit.new()
 	address.text = "127.0.0.1"
 	address.placeholder_text = "Driver’s local IP address"
 	advanced.add_child(address)
+	address.visible = SHOW_P2P_UI and not OS.has_feature("web")
 	if OS.has_feature("web"):
 		address.hide()
 		relay_address.editable = false
-	else:
+	elif SHOW_P2P_UI:
 		advanced.add_child(_button("Direct LAN / host driver", func(): host_requested.emit()))
 		advanced.add_child(_button("Direct LAN / join navigator", func(): connect_requested.emit(address.text)))
 	advanced.hide()
@@ -562,7 +568,7 @@ func _process(delta: float) -> void:
 		var data: Dictionary = network_session.relay.metrics()
 		live_network.text = "%s · %s\nLatency %d ms · p95 %d ms · missed probes %d\nReconnects %d · queued %d bytes · last close %d" % [network_session.role.to_upper(), "CONNECTED" if data.ready else "WAITING / RECONNECTING", data.rtt_ms, data.p95_ms, data.missed, data.reconnects, data.buffered_bytes, data.last_close_code]
 	else:
-		live_network.text = "DIRECT LAN · %s\nReceived snapshots: %d · %s" % [network_session.role.to_upper(), network_session.snapshots_received, "reconnecting" if network_session.recovering else "connected / waiting for partner"]
+		live_network.text = "LOCAL CONNECTION · %s\nReceived snapshots: %d · %s" % [network_session.role.to_upper(), network_session.snapshots_received, "reconnecting" if network_session.recovering else "connected / waiting for partner"]
 
 func set_online_busy(busy: bool) -> void:
 	create_room_button.disabled = busy

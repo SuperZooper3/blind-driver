@@ -158,6 +158,8 @@ func _ready() -> void:
 			session.set_direct(on))
 	session.direct_status_changed.connect(func(text: String, wanted: bool):
 		ui.set_direct_status(text, wanted)
+		if not UI.SHOW_P2P_UI:
+			return
 		if not session.peer_link_address().is_empty():
 			ui.status_label.text = "DIRECT LINK   /   " + session.peer_link_address().to_upper()
 		elif wanted:

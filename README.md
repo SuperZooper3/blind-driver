@@ -27,8 +27,8 @@ Local play needs no additional packages or accounts. Models, forest, terrain, ma
 
 ### Single Player Play with AI
 
-Choose **Single Player Play with AI** on the browser loading page or the in-game
-start screen. You drive with the blurred windshield; **Cohere Command A Vision** sees the
+The AI play option is hidden from the browser launcher and in-game menus.
+Developers can still launch it with `godot --path . -- --ai`. In this mode you drive with the blurred windshield; **Cohere Command A Vision** sees the
 clear passenger camera and map and gives one current instruction across the top.
 The small spinner means a request is in flight. **Latest latency** is the most
 recent successful request's full round trip in milliseconds; source-image age is shown
@@ -130,10 +130,10 @@ If Godot embeds the running game in its editor, the driver remains in that Game 
 
 **Two computers on the same network**, or manual two-instance testing:
 
-1. Open **Settings → Advanced connection settings** in both games. These controls are only for direct LAN play; normal online play needs no IP or URL entry.
-2. In the first game instance, choose **Direct LAN / host driver**.
-3. In the second instance, enter **127.0.0.1** and choose **Direct LAN / join navigator** if both run on this computer. `127.0.0.1` means “this same computer.”
-4. On another computer on the same network, enter the host computer's local IP instead. Both computers need the same project version and Godot.
+Manual LAN controls are hidden from the menus. For development, launch the
+driver with `godot --path . -- --host` and the navigator with
+`godot --path . -- --join=127.0.0.1` on the same computer, or replace `127.0.0.1`
+with the driver computer’s local IP address. Both computers need the same build.
 
 The host listens on TCP port **18765**. A second host on the same port will show an error. A third player is rejected. The operating system may ask to allow Godot's local network connection. Use split-screen when sharing one keyboard; separate windows have normal desktop keyboard-focus behavior.
 
@@ -145,15 +145,12 @@ For **different networks**, use **Create a room** and **Room code / Join** on th
 
 **Which version am I on?** The header (top left) and the start screen show **PROTOTYPE NN**. Every change merged to `main` increases it by one (see `AGENTS.md`). Before playing together, check you both see the same number. Once you are in a room, the start screen also tells you if your partner is on a different version.
 
-**Direct connection (peer-to-peer): smoother online play.** Turn on **Direct connection (peer-to-peer)** on the **start screen, under the room code box** (not in Settings; Settings → Advanced only has the older manual LAN buttons). Either player can turn it on, also mid-ride from the pause menu; the partner's game follows and the choice is remembered. The relay is still used to meet and to negotiate, then the car's data goes straight between the two games and the header shows `DIRECT LINK / …`. If the link drops, the game falls back to the relay at once and keeps retrying. Which kind of link depends on where you both play:
-
-- **Both in the browser (the main way to play): WebRTC.** The games trade WebRTC offers and network candidates through the relay, then talk browser to browser. Poses travel on an unordered, no-retransmit channel (like UDP), so one late message never holds up newer ones; the road map uses a reliable channel. It works on the same network, and often across different networks too, using Google's public STUN server (`stun.l.google.com`) to discover addresses; very strict networks can still block it, and then the relay carries the game as before. Browser traffic is encrypted by WebRTC.
-- **Both in the desktop game: local network link.** Each game sends its private IPv4 addresses (such as `10.0.33.210`), a port in 18770–18779 and a random key through the relay. Then **both games listen and both try to connect**, so it works even when only one direction is allowed, common when one Mac's firewall is in stealth mode. Same network only, not encrypted. (Desktop Godot has no built-in WebRTC.)
-- **One in the browser, one on desktop:** no direct link is possible; the game says so and uses the relay.
+P2P controls, manual LAN buttons, and transport-specific status messages are
+hidden from the player interface. Online players use room codes. The existing
+direct-link implementation and saved preference remain available internally for
+compatibility and development checks.
 
 The browser build publishes a read-only `window.blindDriverStatus` (version, seat, room, link type, updates received) for checking a session from the developer console.
-
-If the desktop link never connects: on each Mac, check **System Settings → Network → Firewall**. When macOS asks whether Godot (or Blind Driver) may accept incoming network connections, choose **Allow**. Only one of the two computers needs to accept connections. Some guest/office Wi-Fi networks block traffic between devices entirely ("client isolation"); then the relay is the only option.
 
 Press **F8** for a 75-second connection test, live latency/retry metrics, and **Open network logs folder** (**Download network logs** in the browser). The deployed server also provides `/diagnostics` for a browser-based check. Client JSONL logs and the relay's structured logs record timeouts, close codes, retries, validation failures, and stalls. See [connection checks and logs](deployment.md#connection-checks-and-logs) for instructions. Browser export and Railway hosting are configured in [docs/RAILWAY.md](docs/RAILWAY.md); room invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
 
