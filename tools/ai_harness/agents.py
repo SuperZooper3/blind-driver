@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import json
-import math
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -20,8 +19,8 @@ class InvalidModelResponse(ValueError):
 
 
 def validate_action(value: object, role: str) -> dict:
-    if not isinstance(value, dict) or set(value) != {"hold", "tap", "hold_sim_seconds", "message"}:
-        raise ValueError("Expected hold, tap, hold_sim_seconds, and message only")
+    if not isinstance(value, dict) or set(value) != {"hold", "tap", "message"}:
+        raise ValueError("Expected hold, tap, and message only")
     for field, allowed in (("hold", HELD_KEYS[role]), ("tap", TAP_KEYS[role])):
         keys = value[field]
         if not isinstance(keys, list) or any(not isinstance(k, str) or k not in allowed for k in keys):
@@ -31,9 +30,6 @@ def validate_action(value: object, role: str) -> dict:
     held, tap = set(value["hold"]), set(value["tap"])
     if {"W", "S"} <= held or {"A", "D"} <= held or ("B" in held and "M" in tap):
         raise ValueError("Conflicting keys")
-    duration = value["hold_sim_seconds"]
-    if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration) or not 0.05 <= duration <= 2:
-        raise ValueError("Hold duration must be 0.05–2 simulation seconds")
     if not isinstance(value["message"], str) or len(value["message"]) > 240:
         raise ValueError("Message must be a string of at most 240 characters")
     return value
@@ -48,11 +44,12 @@ def prompt(role: str, speed: float, course: str) -> str:
         "Keep track of the situation and prior messages. Older advice may be stale. "
         "You may send exactly one concise message to your partner per response. "
         "Return ONLY a JSON object with exactly these fields: "
-        '{"hold":[],"tap":[],"hold_sim_seconds":1.0,"message":"..."}. '
+        '{"hold":[],"tap":[],"message":"..."}. '
         "hold is the complete set of keys to hold, replacing all previous held keys; [] releases them. "
-        "tap presses and releases each listed key once. hold_sim_seconds must be 0.05–2.0. "
-        "The controls expire after that many simulation seconds unless replaced. Expiry applies "
-        "the driver's handbrake and releases navigator keys. Your message is at most 240 characters. "
+        "Held keys stay pressed throughout inference and your partner's turn until YOUR next valid "
+        "response replaces them. There is no duration or automatic release/braking between responses. "
+        "To keep a key held, include it again; to release it, omit it from hold. "
+        "tap presses and releases each listed key once. Your message is at most 240 characters. "
         "Do not repeat toggle keys unless you intend another toggle. No pause or restart is available. "
     )
     common += (
@@ -87,12 +84,12 @@ class ScriptedAgent:
     def decide(self, image: Path, observation: dict, messages: list[dict]) -> tuple[dict, dict]:
         self.turn += 1
         if self.role == "driver":
-            result = {"hold": ["W"], "tap": [], "hold_sim_seconds": 2.0,
+            result = {"hold": ["W"], "tap": [],
                       "message": "Scripted baseline: holding accelerator straight ahead."}
         else:
             # Exercise both the navigator's map and camera keys, then close them.
             taps = {1: ["M"], 2: ["M"], 3: ["C"], 4: ["C"]}.get(self.turn, [])
-            result = {"hold": [], "tap": taps, "hold_sim_seconds": 2.0,
+            result = {"hold": [], "tap": taps,
                       "message": "Scripted capture check; toggling " + ", ".join(taps) if taps
                       else "Scripted baseline: no visual reasoning or steering advice."}
         return result, {"input_tokens": 0, "output_tokens": 0}
@@ -121,7 +118,7 @@ class CohereAgent:
             current["content"][0]["text"] = self.system_prompt + "\nCurrent situation:\n" + context
             current["content"].append({"type": "text", "text":
                 "Choose your keyboard action now. Return ONLY the JSON object with hold, tap, "
-                "hold_sim_seconds, and message. Do not describe the image outside that object."})
+                "and message. Do not describe the image outside that object."})
         body = {"model": self.model, "messages": [
             {"role": "system", "content": self.system_prompt}, *self.history, current
         ], "max_tokens": self.max_tokens, "temperature": 0.2}
@@ -132,8 +129,8 @@ class CohereAgent:
                 "type": "object", "properties": {
                     "hold": {"type": "array", "items": {"type": "string", "enum": sorted(HELD_KEYS[self.role])}},
                     "tap": {"type": "array", "items": {"type": "string", "enum": sorted(TAP_KEYS[self.role])}},
-                    "hold_sim_seconds": {"type": "number"}, "message": {"type": "string"},
-                }, "required": ["hold", "tap", "hold_sim_seconds", "message"], "additionalProperties": False,
+                    "message": {"type": "string"},
+                }, "required": ["hold", "tap", "message"], "additionalProperties": False,
             }}
         # Vision-only models use JSON instructions; local validation applies to
         # every model. Tool calling is not required.

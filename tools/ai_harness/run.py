@@ -82,7 +82,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime()) + "-" + uuid.uuid4().hex[:6]
     directory = Path(args.output).expanduser().resolve() / run_id
     directory.mkdir(parents=True, mode=0o700)
-    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 1,
+    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 2,
+                "hold_policy": "until_replaced",
                 "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
                 "godot_version": subprocess.check_output([godot, "--version"], text=True).strip(),
@@ -233,7 +234,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     log("response", role=role, request_id=requests, action=action,
                         latency_seconds=latency, usage=usage,
                         sim_time=latest[role]["sim_time"], observation_sim=request_context["observation"]["sim_time"])
-                    seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap", "hold_sim_seconds")},
+                    seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap")},
                                   observation_sim=request_context["observation"]["sim_time"])
                     pending_ack = role, seq, action, latency, request_context["observation"]
                     error_streak = 0

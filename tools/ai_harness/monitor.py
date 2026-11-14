@@ -51,9 +51,11 @@ class ConsoleMonitor:
             usage = item.get("usage", {})
             self.tokens += usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
             action = item["action"]
+            holding = (f"for {action['hold_sim_seconds']:g} sim s (legacy timed hold)"
+                       if "hold_sim_seconds" in action else "until next instruction")
             detail = (f"{role} answered in {item['latency_seconds']:.2f}s | "
                       f"hold={'+'.join(action['hold']) or 'none'} tap={'+'.join(action['tap']) or 'none'} "
-                      f"for {action['hold_sim_seconds']:g} sim s | awaiting game acknowledgment")
+                      f"{holding} | awaiting game acknowledgment")
         elif kind == "message":
             detail = f"{role} → {item['to'].upper()}: {item['message']}"
         elif kind == "action_ack" and not item.get("accepted"):

@@ -12,8 +12,6 @@ var held: Array = []
 var sequence := -1
 var applied_sequence := -1
 var last_error := ""
-var lease_end := 0.0
-var fallback := false
 var finished_reason := ""
 var frame_index := 0
 var next_capture := 0.0
@@ -82,10 +80,6 @@ func _physics_process(delta: float) -> void:
 		if sim_time >= float(options.max_sim_seconds):
 			_finish("time_limit")
 	if active and game.car.run_state == "game_over": _finish("game_over")
-	if active and not fallback and applied_sequence >= 0 and sim_time >= lease_end:
-		fallback = true
-		_set_held(["SPACE"] if options.role == "driver" else [])
-		_event("lease_expired", {"applied_sequence": applied_sequence})
 	if not game.car.remote:
 		game.car.driving_enabled = active and not game.ui.in_menu and game.session.can_drive() and game.car.run_state == "driving"
 
@@ -118,9 +112,8 @@ func _read_command() -> void:
 		return
 	var hold: Variant = command.get("hold", null)
 	var tap: Variant = command.get("tap", null)
-	var duration := float(command.get("hold_sim_seconds", 0))
 	var observed := float(command.get("observation_sim", -1000))
-	if not hold is Array or not tap is Array or not is_finite(duration) or duration < 0.05 or duration > 2.0:
+	if not hold is Array or not tap is Array:
 		_reject("invalid_controls")
 		return
 	if not is_finite(observed) or sim_time - observed > float(options.get("max_action_age_sim", 5.0)) or observed > sim_time + 0.1:
@@ -146,10 +139,8 @@ func _read_command() -> void:
 	for key in tap:
 		_key(str(key), true)
 		_key.call_deferred(str(key), false)
-	lease_end = minf(sim_time + duration, observed + float(options.get("max_action_age_sim", 5.0)))
-	fallback = false
 	applied_sequence = sequence
-	_event("keys_applied", {"hold": held.duplicate(), "tap": tap, "observation_sim": observed, "lease_end": lease_end})
+	_event("keys_applied", {"hold": held.duplicate(), "tap": tap, "observation_sim": observed, "hold_policy": "until_replaced"})
 
 func _unique_count(values: Array) -> int:
 	var unique: Dictionary = {}
@@ -200,7 +191,7 @@ func _capture() -> void:
 		"monotonic_us": started_us, "sim_time": sim_time, "world_time": game.world.challenge_time,
 		"active": active, "connected": connected, "finished_reason": finished_reason,
 		"sequence": sequence, "applied_sequence": applied_sequence, "input_error": last_error,
-		"held": held, "fallback": fallback, "lease_end": lease_end,
+		"held": held, "hold_policy": "until_replaced",
 		"speed_kmh": absf(car.signed_speed) * 3.6, "signed_speed_mps": car.signed_speed,
 		"distance_m": car.distance_driven, "forward_progress_m": maxf(0.0, progress),
 		"position": [car.position.x, car.position.y, car.position.z],

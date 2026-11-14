@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
+from threading import Thread
 from unittest.mock import patch
 
 from tools.ai_harness.agents import CohereAgent, validate_action
@@ -15,18 +19,18 @@ from tools.ai_harness.monitor import ConsoleMonitor, EventTail
 class HarnessContractTests(unittest.TestCase):
     def test_both_roles_have_keyboard_controls(self):
         for role, hold, tap in (("driver", ["W", "A"], ["H"]), ("navigator", ["B"], ["C"])):
-            action = {"hold": hold, "tap": tap, "hold_sim_seconds": .6, "message": "test"}
+            action = {"hold": hold, "tap": tap, "message": "test"}
             self.assertEqual(validate_action(action, role), action)
         for changes in ({"hold": ["W", "S"]}, {"hold": ["A", "D"]}, {"hold": ["M"]},
                         {"tap": ["H", "H"]}, {"hold_sim_seconds": float("nan")},
                         {"hold_sim_seconds": True}, {"message": "x"*241}, {"teleport": True}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
-                validate_action({"hold": [], "tap": [], "hold_sim_seconds": .6, "message": "", **changes}, "driver")
+                validate_action({"hold": [], "tap": [], "message": "", **changes}, "driver")
         with self.assertRaises(ValueError):
-            validate_action({"hold": ["B"], "tap": ["M"], "hold_sim_seconds": 1, "message": ""}, "navigator")
+            validate_action({"hold": ["B"], "tap": ["M"], "message": ""}, "navigator")
 
     def test_provider_receives_image_and_bounded_role_history(self):
-        action = {"hold": ["W"], "tap": [], "hold_sim_seconds": 1, "message": "Driving"}
+        action = {"hold": ["W"], "tap": [], "message": "Driving"}
         response = {"message": {"content": [{"type": "text", "text": json.dumps(action)}]},
                     "usage": {"billed_units": {"input_tokens": 30, "output_tokens": 10}}}
         requests = []
@@ -59,7 +63,7 @@ class HarnessContractTests(unittest.TestCase):
             self.assertEqual(json.loads((Path(tmp)/"input.json").read_text()), {"hold": ["W"]})
 
     def test_aya_uses_image_api_without_command_only_options(self):
-        action = {"hold": [], "tap": ["M"], "hold_sim_seconds": 1, "message": "Checking map"}
+        action = {"hold": [], "tap": ["M"], "message": "Checking map"}
         response = {"message": {"content": [{"type": "text", "text": json.dumps(action)}]}}
         def fake_open(request, timeout):
             body = json.loads(request.data)
@@ -106,13 +110,14 @@ class HarnessContractTests(unittest.TestCase):
         monitor.event({"event": "request", "role": "navigator", "unix_time": 101, "request_id": 1,
             "observation": {"frame": 2, "sim_time": .25}})
         monitor.event({"event": "response", "role": "navigator", "unix_time": 103, "latency_seconds": 2,
-            "action": {"hold": [], "tap": ["M"], "hold_sim_seconds": 1, "message": "Turn left"}})
+            "action": {"hold": [], "tap": ["M"], "message": "Turn left"}})
         self.assertNotIn("Turn left", output.getvalue())
         monitor.event({"event": "message", "role": "navigator", "to": "driver", "unix_time": 103.1,
             "sim_time": .775, "message": "Turn left\x1b[2J\nnow"})
         text = output.getvalue()
         self.assertIn("NAVIGATOR → DRIVER: Turn left", text)
         self.assertIn("awaiting game acknowledgment", text)
+        self.assertIn("until next instruction", text)
         self.assertNotIn("\x1b", text)
 
     def test_cli_defaults_to_aya_and_normal_motion(self):
@@ -125,6 +130,36 @@ class HarnessContractTests(unittest.TestCase):
             self.assertEqual(args.navigator_model, "c4ai-aya-vision-32b")
             self.assertEqual(args.speed, 25)
             self.assertIsNone(args.review_speed)
+
+    def test_local_viewer_exposes_only_spectator_data_and_frame_paths(self):
+        from tools.ai_harness.dashboard import handler_for
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'manifest.json').write_text(json.dumps({'run_id':'fixture', 'secret':'private-fixture'}))
+            (root/'driver/frames').mkdir(parents=True)
+            (root/'driver/frames/1.jpg').write_bytes(b'jpeg-fixture')
+            atomic_json(root/'driver/latest.json', {'image':'frames/1.jpg','held':['W'], 'secret':'private-fixture'})
+            server = ThreadingHTTPServer(('127.0.0.1',0),handler_for(root,False))
+            worker = Thread(target=server.serve_forever,daemon=True)
+            worker.start()
+            base = f'http://127.0.0.1:{server.server_port}'
+            try:
+                with urllib.request.urlopen(base+'/state') as response:
+                    body=response.read().decode()
+                    self.assertNotIn('private-fixture',body)
+                    self.assertEqual(json.loads(body)['seats']['driver']['held'],['W'])
+                with urllib.request.urlopen(base+'/image/driver') as response:
+                    self.assertEqual(response.read(),b'jpeg-fixture')
+                atomic_json(root/'driver/latest.json', {'image':'../manifest.json'})
+                for route in ('/manifest.json','/image/driver','/../manifest.json'):
+                    with self.subTest(route=route), self.assertRaises(urllib.error.HTTPError) as error:
+                        urllib.request.urlopen(base+route)
+                    self.assertEqual(error.exception.code,404)
+                    error.exception.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                worker.join()
 
     def test_metrics_do_not_call_time_limit_a_failure_and_keep_speeds_separate(self):
         with tempfile.TemporaryDirectory() as tmp:

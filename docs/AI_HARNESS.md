@@ -90,11 +90,11 @@ response. Three consecutive provider/format errors stop the trial. No hidden
 provider/model fallback occurs. Dollar cost is recorded as unknown, not zero;
 token usage is retained for calculating it using the account's actual pricing.
 
-## Live terminal
+## Live terminal or browser
 
 `run` now prints a single chronological stream for both agents: requests, inference
 latency, proposed keys, accepted messages, errors, token usage, and periodic game
-status (simulation/real time, speed, progress, hits, held keys, and fallback).
+status (simulation/real time, speed, progress, hits, and held keys).
 These are completed responses, not token-by-token generation or private reasoning.
 Messages are shown as delivered only after the game acknowledges their action.
 
@@ -106,12 +106,20 @@ To open the same live timeline in a separate terminal, without an API key:
 
 # Follow/replay one run's event log; exits after its recap is ready.
 .venv/bin/python -m tools.ai_harness watch runs/RUN_ID
+
+# Full screenshots, messages, actions, and metrics together in a local browser.
+.venv/bin/python -m tools.ai_harness serve runs --latest --port 8766
+# Open http://127.0.0.1:8766/
 ```
 
 Closing this read-only viewer does not stop the run. Ctrl-C in the terminal
 running the `run` command does stop it and compiles the captured portion.
 The viewer retains scrollback, while `events.jsonl` and `transcript.txt` preserve
 the timeline on disk. It does not expose API keys or image payloads.
+The browser page includes both complete screenshots and updates once per second.
+It serves only on localhost, has no game-control endpoints, and requires no key.
+The newest run appears automatically. Disable **Follow latest** to read older
+messages; the recap link appears after video rendering finishes.
 
 ## Keyboard contract
 
@@ -121,7 +129,6 @@ Both models return the same shape:
 {
   "hold": ["W", "A"],
   "tap": [],
-  "hold_sim_seconds": 1.0,
   "message": "Turning left; tell me when to straighten."
 }
 ```
@@ -136,14 +143,24 @@ key-down/key-up pair. Toggles retain normal semantics: tapping M twice opens the
 closes the map. The normal map animation/occlusion is preserved. S brakes, then
 reverses after stopping. Opposite inputs, duplicate keys, cross-role controls,
 malformed responses, and stale observations are rejected. Messages are capped at
-240 characters. Durations are 0.05–2 simulation seconds.
+240 characters. There is no hold-duration field.
 
 The navigator observes, sends a message and keys, then the driver observes a new
-frame, chooses keys and replies. The previous controls stay applied during
-inference until their lease expires. Expiry releases driving keys and holds SPACE;
-the navigator releases B. This is an ordinary handbrake fallback, not an invisible
-autopilot. All fallback time is logged. The world continues moving. Pause/restart
-and changes to speed are not model actions.
+frame, chooses keys and replies. **Held keys remain pressed until that same agent's
+next accepted instruction replaces them.** Inference, the partner's turn, quota
+waits, and rejected/failed responses do not release keys or apply automatic brakes.
+For example, `hold: ["W", "A"]` keeps accelerating left; a later `hold: ["W"]`
+straightens while continuing to accelerate; `hold: []` releases everything.
+This also applies to the navigator's B key. Taps remain momentary.
+
+The observation-age limit rejects stale *new* decisions; it does not expire an
+already accepted hold. Ending the episode (including errors, Ctrl-C, and limits)
+releases every held key. Game menus/network recovery retain their ordinary pause
+behavior. Pause/restart and changes to speed are not model actions.
+
+Schema version 2 records `hold_policy: until_replaced`. Older timed-hold runs remain
+readable, with their fallback metrics retained, but should not be pooled with new
+runs. The source/configuration fingerprint keeps those benchmark groups separate.
 
 ## Small game-side adapter
 
@@ -186,7 +203,7 @@ Telemetry includes speed, distance, progress, vehicle position/velocity/rotation
 rate, steering, throttle/brake/handbrake, grounding, distance from road, off-road
 time, impact-event count and strength, individual part health, tire state,
 rollover, failure, map/camera state, police gap, heat, snapshots, connection state,
-FPS, capture cost, applied keys, fallback, and real/simulation clocks. Impact
+FPS, capture cost, applied keys, hold policy, and real/simulation clocks. Impact
 events come from the game's impact signal, not every physics contact. Per-request
 logs include observations, image references, dialogue, latencies, tokens,
 responses, validation failures, and acknowledgments. Precise telemetry is never
@@ -266,6 +283,7 @@ npm --prefix server test
 ```
 
 The smoke check verifies real key dispatch for both roles, stale/duplicate/invalid
-actions, lease expiry, continued simulation, and the basic course at 5% speed.
+actions, holds persisting beyond the old timeout, explicit release, stop cleanup,
+continued simulation, and the basic course at 5% speed.
 Rendered scripted runs verify the full-window capture/recap path. Live provider
 trials are separate from those deterministic checks.

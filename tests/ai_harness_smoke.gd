@@ -1,5 +1,5 @@
 extends SceneTree
-## Real input dispatch, lease expiry, and a basic seeded course at 5% speed.
+## Persistent real key holds, explicit release, and a basic course at 5% speed.
 var failures := 0
 var directory := "/tmp/blind-driver-ai-smoke-%d" % OS.get_process_id()
 var game: Node
@@ -41,27 +41,42 @@ func _run() -> void:
 			check(hazard.kind == "rock", "only basic static obstacles")
 	write_command({"type": "start", "sequence": 1})
 	await frames(4)
-	write_command({"type": "keys", "sequence": 2, "hold": ["W", "A"], "tap": ["H"], "hold_sim_seconds": .1, "observation_sim": 0})
+	write_command({"type": "keys", "sequence": 2, "hold": ["W", "A"], "tap": ["H"], "observation_sim": 0})
 	await frames(4)
 	check(Input.is_action_pressed("accelerate") and Input.is_action_pressed("steer_left"), "driver keys use normal Input map")
 	check(game.car.headlights[0].visible, "driver H tap dispatched")
 	var before: float = game.ai_capture.sim_time
-	await frames(150)
-	check(game.ai_capture.sim_time > before + .1, "simulation continues without model responses")
-	check(game.ai_capture.fallback and Input.is_action_pressed("handbrake") and not Input.is_action_pressed("accelerate"), "expired action releases throttle and applies handbrake")
-	write_command({"type": "keys", "sequence": 3, "hold": ["W"], "tap": [], "hold_sim_seconds": 1, "observation_sim": -20})
+	# Wait beyond BOTH the old maximum two-second lease and the observation-age
+	# bound. That bound validates new commands; it must not expire held keys.
+	await frames(2700)
+	check(game.ai_capture.sim_time > before + 2, "simulation continues without model responses")
+	check(Input.is_action_pressed("accelerate") and Input.is_action_pressed("steer_left") and not Input.is_action_pressed("handbrake"), "driver holds persist until replaced, without automatic braking")
+	write_command({"type": "keys", "sequence": 3, "hold": [], "tap": [], "observation_sim": -20})
 	await frames(4)
 	check(game.ai_capture.last_error == "stale_observation", "stale action rejected")
+	check(Input.is_action_pressed("accelerate") and Input.is_action_pressed("steer_left"), "rejected command preserves the current hold")
+	write_command({"type": "keys", "sequence": 4, "hold": ["W"], "tap": [], "observation_sim": game.ai_capture.sim_time})
+	await frames(4)
+	check(Input.is_action_pressed("accelerate") and not Input.is_action_pressed("steer_left"), "next instruction releases omitted keys and keeps W held")
+	write_command({"type": "keys", "sequence": 5, "hold": [], "tap": [], "observation_sim": game.ai_capture.sim_time})
+	await frames(4)
+	check(not Input.is_action_pressed("accelerate") and not Input.is_action_pressed("handbrake"), "empty hold releases all keys without automatic braking")
 	game.ai_capture.options.role = "navigator"
-	write_command({"type": "keys", "sequence": 4, "hold": [], "tap": ["M", "C"], "hold_sim_seconds": 1, "observation_sim": game.ai_capture.sim_time})
+	write_command({"type": "keys", "sequence": 6, "hold": [], "tap": ["M", "C"], "observation_sim": game.ai_capture.sim_time})
 	await frames(4)
 	check(game.ui.map_open and game.chase_camera, "navigator M and C keys reach normal UI handlers")
-	write_command({"type": "keys", "sequence": 4, "hold": [], "tap": ["M"], "hold_sim_seconds": 1, "observation_sim": game.ai_capture.sim_time})
+	write_command({"type": "keys", "sequence": 6, "hold": [], "tap": ["M"], "observation_sim": game.ai_capture.sim_time})
 	await frames(4)
 	check(game.ui.map_open, "duplicate sequence cannot toggle twice")
-	write_command({"type": "keys", "sequence": 5, "hold": ["W"], "tap": [], "hold_sim_seconds": 1, "observation_sim": game.ai_capture.sim_time})
+	write_command({"type": "keys", "sequence": 7, "hold": ["W"], "tap": [], "observation_sim": game.ai_capture.sim_time})
 	await frames(4)
 	check(game.ai_capture.last_error == "invalid_held_key", "navigator cannot drive")
+	write_command({"type": "keys", "sequence": 8, "hold": ["B"], "tap": [], "observation_sim": game.ai_capture.sim_time})
+	await frames(2700)
+	check(Input.is_action_pressed("look_back"), "navigator look-back also stays held until replaced")
+	write_command({"type": "stop", "sequence": 9, "reason": "operator_stop"})
+	await frames(4)
+	check(not Input.is_action_pressed("look_back") and game.ai_capture.held.is_empty(), "ending the run releases held keys")
 	game.queue_free()
 	await process_frame
 	quit(1 if failures else 0)

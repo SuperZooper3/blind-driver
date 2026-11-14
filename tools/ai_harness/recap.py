@@ -78,7 +78,7 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
     conditions = {key: manifest.get(key) for key in (
         "source_sha256", "sim_seconds", "max_requests", "max_tokens", "rpm", "max_output_tokens",
         "history_turns", "timeout", "max_action_age_sim", "capture_fps", "thinking",
-        "driver_prompt_sha256", "navigator_prompt_sha256")}
+        "driver_prompt_sha256", "navigator_prompt_sha256", "hold_policy")}
     cohort = hashlib.sha256(json.dumps(conditions, sort_keys=True).encode()).hexdigest()[:12]
     fallback_time = 0.0
     for a, b in zip(active, active[1:]):
@@ -89,6 +89,7 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
         "driver_model": manifest["driver_model"], "navigator_model": manifest["navigator_model"],
         "speed_percent": manifest["speed"], "seed": manifest["seed"], "course": manifest["course"],
         "cohort": cohort, "conditions": conditions, "source_sha256": manifest.get("source_sha256"),
+        "hold_policy": manifest.get("hold_policy", "timed_legacy"),
         "sim_seconds": sim_duration, "distance_m": final.get("distance_m", 0),
         "forward_progress_m": max((r.get("forward_progress_m", 0) for r in frames), default=0),
         "max_speed_kmh": max((r.get("speed_kmh", 0) for r in frames), default=0),

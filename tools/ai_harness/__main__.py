@@ -48,9 +48,19 @@ def main():
     watch = sub.add_parser("watch", help="Follow both agents and game status in one read-only terminal")
     watch.add_argument("directory", type=Path)
     watch.add_argument("--latest", action="store_true", help="Follow the newest run under this output directory, including future runs")
+    live = sub.add_parser("serve", help="Show full game views, messages and status on a read-only localhost page")
+    live.add_argument("directory", type=Path)
+    live.add_argument("--latest", action="store_true")
+    live.add_argument("--port", type=int, default=8766)
     summarize = sub.add_parser("summarize", help="Export CSV and graphs across recorded runs")
     summarize.add_argument("directory", type=Path)
     args = parser.parse_args()
+    if args.command == "serve":
+        if not 0 <= args.port <= 65535:
+            parser.error("Port must be 0–65535 (0 chooses an available port)")
+        from .dashboard import serve
+        serve(args.directory, args.latest, args.port)
+        return
     if args.command == "watch":
         from .monitor import watch
         watch(args.directory, args.latest)
