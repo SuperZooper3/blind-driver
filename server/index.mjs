@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue, normalizeLobby, normalizeShare, SHARE_ALPHABET, SHARE_LENGTH } from './protocol.mjs';
+import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue, validPose, poseIssue, normalizeLobby, normalizeShare, SHARE_ALPHABET, SHARE_LENGTH } from './protocol.mjs';
 
 export function createRelay(options = {}) {
   const maxRooms = options.maxRooms ?? Number(process.env.MAX_ROOMS || 100);
@@ -52,9 +52,11 @@ export function createRelay(options = {}) {
   server.requestTimeout = 10000;
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD, perMessageDeflate: false });
 
-  const send = (client, message, droppable = false) => {
+  // `droppable` messages are skipped once this many bytes are already queued to a slow
+  // navigator: the next one supersedes them, and a backlog only adds delay.
+  const send = (client, message, droppable = 0) => {
     if (!client || client.socket.readyState !== WebSocket.OPEN) return false;
-    if (droppable && client.socket.bufferedAmount > 65536) { client.dropped++; return false; }
+    if (droppable && client.socket.bufferedAmount > droppable) { client.dropped++; return false; }
     if (client.socket.bufferedAmount > MAX_PAYLOAD * 2) {
       log('backpressure_close', client, { buffered_bytes: client.socket.bufferedAmount });
       client.socket.close(1013, 'Connection too slow');
@@ -146,7 +148,8 @@ export function createRelay(options = {}) {
       const now = performance.now();
       const seconds = (now - client.budgetAt) / 1000;
       // Token buckets tolerate packet bursts after jitter without accepting unbounded floods.
-      client.budget = Math.min(100, client.budget + seconds * 45) - 1;
+      // Drivers send ~30 poses + 10 snapshots + heartbeats per second.
+      client.budget = Math.min(100, client.budget + seconds * 60) - 1;
       client.byteBudget = Math.min(MAX_PAYLOAD * 4, client.byteBudget + seconds * MAX_PAYLOAD * 3) - raw.length;
       client.graphBudget = Math.min(8, client.graphBudget + seconds * 4);
       client.budgetAt = now;
@@ -236,15 +239,19 @@ export function createRelay(options = {}) {
       if (client.role !== 'driver') { fail(client, 'not_driver', 'Only the driver can send game state.'); return; }
       const room = rooms.get(client.room);
       if (!room || room.driver.client !== client) return;
-      if (message.type === 'snapshot' && raw.length <= 4096 && validSnapshot(message.state)) {
+      if (message.type === 'pose' && raw.length <= 1024 && validPose(message.state)) {
         client.lastSeen = now;
-        send(room.navigator?.client, message, true);
+        send(room.navigator?.client, message, 16384);
+      } else if (message.type === 'snapshot' && raw.length <= 4096 && validSnapshot(message.state)) {
+        client.lastSeen = now;
+        send(room.navigator?.client, message, 65536);
       } else if (message.type === 'graph' && --client.graphBudget >= 0 && validGraph(message.roads)) {
         client.lastSeen = now;
         send(room.navigator?.client, message);
       } else {
-        reject(client, 'Invalid game state', { kind: ['graph', 'snapshot'].includes(message.type) ? message.type : 'unknown', bytes: raw.length,
-          validation: message.type === 'snapshot' ? (raw.length > 4096 ? 'snapshot_size' : snapshotIssue(message.state)) : (client.graphBudget < 0 ? 'graph_rate' : graphIssue(message.roads)) });
+        reject(client, 'Invalid game state', { kind: ['graph', 'snapshot', 'pose'].includes(message.type) ? message.type : 'unknown', bytes: raw.length,
+          validation: message.type === 'pose' ? (raw.length > 1024 ? 'pose_size' : poseIssue(message.state))
+            : message.type === 'snapshot' ? (raw.length > 4096 ? 'snapshot_size' : snapshotIssue(message.state)) : (client.graphBudget < 0 ? 'graph_rate' : graphIssue(message.roads)) });
       }
     });
   });

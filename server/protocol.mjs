@@ -34,6 +34,21 @@ export function snapshotIssue(state) {
 }
 export const validSnapshot = state => snapshotIssue(state) === null;
 
+// The small, frequent car pose (position, rotation, motion, steering); see wire_protocol.gd.
+export function poseIssue(state) {
+  if (!isRecord(state)) return 'state_type';
+  for (const key of ['seq', 'reset']) if (!integer(state[key])) return key;
+  for (const [key, min, max] of [['time', 0, 1e12], ['speed', -200, 200], ['steering', -1.01, 1.01], ['throttle', -1.01, 1.01]]) {
+    if (!number(state[key], min, max)) return key;
+  }
+  for (const key of ['p', 'v', 'w']) if (!vector(state[key], 3)) return key;
+  if (!vector(state.q, 4) || Math.abs(state.q.reduce((sum, value) => sum + value * value, 0) - 1) >= 0.02) return 'q';
+  if (!integer(state.grounded, 0, 4)) return 'grounded';
+  if (!vector(state.wheels, 4) || state.wheels.some(value => value < -2 || value > 2)) return 'wheels';
+  return null;
+}
+export const validPose = state => poseIssue(state) === null;
+
 export function graphIssue(roads) {
   if (!Array.isArray(roads) || roads.length < 1 || roads.length > 100) return 'road_count';
   const ids = new Set();

@@ -73,6 +73,36 @@ def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False, haza
         stop(host)
 
 
+def run_lag_check(temporary):
+    """Drive through a relay that adds realistic jitter and stalls; the navigator's car
+    must stay close to the real one and keep moving (see tests/relay_jitter_server.mjs)."""
+    sys.path.insert(0, str(ROOT / "tests"))
+    import lag_report
+    relay = driver = None
+    relay_output = temporary / "jitter-relay.txt"
+    driver_path = temporary / "lag-driver-output.txt"
+    try:
+        with relay_output.open("w+") as output, driver_path.open("w+") as driver_output:
+            relay = subprocess.Popen(["node", "../tests/relay_jitter_server.mjs"], cwd=ROOT / "server", env={**os.environ, "PORT": "0", "HOST": "127.0.0.1"}, stdout=output, stderr=subprocess.STDOUT)
+            port = wait_output(relay, relay_output, r"listening on 127\.0\.0\.1:(\d+)").group(1)
+            url = f"ws://127.0.0.1:{port}/ws"
+            probe = lambda name, *extra: [GODOT, "--headless", "--path", str(ROOT), "--max-fps", "60", "--log-file", str(temporary / (name + ".log")), "--script", "tests/lag_probe.gd", "--", "--relay-url=" + url, "--out=" + str(temporary / (name + ".txt")), *extra]
+            driver = subprocess.Popen(probe("lag-driver", "--duration=26"), stdout=driver_output, stderr=subprocess.STDOUT)
+            code = wait_output(driver, driver_path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
+            navigator = subprocess.run(probe("lag-navigator", "--relay-room=" + code, "--duration=22"), capture_output=True, text=True, timeout=60)
+            driver.wait(timeout=20)
+        if "SCRIPT ERROR" in navigator.stderr + driver_path.read_text():
+            raise RuntimeError(navigator.stderr + "\nLag probe failed")
+        result = lag_report.report(temporary / "lag-driver.txt", temporary / "lag-navigator.txt")
+        passed = result["p99_m"] < 3.0 and result["frozen_pct"] < 3.0 and result["samples"] > 600
+        print("[online smoothness] {}: navigator vs real car under jitter and stalls: median {median_m:.2f} m, p99 {p99_m:.2f} m, max {max_m:.2f} m; frozen {frozen_pct:.1f}% of moving frames".format("PASS" if passed else "FAIL", **result))
+        if not passed:
+            raise RuntimeError("Online smoothness check failed")
+    finally:
+        stop(driver)
+        stop(relay)
+
+
 def run_swap_pair(temporary, relay_url):
     """After a run ends, the navigator swaps seats and the two games trade driver and navigator."""
     first = second = None
@@ -137,6 +167,10 @@ if __name__ == "__main__":
         print(survival.stdout)
         if survival.returncode or "FAIL:" in survival.stdout or "SCRIPT ERROR" in survival.stderr:
             sys.exit(survival.stderr or "Survival check failed")
+        prediction = subprocess.run(command("tests/prediction_smoke.gd", temporary / "prediction.log"), capture_output=True, text=True, timeout=20)
+        print(prediction.stdout)
+        if prediction.returncode or "FAIL:" in prediction.stdout or "SCRIPT ERROR" in prediction.stderr:
+            sys.exit(prediction.stderr or "Prediction check failed")
         lobby_ui = subprocess.run(command("tests/lobby_ui_smoke.gd", temporary / "lobby-ui.log"), capture_output=True, text=True, timeout=15)
         print(lobby_ui.stdout)
         if lobby_ui.returncode or "FAIL:" in lobby_ui.stdout or "SCRIPT ERROR" in lobby_ui.stderr:
@@ -170,6 +204,7 @@ if __name__ == "__main__":
                     if "--resilience" not in sys.argv:
                         run_code_pair(temporary, f"ws://127.0.0.1:{port}/ws")
                         run_swap_pair(temporary, f"ws://127.0.0.1:{port}/ws")
+                        run_lag_check(temporary)
                         run_pair(temporary, f"ws://127.0.0.1:{port}/ws", hazards=True)
                     if "--resilience" in sys.argv:
                         print("[faults]", "\n".join(line for line in relay_output.read_text().splitlines() if "FAULT:" in line))

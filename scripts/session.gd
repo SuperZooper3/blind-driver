@@ -16,8 +16,13 @@ signal seats_swapped(role: String)
 const Log = preload("res://scripts/network_log.gd")
 const PORT := 18765
 var port := PORT
-const INTERPOLATION_DELAY := 0.10
+## Full snapshots (police, damage, run state…) are drawn this far behind to interpolate.
+const INTERPOLATION_DELAY := 0.20
+## The car's pose goes out at this rate; the navigator predicts between and beyond poses.
 const SNAPSHOT_INTERVAL := 1.0 / 30.0
+## Everything else changes slowly and goes out at this rate, or at once when it matters.
+const FULL_INTERVAL := 0.1
+const Predictor = preload("res://scripts/pose_predictor.gd")
 const Relay = preload("res://scripts/relay_client.gd")
 var car: RigidBody3D
 var world: Node3D
@@ -33,6 +38,12 @@ var last_sequence := -1
 var reset_serial := 0
 var received_reset := -1
 var snapshots: Array[Dictionary] = []
+var predictor := Predictor.new()
+var latest_pose: Dictionary = {}
+var last_pose_sequence := -1
+var pose_sequence := 0
+var full_timer := 0.0
+var last_full_signature := ""
 var clock_offset := 0.0
 var last_received_at := 0.0
 var stale := false
@@ -89,6 +100,7 @@ func _ready() -> void:
 	relay.peer_restored.connect(func():
 		snapshots.clear()
 		last_sequence = -1
+		_forget_poses()
 		status_changed.emit("Driver connected. Syncing the ride…")
 		if not graph_received:
 			online_joined.emit())
@@ -99,6 +111,7 @@ func _ready() -> void:
 		status_changed.emit("Navigator left. They can return to this lobby."))
 	relay.graph_received.connect(_receive_graph)
 	relay.snapshot_received.connect(_receive_snapshot)
+	relay.pose_received.connect(_receive_pose)
 	relay.failed.connect(func(message: String):
 		role = "disconnected"
 		navigator_id = 0
@@ -130,6 +143,7 @@ func _take_seat(value: String) -> void:
 	role = value
 	navigator_id = 0
 	snapshots.clear()
+	_forget_poses()
 	last_sequence = -1
 	received_reset = -1
 	last_graph_revision = -1
@@ -150,6 +164,7 @@ func _online_restored(peer_connected: bool) -> void:
 	recovering = false
 	snapshots.clear()
 	last_sequence = -1
+	_forget_poses()
 	last_graph_revision = -1
 	Log.event("ride_restored", {"role": role, "peer_connected": peer_connected})
 	if role == "host" and peer_connected:
@@ -242,6 +257,7 @@ func stop() -> void:
 	role = "local"
 	navigator_id = 0
 	snapshots.clear()
+	_forget_poses()
 	sequence = 0
 	last_sequence = -1
 	received_reset = -1
@@ -285,6 +301,7 @@ func _connected() -> void:
 	lan_retry_at = 0.0
 	snapshots.clear()
 	last_sequence = -1
+	_forget_poses()
 	Log.event("lan_connected")
 	status_changed.emit("NAVIGATOR / RECEIVING WORLD")
 
@@ -344,18 +361,32 @@ func _process(delta: float) -> void:
 		# A restart/recovery must never publish the new run with the old pose or graph.
 		if car.reset_pending or car.recovery_grace > 0 or world.graph_revision != last_graph_revision:
 			return
+		full_timer += delta
 		if snapshot_timer >= SNAPSHOT_INTERVAL:
 			snapshot_timer = fmod(snapshot_timer, SNAPSHOT_INTERVAL)
-			sequence += 1
 			reset_serial = car.recovery_serial
 			var wheels: Array = []
 			for wheel: Node3D in car.wheel_pivots:
 				wheels.append(wheel.position.y)
-			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength, "tires": car.punctured_tires, "police": police.snapshot(), "challenge_time": world.challenge_time, "damage": car.damage.health_array()}
-			if online:
-				relay.send_snapshot(snapshot)
+			var now := Time.get_ticks_msec() / 1000.0
+			# Run-changing events go out at once instead of waiting for the next full snapshot.
+			var signature := "%s|%d|%d|%d|%s" % [car.run_state, car.run_id, reset_serial, car.punctured_tires, car.headlights[0].visible]
+			if full_timer >= FULL_INTERVAL or signature != last_full_signature:
+				full_timer = 0.0
+				last_full_signature = signature
+				sequence += 1
+				var snapshot := {"seq": sequence, "time": now, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength, "tires": car.punctured_tires, "police": police.snapshot(), "challenge_time": world.challenge_time, "damage": car.damage.health_array()}
+				if online:
+					relay.send_snapshot(snapshot)
+				else:
+					_receive_snapshot.rpc_id(navigator_id, snapshot)
 			else:
-				_receive_snapshot.rpc_id(navigator_id, snapshot)
+				pose_sequence += 1
+				var pose := {"seq": pose_sequence, "time": now, "reset": reset_serial, "transform": car.global_transform, "velocity": car.linear_velocity, "angular_velocity": car.angular_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "grounded": car.grounded_wheels, "wheels": wheels}
+				if online:
+					relay.send_pose(pose)
+				else:
+					_receive_pose.rpc_id(navigator_id, pose)
 	elif role == "join":
 		_interpolate(delta)
 
@@ -375,27 +406,74 @@ func _receive_snapshot(data: Dictionary) -> void:
 	var received_transform: Transform3D = data.transform
 	if not received_transform.origin.is_finite():
 		return
-	if snapshots.is_empty() or int(data.reset) != received_reset:
+	var restarted := _sync_clock(data, now)
+	if restarted or snapshots.is_empty():
 		snapshots.clear()
-		clock_offset = now - float(data.time)
 		car.global_transform = received_transform
-		received_reset = int(data.reset)
-	else:
-		# Lowest recent transit offset avoids turning arrival jitter into render jitter.
-		clock_offset = minf(clock_offset + 0.0002, now - float(data.time))
 	last_sequence = int(data.seq)
 	last_received_at = now
 	snapshots_received += 1
 	snapshots.append(data)
 	if snapshots.size() > 20:
 		snapshots.pop_front()
+	# A full snapshot carries a pose too; use it if it is the newest news.
+	_use_pose(data, restarted)
 	if stale:
 		Log.event("snapshot_stream_restored")
 		stale = false
 		status_changed.emit("NAVIGATOR / CONNECTION RESTORED")
 
+@rpc("authority", "call_remote", "unreliable_ordered")
+func _receive_pose(data: Dictionary) -> void:
+	if role != "join" or int(data.get("seq", -1)) <= last_pose_sequence:
+		return
+	var received_transform: Transform3D = data.transform
+	if not received_transform.origin.is_finite():
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	var restarted := _sync_clock(data, now)
+	last_pose_sequence = int(data.seq)
+	last_received_at = now
+	# Counts every car update, pose or full snapshot.
+	snapshots_received += 1
+	_use_pose(data, restarted)
+	if stale:
+		Log.event("snapshot_stream_restored")
+		stale = false
+		status_changed.emit("NAVIGATOR / CONNECTION RESTORED")
+
+## Track the driver's clock and notice restarts/recoveries. Returns true on a new reset.
+func _sync_clock(data: Dictionary, now: float) -> bool:
+	if received_reset < 0 or int(data.reset) != received_reset:
+		clock_offset = now - float(data.time)
+		received_reset = int(data.reset)
+		return true
+	# Lowest recent transit offset avoids turning arrival jitter into render jitter.
+	clock_offset = minf(clock_offset + 0.0002, now - float(data.time))
+	return false
+
+func _use_pose(data: Dictionary, snap: bool) -> void:
+	if predictor.accept(float(data.time), data.transform, data.velocity, data.angular_velocity, snap):
+		latest_pose = data
+
+func _forget_poses() -> void:
+	predictor.reset()
+	latest_pose = {}
+	last_pose_sequence = -1
+	full_timer = 0.0
+	last_full_signature = ""
+
+## Estimated delay from the driver to us beyond the fastest delivery seen, added so the
+## prediction aims at where the driver's car is now rather than when it was sent.
+func _prediction_lead() -> float:
+	# One display frame: what we compute now is seen on the next frame.
+	var frame := 1.0 / 60.0
+	if not online or relay.rtts.is_empty():
+		return 0.01 + frame
+	return clampf(relay.rtts.min() / 1000.0, 0.01, 0.15) + frame
+
 func _interpolate(delta: float) -> void:
-	if snapshots.is_empty():
+	if snapshots.is_empty() and latest_pose.is_empty():
 		return
 	var now := Time.get_ticks_msec() / 1000.0
 	if now - last_received_at > 1.0:
@@ -404,6 +482,22 @@ func _interpolate(delta: float) -> void:
 			Log.event("snapshot_stream_stalled", {"age_ms": roundi((now - last_received_at) * 1000)})
 			status_changed.emit("CONNECTION STALLED / WAITING FOR DRIVER")
 		return
+	var driver_now := now - clock_offset + _prediction_lead()
+	if not latest_pose.is_empty():
+		# Optimistic continuation: show where the driver's car is now, not where it was.
+		car.global_transform = predictor.step(driver_now, delta)
+		car.signed_speed = latest_pose.speed
+		car.steering = latest_pose.steering
+		car.throttle = latest_pose.throttle
+		car.grounded_wheels = latest_pose.grounded
+		car.linear_velocity = latest_pose.velocity
+		car.angular_velocity = latest_pose.angular_velocity
+		for i in car.wheel_pivots.size():
+			car.wheel_pivots[i].position.y = float(latest_pose.wheels[i])
+	if snapshots.is_empty():
+		_animate_wheels(delta)
+		return
+	# Slower-changing state is interpolated a little in the past.
 	var render_time := now - clock_offset - INTERPOLATION_DELAY
 	while snapshots.size() > 2 and float(snapshots[1].time) <= render_time:
 		snapshots.pop_front()
@@ -411,31 +505,26 @@ func _interpolate(delta: float) -> void:
 	var b: Dictionary = snapshots[mini(1, snapshots.size() - 1)]
 	var span := float(b.time) - float(a.time)
 	var weight := clampf((render_time - float(a.time)) / span, 0.0, 1.0) if span > 0.0 else 1.0
-	var transform_a: Transform3D = a.transform
-	car.global_transform = transform_a.interpolate_with(b.transform, weight)
-	car.signed_speed = lerpf(a.speed, b.speed, weight)
-	car.steering = lerpf(a.steering, b.steering, weight)
-	car.throttle = b.throttle
-	car.distance_driven = b.distance
-	car.grounded_wheels = b.grounded
-	car.linear_velocity = b.velocity
-	car.angular_velocity = b.angular_velocity
-	car.run_state = b.run_state
-	car.crash_reason = b.crash_reason
-	car.run_id = b.run_id
-	car.on_road = b.on_road
-	car.impact_strength = b.impact
-	car.punctured_tires = b.tires
+	var newest: Dictionary = snapshots[-1]
+	car.distance_driven = newest.distance
+	car.run_state = newest.run_state
+	car.crash_reason = newest.crash_reason
+	car.run_id = newest.run_id
+	car.on_road = newest.on_road
+	car.impact_strength = newest.impact
+	car.punctured_tires = newest.tires
 	car.update_tire_visuals()
 	police.apply_snapshot(a.police, b.police, weight)
-	world.set_challenge_time(lerpf(a.challenge_time, b.challenge_time, weight))
+	# The crossing clock runs while the ride does: carry it forward to the driver's now.
+	var clock_ahead := clampf(driver_now - float(newest.time), 0.0, 0.5) if newest.run_state == "driving" else 0.0
+	world.set_challenge_time(float(newest.challenge_time) + clock_ahead)
 	for light: SpotLight3D in car.headlights:
-		light.visible = b.lights
-	if b.has("damage"):
-		car.damage.set_health_array(b.damage)
+		light.visible = newest.lights
+	if newest.has("damage"):
+		car.damage.set_health_array(newest.damage)
+	_animate_wheels(delta)
+
+func _animate_wheels(delta: float) -> void:
 	car.wheel_spin += car.signed_speed * delta / car.WHEEL_RADIUS
 	car.steering_wheel.rotation.z = car.steering * 1.9
-	for i in car.wheel_pivots.size():
-		car.wheel_pivots[i].position.y = lerpf(a.wheels[i], b.wheels[i], weight)
 	car.update_wheel_visuals()
-

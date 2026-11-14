@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { WebSocket } from 'ws';
 import { createRelay } from './index.mjs';
-import { snapshotIssue, graphIssue } from './protocol.mjs';
+import { snapshotIssue, graphIssue, poseIssue } from './protocol.mjs';
 
 async function setup(t, options = {}) {
   const relay = createRelay({ logger: () => {}, ...options });
@@ -152,6 +152,29 @@ test('swapping needs both players connected', async t => {
   await alone.next();
   alone.send({ type: 'swap' });
   assert.equal((await alone.next()).code, 'swap_unavailable');
+});
+
+const pose = { seq: 1, time: 1.25, reset: 0, p: [0, 1, 2], q: [0, 0, 0, 1], v: [0, 0, -18], w: [0, 0.4, 0], speed: 18, steering: 0.3, throttle: 1, grounded: 4, wheels: [-0.4, -0.4, -0.4, -0.4] };
+
+test('compact poses reach the navigator; malformed ones close the driver', async t => {
+  const { connect } = await setup(t);
+  const driver = await connect();
+  driver.send({ type: 'create', version: 9 });
+  const created = await driver.next();
+  const navigator = await connect();
+  navigator.send({ type: 'join', version: 9, room: created.share });
+  await navigator.next();
+  await driver.next();
+  driver.send({ type: 'pose', state: pose });
+  assert.deepEqual(await navigator.next(), { type: 'pose', state: pose });
+  navigator.send({ type: 'pose', state: pose });
+  assert.equal((await navigator.next()).code, 'not_driver');
+  assert.equal(poseIssue({ ...pose, q: [0, 0, 0, 0] }), 'q');
+  assert.equal(poseIssue({ ...pose, wheels: [0, 0, 0] }), 'wheels');
+  assert.equal(poseIssue({ ...pose, steering: 3 }), 'steering');
+  const closed = once(driver.socket, 'close');
+  driver.send({ type: 'pose', state: { ...pose, p: [0, 1] } });
+  assert.equal((await closed)[0], 1008);
 });
 
 test('rooms are isolated and malformed state is rejected', async t => {

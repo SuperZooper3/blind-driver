@@ -11,6 +11,7 @@ signal navigator_joined
 signal navigator_left
 signal graph_received(roads: Array)
 signal snapshot_received(state: Dictionary)
+signal pose_received(pose: Dictionary)
 signal failed(message: String)
 signal recovering(message: String)
 signal restored(peer_connected: bool)
@@ -195,6 +196,8 @@ func _process(_delta: float) -> void:
 	if state == WebSocketPeer.STATE_OPEN:
 		if not handshake_sent:
 			handshake_sent = true
+			# Small game messages must not wait for Nagle's algorithm to batch them.
+			socket.set_no_delay(true)
 			var hello := {"type": intent, "version": VERSION, "room": room_code}
 			if not lobby_name.is_empty():
 				hello.lobby = lobby_name
@@ -339,6 +342,12 @@ func _handle(message: Dictionary) -> void:
 				_fail("Invalid road data from relay.")
 			else:
 				graph_received.emit(roads)
+		"pose":
+			var pose := Wire.pose_from_json(message.get("state", {})) if message.get("state") is Dictionary else {}
+			if pose.is_empty():
+				_fail("Invalid car pose from relay.")
+			else:
+				pose_received.emit(pose)
 		"snapshot":
 			if not message.get("state") is Dictionary:
 				_fail("Invalid car state from relay.")
@@ -366,6 +375,9 @@ func request_swap() -> bool:
 
 func send_graph(roads: Array) -> bool:
 	return is_ready and _send({"type": "graph", "roads": Wire.graph_to_json(roads)})
+
+func send_pose(pose: Dictionary) -> bool:
+	return is_ready and _send({"type": "pose", "state": Wire.pose_to_json(pose)})
 
 func send_snapshot(state: Dictionary) -> bool:
 	return is_ready and _send({"type": "snapshot", "state": Wire.snapshot_to_json(state)})
