@@ -19,6 +19,8 @@ const FOOTER_HEIGHT := 148.0
 const Map = preload("res://scripts/route_map.gd")
 const Cracks = preload("res://scripts/windshield_cracks.gd")
 const ReadableHUD = preload("res://scripts/readable_hud.gd")
+const DirectionWarning = preload("res://scripts/direction_warning.gd")
+var direction_warning: Control
 var readable_ui := false
 var complete_seats := false
 var readable_game: Node
@@ -129,6 +131,10 @@ func _ready() -> void:
 		readable_hud.game = readable_game
 		root.add_child(readable_hud)
 		map.readable_ui = readable_ui
+	direction_warning = DirectionWarning.new()
+	direction_warning.game = readable_game
+	root.add_child(direction_warning)
+	map.direction_warning = direction_warning
 	root.resized.connect(_layout)
 	_layout()
 

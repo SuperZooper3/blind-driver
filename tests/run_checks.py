@@ -173,6 +173,10 @@ if __name__ == "__main__":
             reservation.bind(("127.0.0.1", 0))
             os.environ["BLIND_DRIVER_LAN_PORT"] = str(reservation.getsockname()[1])
         os.environ["BLIND_DRIVER_RECORDS_PATH"] = str(temporary / "records.cfg")
+        direction = subprocess.run(command("tests/direction_warning_smoke.gd", temporary / "direction.log"), capture_output=True, text=True, timeout=20)
+        print(direction.stdout)
+        if direction.returncode or "FAIL:" in direction.stdout or "SCRIPT ERROR" in direction.stderr:
+            sys.exit(direction.stderr or "Wrong-way warning check failed")
         harness = subprocess.run(command("tests/ai_harness_smoke.gd", temporary / "ai-harness.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=30)
         print(harness.stdout)
         if harness.returncode or "FAIL:" in harness.stdout or "SCRIPT ERROR" in harness.stderr:

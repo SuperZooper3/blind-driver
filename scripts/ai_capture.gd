@@ -240,6 +240,7 @@ func _save_capture(picture: Image, started_us: int, stamp: float) -> void:
 		"active": active, "connected": connected, "finished_reason": finished_reason,
 		"sequence": sequence, "applied_sequence": applied_sequence, "input_error": last_error,
 		"held": held, "hold_policy": "until_replaced",
+		"direction_warning": game.ui.direction_warning.status_text(),
 		"pressed_keys": pressed_keys, "input_reassertions": input_reassertions,
 		"engine_pid": OS.get_process_id(), "session_role": game.session.role,
 		"sound_events": game.ui.readable_hud.sounds.duplicate(true) if game.ui.readable_hud != null else [],
