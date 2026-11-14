@@ -13,6 +13,8 @@ import time
 import uuid
 
 from .agents import CohereAgent, ScriptedAgent, PROMPT_REVISION, prompt
+from .gemini import GeminiDecisionAgent, GeminiNavigatorAgent, gemini_prompt
+from .gemini import PROMPT_REVISION as GEMINI_PROMPT_REVISION
 from .coordinator import AgentCoordinator
 from .monitor import ConsoleMonitor
 from .scoring import DEFAULT_SCORING
@@ -48,15 +50,16 @@ def find_godot(explicit: str | None = None) -> str:
     raise RuntimeError("Godot not found; pass --godot /path/to/Godot")
 
 
-def read_key(env_file: Path) -> str:
-    key = os.environ.get("COHERE_API_KEY", "")
+def read_key(env_file: Path, provider="cohere") -> str:
+    name = "GEMINI_API_KEY" if provider == "gemini" else "COHERE_API_KEY"
+    key = os.environ.get(name, "")
     if not key and env_file.exists():
         for line in env_file.read_text().splitlines():
-            if line.strip().startswith("COHERE_API_KEY="):
+            if line.strip().startswith(name + "="):
                 key = line.split("=", 1)[1].strip().strip('\"\'')
                 break
     if not key:
-        raise RuntimeError(f"Set COHERE_API_KEY or add it to {env_file}. Use --provider scripted without a key.")
+        raise RuntimeError(f"Set {name} or add it to {env_file}. Use --provider scripted without a key.")
     return key
 
 
@@ -82,7 +85,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     if not shutil.which("ffmpeg"):
         raise RuntimeError("Install FFmpeg before recording a run")
     godot = find_godot(args.godot)
-    key = read_key(Path(args.env_file).expanduser()) if args.provider == "cohere" else ""
+    key = read_key(Path(args.env_file).expanduser(), args.provider) if args.provider != "scripted" else ""
     output_root = Path(args.output).expanduser().resolve()
     if ROOT.is_relative_to(output_root):
         raise ValueError("The recording directory must not contain the game project")
@@ -95,10 +98,11 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     directory.mkdir(parents=True, mode=0o700)
     (directory / ".gdignore").touch()
     manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 8,
-                "prompt_revision": PROMPT_REVISION,
+                "prompt_revision": GEMINI_PROMPT_REVISION if args.provider == "gemini" else PROMPT_REVISION,
                 "scheduling_policy": "independent_seats_v1",
                 "prototype": prototype_number(),
-                "communication_policy": "optional speech; last 8 delivered messages with ages; own action acknowledgments",
+                "communication_policy": ("navigator to silent driver only; no driver recap" if args.provider == "gemini" else
+                    "optional speech; last 8 delivered messages with ages; own action acknowledgments"),
                 "hold_policy": "until_replaced",
                 "scoring": DEFAULT_SCORING.copy(),
                 "basic_course_version": "roadside_thorns_v2",
@@ -118,7 +122,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         if path.is_file() and path.suffix in {".gd", ".py", ".godot", ".tscn"}:
             source_hash.update(name.encode() + b"\0" + path.read_bytes())
     manifest["source_sha256"] = source_hash.hexdigest()
-    manifest["thinking"] = "disabled for Cohere reasoning models"
+    manifest["thinking"] = ("driver: closed-set decisions; navigator: low" if args.provider == "gemini" else
+                            "disabled for Cohere reasoning models")
     atomic_json(directory / "manifest.json", manifest)
     monitor = ConsoleMonitor(directory, manifest)
     processes, logs = {}, []
@@ -164,7 +169,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                       "max_action_age_sim": args.max_action_age_sim, "shared_screens": True,
                       "navigator_directory": str(directory / "navigator")}
             atomic_json(seat_dir / "config.json", config)
-        env = {k: v for k, v in os.environ.items() if k not in {"COHERE_API_KEY", "BLIND_DRIVER_LAN_PORT"}}
+        env = {k: v for k, v in os.environ.items() if k not in {
+            "COHERE_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "BLIND_DRIVER_LAN_PORT"}}
         env.update(BLIND_DRIVER_AI_CONFIG=str(directory / "driver" / "config.json"),
                    BLIND_DRIVER_RECORDS_PATH=str(directory / "records.cfg"))
         output = (directory / "godot.log").open("w")
@@ -191,14 +197,16 @@ def run_episode(args, *, prepared: bool = False) -> Path:
 
         agents = {}
         for role in ROLES:
-            system = prompt(role, args.speed, args.course, args.readable_ui)
+            system = (gemini_prompt if args.provider == "gemini" else prompt)(role, args.speed, args.course, args.readable_ui)
             extra_path = getattr(args, role + "_instructions", None)
             if extra_path:
                 system += "\nAdditional experiment instructions:\n" + Path(extra_path).read_text(encoding="utf-8")
             (directory / role / "prompt.txt").write_text(system, encoding="utf-8")
             model = getattr(args, role + "_model")
+            agent_type = (GeminiDecisionAgent if role == "driver" else GeminiNavigatorAgent) if args.provider == "gemini" else CohereAgent
+            timeout = args.driver_timeout if args.provider == "gemini" and role == "driver" else args.timeout
             agents[role] = (ScriptedAgent(role) if args.provider == "scripted" else
-                            CohereAgent(role, model, key, system, args.timeout, args.max_output_tokens, args.history_turns))
+                            agent_type(role, model, key, system, timeout, args.max_output_tokens, args.history_turns))
             manifest[role + "_prompt_sha256"] = hashlib.sha256(system.encode()).hexdigest()
         atomic_json(directory / "manifest.json", manifest)
         for role in ROLES:

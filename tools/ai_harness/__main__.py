@@ -13,28 +13,33 @@ def main():
     run = sub.add_parser("run", help="Record one episode")
     batch = sub.add_parser("benchmark", help="Run model-pair × speed × seed comparisons")
     for p in (run, batch):
-        p.add_argument("--provider", choices=["scripted", "cohere"], default="scripted")
-        p.add_argument("--driver-model", default=DEFAULT_MODEL)
-        p.add_argument("--navigator-model", default=DEFAULT_MODEL)
+        p.add_argument("--provider", choices=["scripted", "cohere", "gemini"], default="scripted")
+        p.add_argument("--driver-model")
+        p.add_argument("--navigator-model")
         p.add_argument("--driver-instructions", help="Optional coaching text appended to the driver's prompt")
         p.add_argument("--navigator-instructions", help="Optional coaching text appended to the navigator's prompt")
-        p.add_argument("--speed", type=float, default=25, help="Simulation speed percentage (1–100)")
+        p.add_argument("--speed", type=float, help="Simulation speed percentage (1–100); Gemini defaults to 5, others 25")
         p.add_argument("--seed", type=int, default=72419)
         p.add_argument("--course", choices=["basic", "standard"], default="basic")
         p.add_argument("--sim-seconds", type=float, default=60)
         p.add_argument("--capture-fps", type=int, default=6)
         p.add_argument("--video-fps", type=int, default=15)
         p.add_argument("--review-speed", type=float, help="Override normal-game-speed recap with this multiplier of real capture time")
-        p.add_argument("--rpm", type=float, default=18, help="Combined API requests/minute across both seats")
+        p.add_argument("--rpm", type=float, help="Combined API requests/minute; Gemini defaults to 185, others 18")
+        p.add_argument("--driver-rpm", type=float, default=180, help="Gemini driver per-model cap (default 180; configure from AI Studio)")
+        p.add_argument("--navigator-rpm", type=float, default=5, help="Gemini navigator per-model cap (default 5; includes recaps)")
+        p.add_argument("--driver-tpm", type=int, default=40000, help="Gemini rolling input-token/minute budget, with estimated reservations")
+        p.add_argument("--navigator-tpm", type=int, default=20000, help="Gemini navigator input-token/minute budget; confirm actual quota in AI Studio")
+        p.add_argument("--driver-timeout", type=float, default=5, help="Gemini decision request timeout in real seconds")
         p.add_argument("--max-requests", type=int, default=100)
         p.add_argument("--max-tokens", type=int, default=200000)
-        p.add_argument("--max-output-tokens", type=int, default=512)
+        p.add_argument("--max-output-tokens", type=int)
         p.add_argument("--history-turns", type=int, default=32)
-        p.add_argument("--memory-every", type=int, default=8, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
+        p.add_argument("--memory-every", type=int, help="Background recap every N own turns; default 0 for Gemini, 8 otherwise; Decisions driver never recaps")
         p.add_argument("--decision-interval-sim", type=float, default=0, help="Optional minimum game seconds between observations per seat; new chat wakes it sooner (default: no delay)")
         p.add_argument("--readable-ui", action=argparse.BooleanOptionalAction, default=True)
         p.add_argument("--keep-frames", action="store_true", help="Keep raw screenshots for debugging/rebuilding; otherwise clean them after the recap")
-        p.add_argument("--timeout", type=float, default=30)
+        p.add_argument("--timeout", type=float, help="Request timeout; defaults to 60s for Gemini navigator, 30s otherwise")
         p.add_argument("--max-action-age-sim", type=float, default=5)
         p.add_argument("--scripted-interval", type=float, default=.8)
         p.add_argument("--label", default="baseline", help="Prompt/training revision name for comparisons")
@@ -58,6 +63,7 @@ def main():
     live.add_argument("--latest", action="store_true")
     live.add_argument("--port", type=int, default=8766)
     live.add_argument("--env-file", default=str(ROOT / ".env"), help="Cohere configuration for new/repeated runs")
+    live.add_argument("--provider", choices=["cohere", "gemini"], default="cohere", help="Provider for New run")
     summarize = sub.add_parser("summarize", help="Export CSV and graphs across recorded runs")
     summarize.add_argument("directory", type=Path)
     cleanup = sub.add_parser("cleanup", help="Remove raw screenshots from a successfully rendered run")
@@ -71,7 +77,10 @@ def main():
         if not 0 <= args.port <= 65535:
             parser.error("Port must be 0–65535 (0 chooses an available port)")
         from .dashboard import serve
-        serve(args.directory, args.latest, args.port, args.env_file)
+        if args.provider == "cohere":
+            serve(args.directory, args.latest, args.port, args.env_file)
+        else:
+            serve(args.directory, args.latest, args.port, args.env_file, provider=args.provider)
         return
     if args.command == "watch":
         from .monitor import watch
@@ -88,7 +97,16 @@ def main():
     if args.command == "summarize":
         print(summarize_runs(args.directory))
         return
-    for field in ("speed", "sim_seconds", "rpm", "max_requests", "max_tokens", "max_output_tokens", "history_turns", "timeout", "max_action_age_sim", "scripted_interval"):
+    from .gemini import DRIVER_MODEL, NAVIGATOR_MODEL
+    gemini = args.provider == "gemini"
+    for field, default in {"driver_model": DRIVER_MODEL if gemini else DEFAULT_MODEL,
+            "navigator_model": NAVIGATOR_MODEL if gemini else DEFAULT_MODEL,
+            "speed": 5 if gemini else 25, "rpm": 185 if gemini else 18,
+            "timeout": 60 if gemini else 30,
+            "memory_every": 0 if gemini else 8, "max_output_tokens": 2048 if gemini else 512}.items():
+        if getattr(args, field) is None:
+            setattr(args, field, default)
+    for field in ("speed", "sim_seconds", "rpm", "driver_rpm", "navigator_rpm", "driver_tpm", "navigator_tpm", "driver_timeout", "max_requests", "max_tokens", "max_output_tokens", "history_turns", "timeout", "max_action_age_sim", "scripted_interval"):
         if not 0 < getattr(args, field) < float("inf"):
             parser.error(f"--{field.replace('_','-')} must be positive and finite")
     if not 1 <= args.speed <= 100 or not 1 <= args.capture_fps <= 30 or not 1 <= args.video_fps <= 60:

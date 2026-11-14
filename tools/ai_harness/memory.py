@@ -5,6 +5,32 @@ from copy import deepcopy
 import time
 
 
+class InputTokenWindow:
+    """Reserve estimated input tokens; reconcile actual usage in a rolling minute.
+
+    Estimates leave headroom but cannot guarantee a provider's tokenization or
+    account-wide quota. Unknown/failed usage retains its reservation for a minute.
+    """
+    def __init__(self, limit, clock=time.monotonic):
+        self.limit, self.clock = limit, clock
+        self.estimate = 8000
+        self.entries = {}
+
+    def ready(self):
+        cutoff = self.clock() - 60
+        self.entries = {i: entry for i, entry in self.entries.items() if entry[0] > cutoff}
+        return sum(entry[1] for entry in self.entries.values()) + min(self.estimate, self.limit) <= self.limit
+
+    def reserve(self, request_id):
+        self.entries[request_id] = (self.clock(), min(self.estimate, self.limit))
+
+    def settle(self, request_id, usage):
+        if request_id in self.entries and usage.get("known", True):
+            tokens = int(usage.get("input_tokens", 0))
+            self.entries[request_id] = (self.entries[request_id][0], tokens)
+            self.estimate = max(1000, int(tokens * 1.2))
+
+
 class RateBudget:
     """Two-call burst lets both seats start together; long-run rate stays bounded."""
     def __init__(self, per_minute, clock=time.monotonic):

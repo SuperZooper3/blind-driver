@@ -116,10 +116,9 @@ never create a chat event. Repeated urgent instructions are still delivered.
 The harness does not fabricate directions or silently rewrite a model's advice.
 Recaps distinguish observations, speech, and control acceptance from actual outcomes.
 
-Cohere is the first implemented provider. Command A+ uses JSON Schema output and
+Cohere and the separate Gemini variant are implemented providers. Command A+ uses JSON Schema output and
 disables thinking for the initial latency baseline. Aya Vision and Command A Vision use JSON
-instructions plus the same local validation. A future Google adapter can use the
-same contract; it is not implemented in this sketch.
+instructions plus the same local validation. The Gemini variant is documented below.
 Every Cohere model receives the role/action instructions in the image-bearing user
 turn as well as the system preamble, with a final JSON-only instruction after the
 image. Live Aya and Command A+ trials produced prose when the task appeared only
@@ -150,6 +149,85 @@ provider/model fallback occurs. Dollar cost is recorded as unknown, not zero;
 token usage is retained for calculating it using the account's actual pricing.
 
 ## Live terminal or browser
+
+### Separate Gemini variant: silent driver, Hydrogen navigator
+
+Select `--provider gemini` to keep the existing game, full seat screenshots,
+independent workers, acknowledged key inputs, metrics, dashboard and recap video,
+while changing the models and communication policy. Cohere and scripted runs keep
+their existing defaults and two-way dialogue.
+
+- **Driver:** `gemini-decision-1` through `POST /v1beta/decisions`. One joint
+  multiple-choice question selects from all 18 legal pedal/steering/handbrake
+  combinations; another decides whether to tap H. The adapter returns only those
+  keys and an empty message. It does not generate speech, notes, or memory recaps.
+  The choice and confidence are logged. It sees only the current blurred driver
+  screenshot, its controls, visible captions, and the navigator's delivered advice.
+- **Navigator:** `gemini-4-hydrogen` through `generateContent`, with low thinking
+  and validated JSON output. It sees the clear seat screenshot, retains its own
+  bounded text history, uses B/M/C normally, and sends concrete instructions. It
+  is told the driver cannot answer questions and must verify progress visually.
+- **Timing:** each request includes simulation time/speed, elapsed simulation
+  time since the seat's previous observation and control acknowledgment, previous
+  API latency, and delivered instruction ages. The driver waits for the first
+  accepted navigator instruction before spending its first API call. Afterwards,
+  each seat runs as soon as its fresh observation, acknowledgment and quota permit.
+
+Store `GEMINI_API_KEY` in an ignored `.env` file (`chmod 600`), separate from the
+Cohere key if desired. Select the same file for the run and viewer:
+
+```sh
+# Bounded free-tier development run; these defaults slow simulation to 5%.
+.venv/bin/python -m tools.ai_harness run --provider gemini \
+  --env-file .gemini/.env --output runs/gemini \
+  --sim-seconds 8 --max-requests 40 --max-tokens 100000
+
+# Separate viewer: New run uses Gemini; Repeat preserves the recorded provider.
+.venv/bin/python -m tools.ai_harness serve runs/gemini --latest \
+  --provider gemini --env-file .gemini/.env --port 8767
+```
+
+Gemini defaults: `--speed 5`, `--driver-rpm 180`, `--navigator-rpm 5`,
+`--rpm 185` combined, `--driver-tpm 40000`, `--navigator-tpm 20000`,
+`--driver-timeout 5`, `--timeout 60` for the navigator, and `--memory-every 0`.
+Navigator recaps can be enabled; the driver never recaps. RPM caps are upper bounds,
+not promised throughput. A rolling minute of estimated token reservations is
+reconciled with actual usage; measured input size also spaces subsequent calls
+across the minute to avoid bursts followed by long stops. Estimates include 20%
+headroom after the first response, but cannot guarantee Google's tokenization or
+account-wide quota. Other applications using the same project consume its quota too.
+
+On November 14, 2026, Google published Decisions free limits of **200 RPM,
+50,000 input TPM, 10,000 RPD**. Both Decisions and Hydrogen list a free tier.
+Hydrogen's exact active quota must be read in the project's AI Studio rate-limit
+page; the 5 RPM/20,000 TPM settings above are conservative local caps, **not a
+claim about the account's allowance**. The API key/model listing does not expose
+all remaining quota or prove the billing tier. Quotas apply per project, not per
+key, so another key in the same project does not create another allowance.
+
+HTTP 429 respects Google's retry hint with at least a 60-second cooldown; quota
+IDs and numeric limits are retained without logging provider error bodies or
+credentials. Missing permission/model access and zero quota stop the run promptly.
+Timeouts/invalid replies release that seat's controls. A driver token-budget pause
+also releases controls once. Nonzero daily-quota errors may still end a run after
+the bounded retries. No hidden model/provider fallback occurs. Thinking tokens
+count toward usage; absent usage is explicitly marked incomplete.
+
+For sustained faster loops, enable billing only if the project's quota warrants
+it, then explicitly increase the RPM/TPM caps and simulation speed. Billing does
+not guarantee lower model latency. Published standard paid rates on November 14,
+2026 are Decisions **$0.10/M input tokens, $0 output** and Hydrogen **$1.50/M
+input, $7.50/M output including thinking**. Recorded dollar cost remains unknown
+because the harness does not inspect billing state. Use actual token usage and
+the account's current price to calculate it.
+
+Official references: [Decisions API](https://ai.google.dev/gemini-api/docs/decisions-api),
+[Hydrogen](https://ai.google.dev/gemini-api/docs/models/gemini-4-hydrogen),
+[rate limits](https://ai.google.dev/gemini-api/docs/rate-limits#gemini-decision),
+[active project limits](https://aistudio.google.com/rate-limit),
+[pricing](https://ai.google.dev/gemini-api/docs/pricing#gemini-4-hydrogen).
+
+### Watching and controlling a run
 
 Each seat shows **Keys held now** and **Last accepted turn** separately. The latter
 keeps the accepted request number, game timestamp, held keys, one-shot taps and

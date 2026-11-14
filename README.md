@@ -196,6 +196,12 @@ Edit a script, save, stop the running game, and press F5 again. Start with Solo 
 
 ### Verification
 
+The optional [visual-agent harness](docs/AI_HARNESS.md) records two model-controlled
+seats with screenshots, inputs, metrics and recap video. `--provider gemini` selects
+a silent Gemini Decisions driver and a Hydrogen navigator; `cohere` preserves the
+existing conversational pair. Keys belong in ignored `.env` files. See the harness
+guide for free-tier pacing, launch commands and a separate Gemini dashboard.
+
 ```sh
 # Physics, steering, braking, recovery, streaming, and real two-process networking:
 python3 tests/run_checks.py

@@ -29,7 +29,8 @@ def snapshot(directory):
     # Explicit public-view fields. Never serve arbitrary run files/config/env.
     run = {k: manifest.get(k) for k in ("run_id", "provider", "speed", "course", "seed",
           "driver_model", "navigator_model", "git_commit", "hold_policy", "engine_mode",
-          "prototype", "sim_seconds", "max_tokens", "max_requests", "scheduling_policy")}
+          "prototype", "sim_seconds", "max_tokens", "max_requests", "scheduling_policy", "driver_rpm", "navigator_rpm",
+          "driver_tpm", "navigator_tpm", "communication_policy")}
     events = json_lines(directory / "events.jsonl")
     accepted, pending = {}, {}
     control_fields = ("hold", "tap", "steering_pulse_sim", "pedal_pulse_sim", "hold_sim_seconds")
@@ -56,10 +57,11 @@ def snapshot(directory):
             seats[role].update(score_frame(state, manifest.get("scoring")))
             seats[role]["offroad_sim_seconds"] = state.get("offroad_sim_seconds", 0)
     timeline = [{k: e[k] for k in ("event", "unix_time", "sim_time", "role", "to", "message",
-                "request_id", "latency_seconds", "action", "usage", "error", "reason", "requests", "memory", "through_turn", "concurrent_action", "concurrent_actions") if k in e}
+                "request_id", "latency_seconds", "action", "usage", "error", "reason", "requests", "memory", "through_turn", "concurrent_action", "concurrent_actions",
+                "decision", "http_status", "retry_after_seconds", "quotas") if k in e}
                 for e in events if e["event"] in {"request", "response", "message", "request_error",
                     "infrastructure_error", "episode_started", "episode_finished", "recap_error", "recap_ready",
-                    "memory_request", "memory_response", "memory_error", "response_discarded"}]
+                    "memory_request", "memory_response", "memory_error", "response_discarded", "controls_released"}]
     result = read_json(directory / "result.json")
     return {"run": run, "seats": seats, "events": timeline, "started": starts[0] if starts else None,
             "result": {k: result.get(k) for k in ("reason", "requests", "input_tokens", "output_tokens", "usage_complete")},
@@ -135,9 +137,9 @@ def handler_for(root: Path, latest: bool, controller=None):
     return Handler
 
 
-def serve(root: Path, latest=False, port=8766, env_file=None):
+def serve(root: Path, latest=False, port=8766, env_file=None, provider="cohere"):
     root = root.expanduser().resolve()
-    controller = RunController(root if latest else root.parent, env_file)
+    controller = RunController(root if latest else root.parent, env_file, provider)
     server = ThreadingHTTPServer(("127.0.0.1", port), handler_for(root, latest, controller))
     print(f"Live spectator: http://127.0.0.1:{server.server_port}/ — New/Stop/Repeat controls enabled; Ctrl-C closes the viewer server.", flush=True)
     try:

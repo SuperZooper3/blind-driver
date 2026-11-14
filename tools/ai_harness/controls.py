@@ -15,7 +15,8 @@ def restart_command(directory, env_file=None):
     fields = ("provider", "driver_model", "navigator_model", "driver_instructions", "navigator_instructions",
         "speed", "seed", "course", "sim_seconds", "capture_fps", "video_fps", "review_speed", "rpm",
         "max_requests", "max_tokens", "max_output_tokens", "history_turns", "memory_every", "timeout",
-        "max_action_age_sim", "scripted_interval", "decision_interval_sim", "label", "godot")
+        "max_action_age_sim", "scripted_interval", "decision_interval_sim", "driver_rpm", "navigator_rpm",
+        "driver_tpm", "navigator_tpm", "driver_timeout", "label", "godot")
     for field in fields:
         value = manifest.get(field)
         if value is not None:
@@ -28,25 +29,26 @@ def restart_command(directory, env_file=None):
     return command
 
 
-def new_run_command(output_root, env_file):
+def new_run_command(output_root, env_file, provider="cohere"):
     # Leave model, prompt, speed and budgets to the CURRENT CLI defaults.
-    return [sys.executable, "-m", "tools.ai_harness", "run", "--provider", "cohere",
+    return [sys.executable, "-m", "tools.ai_harness", "run", "--provider", provider,
             "--output", str(output_root), "--env-file", str(env_file)]
 
 
 class RunController:
-    def __init__(self, output_root=None, env_file=None):
+    def __init__(self, output_root=None, env_file=None, provider="cohere"):
         self.lock = threading.Lock()
         self.busy = False
         self.error = ""
         self.selected = None
         self.child = None
+        self.provider = provider
         self.output_root = Path(output_root) if output_root is not None else ROOT / "runs"
         self.env_file = Path(env_file).expanduser().resolve() if env_file is not None else ROOT / ".env"
 
-    def has_key(self):
+    def has_key(self, provider=None):
         try:
-            return bool(read_key(self.env_file))
+            return bool(read_key(self.env_file, provider or self.provider))
         except (RuntimeError, OSError):
             return False
 
@@ -58,14 +60,14 @@ class RunController:
         fresh = time.time() - runner.get("heartbeat", 0) < 6
         active = phase in {"starting", "running"} and fresh
         restartable = bool(manifest) and (active or phase == "finished")
-        cohere_key = self.has_key()
-        has_key = manifest.get("provider") != "cohere" or cohere_key
+        provider_key = self.has_key()
+        has_key = manifest.get("provider") == "scripted" or self.has_key(manifest.get("provider"))
         return {"busy": self.busy, "error": self.error, "phase": phase,
             "can_stop": active and not self.busy,
             "can_restart": restartable and has_key and not self.busy,
-            "can_new": (directory is None or restartable) and cohere_key and not self.busy,
-            "hint": "New run uses current defaults. Repeat saved run keeps its models, speed and limits."
-                    if cohere_key else "Add COHERE_API_KEY to the server's .env file or environment to start AI runs."}
+            "can_new": (directory is None or restartable) and provider_key and not self.busy,
+            "hint": f"New run uses current {self.provider} defaults. Repeat saved run keeps its models, speed and limits."
+                    if provider_key else f"Add {'GEMINI_API_KEY' if self.provider == 'gemini' else 'COHERE_API_KEY'} to the server's .env file or environment to start AI runs."}
 
     def request(self, action, directory, expected_run):
         with self.lock:
@@ -98,7 +100,7 @@ class RunController:
                 output_root.mkdir(parents=True, exist_ok=True)
                 before = set(output_root.glob("*/manifest.json"))
                 command = (restart_command(directory, self.env_file) if action == "restart"
-                           else new_run_command(output_root, self.env_file))
+                           else new_run_command(output_root, self.env_file, self.provider))
                 log_path = directory / "restart.log" if directory else output_root / "launch.log"
                 # Fixed executable/module, argument array, no shell or browser-supplied paths.
                 # Child reads the configured .env afresh; no key in argv or manifests.
