@@ -159,6 +159,8 @@ func _tick() -> void:
 				passed = passed and lan_recovered and not session.recovering and not session.stale
 			if expect_recovery:
 				passed = passed and session.relay.reconnects >= 1 and session.relay.is_ready and not session.stale and session.last_sequence + session.last_pose_sequence > 1000
+			if not passed:
+				print("CHECK DETAILS: ", {"follows_host": follows_host, "patrol": patrol_matches, "routes": route_choices_match, "culdesac": culdesac_matches, "heat": game.ui.heat_label.text == "HEAT %d / 5" % heat, "started": game.started, "menu": game.ui.in_menu, "frozen": game.car.freeze, "waiting_cut": waiting_cut, "lights": not latest.is_empty() and game.car.headlights[0].visible == bool(latest.lights)})
 			print("%s: navigator received %d snapshots, %d roads, reset=%d, distance=%.1f, remote=%s, bridge=%s, clock=%s" % ["PASS" if passed else "FAIL", session.snapshots_received, game.world.roads.size(), session.received_reset, game.car.distance_driven, game.car.remote, bridge_matches, clock_matches])
 			_finish(0 if passed else 1)
 
