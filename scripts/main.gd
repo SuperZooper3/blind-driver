@@ -754,7 +754,7 @@ func _publish_browser_status(delta: float) -> void:
 	if _status_timer < 0.5:
 		return
 	_status_timer = 0.0
-	var status := {"prototype": preload("res://scripts/version.gd").PROTOTYPE, "mode": mode, "online": session.online,
+	var status := {"version": preload("res://scripts/version.gd").RELEASE, "prototype": preload("res://scripts/version.gd").PROTOTYPE, "mode": mode, "online": session.online,
 		"seat": session.relay.seat_role, "room": session.relay.share_code, "link": "webrtc" if session.rtc.is_linked() else ("lan" if session.direct.is_linked() else "relay"),
 		"direct_wanted": session.direct_wanted, "webrtc_available": session.rtc_available, "updates_received": session.snapshots_received,
 		"direct_messages": session.rtc.received_count + session.direct.received_count, "webrtc": session.rtc.debug_state(), "run_state": car.run_state, "distance_m": snappedf(car.distance_driven, 0.1),
@@ -767,7 +767,7 @@ func _check_partner_build(build: int) -> void:
 	if build == Version.PROTOTYPE:
 		ui.version_label.text = "%s   ·   your partner is on the same version" % Version.label()
 		return
-	var theirs := "an older version (before version numbers)" if build < 0 else "PROTOTYPE %02d" % build
+	var theirs := "an older version (before version numbers)" if build < 0 else "build %d" % build
 	var message := "Your partner is on %s; you are on %s. Both of you should update to the latest version." % [theirs, Version.label()]
 	ui.version_label.text = message
 	ui.online_status.text = message

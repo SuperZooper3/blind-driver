@@ -59,14 +59,16 @@ func _run() -> void:
 	check(not game.ui.relay_address.is_visible_in_tree() and not game.ui.address.is_visible_in_tree(), "connection URLs and LAN addresses are absent from the start screen")
 	check(not InputMap.has_action("recover"), "keyboard and gamepad recovery action is removed")
 	var Version = preload("res://scripts/version.gd")
-	check(game.ui.version_label.text.contains(Version.label()) and Version.label() == "PROTOTYPE %02d" % Version.PROTOTYPE, "the start screen shows the prototype number")
+	check(game.ui.version_label.text.contains(Version.label()) and Version.label() == "RELEASE " + Version.RELEASE, "the start screen shows the release version")
 	check(not game.ui.direct_toggle.visible and not game.ui.direct_label.visible and not game.ui.address.visible, "P2P controls, status and manual LAN address are hidden")
 	check(not game.ui.SHOW_AI_PLAY, "AI play is hidden from the player menu")
 	var status_before: String = game.ui.status_label.text
 	game.session.direct_status_changed.emit("Connecting peer-to-peer (WebRTC)…", true)
 	check(game.ui.status_label.text == status_before and not game.ui.direct_label.visible, "P2P status updates stay out of the player interface")
 	game._check_partner_build(Version.PROTOTYPE - 1)
-	check(game.ui.version_label.text.contains("PROTOTYPE %02d" % (Version.PROTOTYPE - 1)) and game.ui.online_status.text.contains("update"), "a partner on another version is called out")
+	check(game.ui.version_label.text.contains("build %d" % (Version.PROTOTYPE - 1)) and game.ui.version_label.text.contains(Version.label()) and game.ui.online_status.text.contains("update"), "a partner on another build is called out with our release version")
+	game._check_partner_build(Version.PROTOTYPE)
+	check(game.ui.version_label.text.contains(Version.label()) and game.ui.version_label.text.contains("same version"), "matching builds report the same release version")
 	game._check_partner_build(-1)
 	check(game.ui.version_label.text.contains("older version"), "a partner from before version numbers is called out too")
 	game.car.remote = true

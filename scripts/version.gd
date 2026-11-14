@@ -1,8 +1,9 @@
 extends RefCounted
-## The one version number players see in the header and start screen.
-## Bump PROTOTYPE by one in every change merged to main (see AGENTS.md), so both
-## players can check at a glance that they are on the same build.
-const PROTOTYPE := 31
+## The release players see in the header and start screen.
+## PROTOTYPE remains the increasing internal build ID for existing relay clients
+## and browser diagnostics. Bump both values on merge (see AGENTS.md).
+const PROTOTYPE := 32
+const RELEASE := "1.0.0"
 
 static func label() -> String:
-	return "PROTOTYPE %02d" % PROTOTYPE
+	return "RELEASE " + RELEASE
