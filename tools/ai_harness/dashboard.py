@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .recap import json_lines
-from .run import read_json
+from .run import read_json, prototype_number
 from .scoring import score_frame
 from .controls import RunController
 from PIL import Image
@@ -28,7 +28,8 @@ def snapshot(directory):
     manifest = read_json(directory / "manifest.json")
     # Explicit public-view fields. Never serve arbitrary run files/config/env.
     run = {k: manifest.get(k) for k in ("run_id", "provider", "speed", "course", "seed",
-          "driver_model", "navigator_model", "git_commit", "hold_policy", "engine_mode")}
+          "driver_model", "navigator_model", "git_commit", "hold_policy", "engine_mode",
+          "prototype", "sim_seconds", "max_tokens", "max_requests")}
     events = json_lines(directory / "events.jsonl")
     starts = [e["unix_time"] for e in events if e["event"] == "episode_started"]
     seats = {}
@@ -52,8 +53,9 @@ def snapshot(directory):
 
 
 def handler_for(root: Path, latest: bool, controller=None):
-    controller = controller or RunController()
+    controller = controller or RunController(root if latest else root.parent)
     token = secrets.token_urlsafe(32)
+    prototype = prototype_number()
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
             pass
@@ -64,7 +66,8 @@ def handler_for(root: Path, latest: bool, controller=None):
             if route == "/":
                 return self.send_content(Path(__file__).with_name("dashboard.html").read_bytes(), "text/html; charset=utf-8")
             if route == "/state":
-                return self.send_content(json.dumps({**snapshot(directory), "controls": controller.state(directory), "control_token": token}).encode(), "application/json")
+                return self.send_content(json.dumps({**snapshot(directory), "controls": controller.state(directory),
+                    "dashboard_prototype": prototype, "control_token": token}).encode(), "application/json")
             if directory and route in {"/image/driver", "/image/navigator"}:
                 role = route.rsplit("/", 1)[1]
                 seat = directory / role
@@ -118,9 +121,11 @@ def handler_for(root: Path, latest: bool, controller=None):
     return Handler
 
 
-def serve(root: Path, latest=False, port=8766):
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler_for(root.expanduser().resolve(), latest))
-    print(f"Live spectator: http://127.0.0.1:{server.server_port}/ — Stop/Restart controls enabled; Ctrl-C closes the viewer server.", flush=True)
+def serve(root: Path, latest=False, port=8766, env_file=None):
+    root = root.expanduser().resolve()
+    controller = RunController(root if latest else root.parent, env_file)
+    server = ThreadingHTTPServer(("127.0.0.1", port), handler_for(root, latest, controller))
+    print(f"Live spectator: http://127.0.0.1:{server.server_port}/ — New/Stop/Repeat controls enabled; Ctrl-C closes the viewer server.", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

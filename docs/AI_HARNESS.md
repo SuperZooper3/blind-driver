@@ -158,17 +158,29 @@ To open the same live timeline in a separate terminal, without an API key:
 # Open http://127.0.0.1:8766/
 ```
 
+The page is a control panel for a local Godot process; it is not the browser-export
+game. **New run (current defaults)** starts Cohere using this server checkout's
+current models and limits, without copying an older recording's overrides. It
+also works with an empty recordings folder. The dashboard version and each run's
+version/model/limits are shown separately. After updating the checkout, restart
+the viewer server and refresh the page so its controls use the new code.
+
 Closing the viewer does not stop the run. **Stop run** releases both agents’ keys,
-ends the episode, and saves its partial recap. **Restart run** first stops/saves
+ends the episode, and saves its partial recap. **Repeat saved run** first stops/saves
 the selected run, then starts a fresh episode with the same models, seed, speed,
 and budgets. Conversation and working memory start fresh. Existing artifacts remain.
-Restart uses the current checkout revision, recorded in the new manifest. Ctrl-C in the terminal
+Both launch buttons stop/save an active selected run before starting its replacement.
+Repeat uses the current checkout revision, recorded in the new manifest. Ctrl-C in the terminal
 running the `run` command does stop it and compiles the captured portion.
 The viewer retains scrollback, while `events.jsonl` and `transcript.txt` preserve
 the timeline on disk. It does not expose API keys or image payloads.
 The browser page includes both complete screenshots and updates once per second.
 It serves only on localhost. Viewing and stopping require no provider key; Cohere
-restart requires `COHERE_API_KEY` in the viewer server’s environment. Controls use
+launches read `COHERE_API_KEY` from the server's environment or the checkout's ignored
+`.env` file. `serve --env-file /path/to/.env` selects a different file. The child reads
+that file afresh on each launch; the key is never put in source, CLI arguments, or
+browser responses. Restrict the local file with `chmod 600 .env` and never commit it.
+An environment variable takes precedence over the file. Controls use
 a same-origin token, a specific run ID, and fixed argument lists, never browser-supplied
 commands. They cannot control unrelated game instances.
 The newest run appears automatically. **Follow latest** scrolls only when a new
@@ -380,6 +392,7 @@ trainable policy weights, rewards, and a training loop; none is claimed here.
 ```sh
 .venv/bin/python -m unittest discover -s tests -p 'test_ai_harness.py' -v
 .venv/bin/python -m unittest discover -s tests -p 'test_navigator_context.py' -v
+.venv/bin/python -m unittest discover -s tests -p 'test_dashboard_launch.py' -v
 godot --headless --path . --fixed-fps 60 --script tests/ai_harness_smoke.gd
 python3 tests/run_checks.py --relay
 npm --prefix server test
