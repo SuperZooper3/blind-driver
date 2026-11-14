@@ -8,6 +8,7 @@ const Challenge = preload("res://scripts/road_challenge.gd")
 const TILE_SIZE := 80.0
 const TILE_RADIUS := 3
 const ROAD_WIDTH := 8.0
+const ROAD_MESH_STEP := 3.0
 const KEEP_DISTANCE := 720.0
 const MAX_ROADS := 100
 const THORN_DISTANCE := 18.0
@@ -237,19 +238,37 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 			if profile == "scenic": count = 1 + difficulty / 2
 			elif profile == "rough": count = 3 + mini(3, difficulty)
 			elif profile == "culdesac": count = 1 if difficulty < 3 else 2
+			# Seeded per road (so every game sees the same world), but with no fixed
+			# rhythm: random kinds, spacing within even bands, and shoulder sides.
+			var span := 22.0 / count
+			var plan: Array = []
+			var previous := ""
 			for slot in count:
-				var index := 16 if count == 1 else (11 + slot * 12 if count == 2 else roundi(lerpf(6, 26, float(slot) / (count - 1))))
-				var kind: String = kinds[(depth * 2 + slot + 3) % kinds.size()]
+				var index := clampi(roundi(rng.randf_range(5.0 + slot * span + 0.8, 5.0 + (slot + 1) * span - 0.8)), 5, 27)
+				var choices: Array = kinds.duplicate()
+				if choices.size() > 1: choices.erase(previous)
+				# Each tree bends the road around it; keep chicanes apart.
+				for other: Dictionary in plan:
+					if other.kind == "tree" and absi(other.index - index) < 8: choices.erase("tree")
+				var kind: String = choices[rng.randi() % choices.size()]
+				previous = kind
+				plan.append({"kind": kind, "index": index})
+			for item: Dictionary in plan:
+				if item.kind != "tree": continue
+				var index: int = item.index
+				var side := (points[index + 1] - points[index]).normalized().cross(Vector3.UP)
+				for j in range(index - 3, index + 4):
+					points[j] += side * sin(float(j - index + 3) / 6.0 * PI) * 2.0
+					points[j].y = height_at(points[j].x, points[j].z) + 0.17
+			for item: Dictionary in plan:
+				var index: int = item.index
+				var kind: String = item.kind
 				var direction := (points[index + 1] - points[index]).normalized()
 				var side := direction.cross(Vector3.UP)
-				var offset := 0.0 if kind in ["tree", "bumps"] else (-1.8 if slot == 0 else 1.8)
+				var offset := 0.0 if kind in ["tree", "bumps"] else rng.randf_range(1.4, 2.2) * (-1.0 if rng.randf() < 0.5 else 1.0)
 				if basic_course:
 					offset = -2.0 if rng.randf() < 0.5 else 2.0
 				var at := points[index] + side * offset
-				if kind == "tree":
-					for j in range(index - 3, index + 4):
-						points[j] += side * sin(float(j - index + 3) / 6.0 * PI) * 2.0
-						points[j].y = height_at(points[j].x, points[j].z) + 0.17
 				at.y = height_at(at.x, at.z) + 0.18
 				hazards.append({"kind": kind, "position": at, "size": Vector3.ONE, "yaw": atan2(-direction.x, -direction.z)})
 		if not basic_course and profile == "main" and depth > 0 and depth % 6 == 0:
@@ -374,6 +393,9 @@ func _render_road(road: Dictionary) -> void:
 	root.set_meta("challenges", challenges)
 	_make_ribbon(root, points, ROAD_WIDTH + 2.2, -0.035, shoulder_material)
 	_make_ribbon(root, points, ROAD_WIDTH, 0.0, road_material)
+	if road.depth > 0:
+		_make_pad(root, points[0], (ROAD_WIDTH + 2.2) * 0.5, -0.035, shoulder_material)
+		_make_pad(root, points[0], ROAD_WIDTH * 0.5, 0.0, road_material)
 	if road.profile == "culdesac":
 		_render_culdesac(root, points[-1])
 	for i in range(1, points.size() - 1, 3):
@@ -420,28 +442,64 @@ func _render_culdesac(parent: Node3D, center: Vector3) -> void:
 	parent.add_child(sign)
 
 func _make_ribbon(parent: Node3D, points: PackedVector3Array, width: float, lift: float, mat: Material) -> void:
+	var hazards: Array = parent.get_meta("hazards", [])
+	# One shared left/right edge per centerline point, mitred between the segments
+	# on either side, so bends stay one continuous surface with no wedge gaps.
+	var lefts := PackedVector3Array()
+	var rights := PackedVector3Array()
+	for i in points.size():
+		var before := points[maxi(0, i - 1)]
+		var after := points[mini(points.size() - 1, i + 1)]
+		var tangent := Vector3(after.x - before.x, 0, after.z - before.z).normalized()
+		var segment := Vector3(points[mini(points.size() - 1, i + 1)].x - points[i].x, 0, points[mini(points.size() - 1, i + 1)].z - points[i].z)
+		if i == points.size() - 1: segment = Vector3(points[i].x - before.x, 0, points[i].z - before.z)
+		var side := tangent.cross(Vector3.UP)
+		var miter := clampf(side.dot(segment.normalized().cross(Vector3.UP)), 0.6, 1.0)
+		# Widen smoothly around a tree, leaving a rough shoulder escape on both sides.
+		var local_width := width
+		for hazard: Dictionary in hazards:
+			if hazard.kind == "tree":
+				local_width += 2.5 * (1.0 - smoothstep(10.0, 18.0, points[i].distance_to(hazard.position)))
+		side *= local_width * 0.5 / miter
+		lefts.append(ground_point(points[i].x - side.x, points[i].z - side.z, 0.17 + lift))
+		rights.append(ground_point(points[i].x + side.x, points[i].z + side.z, 0.17 + lift))
 	var vertices := PackedVector3Array()
 	for i in range(points.size() - 1):
 		var a := points[i]
 		var b := points[i + 1]
 		var over_gap := false
-		for hazard: Dictionary in parent.get_meta("hazards", []):
+		for hazard: Dictionary in hazards:
 			if Challenge.is_challenge(hazard) and minf(a.z, b.z) < hazard.position.z + hazard.size.z * 0.5 and maxf(a.z, b.z) > hazard.position.z - hazard.size.z * 0.5:
 				over_gap = true
 		if over_gap: continue
-		# Widen and wiggle around a tree, leaving a rough shoulder escape on both sides.
-		var local_width := width
-		for hazard: Dictionary in parent.get_meta("hazards", []):
-			if hazard.kind == "tree" and a.distance_to(hazard.position) < 14.0:
-				local_width += 2.5
-		var side := (b - a).normalized().cross(Vector3.UP) * local_width * 0.5
-		var al := ground_point(a.x - side.x, a.z - side.z, 0.17 + lift)
-		var ar := ground_point(a.x + side.x, a.z + side.z, 0.17 + lift)
-		var bl := ground_point(b.x - side.x, b.z - side.z, 0.17 + lift)
-		var br := ground_point(b.x + side.x, b.z + side.z, 0.17 + lift)
-		vertices.append_array(PackedVector3Array([al, ar, bl, ar, br, bl]))
+		# Long chords can dip through the rolling terrain even when both endpoints
+		# are above it. Resample the surface without changing map/route geometry.
+		var steps := maxi(1, ceili(a.distance_to(b) / ROAD_MESH_STEP))
+		var al := lefts[i]
+		var ar := rights[i]
+		for step in range(1, steps + 1):
+			var t := float(step) / steps
+			var bl := lefts[i + 1] if step == steps else lefts[i].lerp(lefts[i + 1], t)
+			var br := rights[i + 1] if step == steps else rights[i].lerp(rights[i + 1], t)
+			bl.y = height_at(bl.x, bl.z) + 0.17 + lift
+			br.y = height_at(br.x, br.z) + 0.17 + lift
+			vertices.append_array(PackedVector3Array([al, ar, bl, ar, br, bl]))
+			al = bl
+			ar = br
 	var ribbon := Geo.instance(parent, Geo.mesh_from_triangles(vertices), Vector3.ZERO, mat)
 	ribbon.create_trimesh_collision()
+
+## A round pad where a road leaves a junction fills the corner between roads
+## that meet at an angle.
+func _make_pad(parent: Node3D, center: Vector3, radius: float, lift: float, mat: Material) -> void:
+	var vertices := PackedVector3Array()
+	var middle := ground_point(center.x, center.z, 0.17 + lift)
+	for i in 24:
+		var a := center + Vector3(cos(i * TAU / 24), 0, sin(i * TAU / 24)) * radius
+		var b := center + Vector3(cos((i + 1) * TAU / 24), 0, sin((i + 1) * TAU / 24)) * radius
+		vertices.append_array(PackedVector3Array([middle, ground_point(b.x, b.z, 0.17 + lift), ground_point(a.x, a.z, 0.17 + lift)]))
+	var pad := Geo.instance(parent, Geo.mesh_from_triangles(vertices), Vector3.ZERO, mat)
+	pad.create_trimesh_collision()
 
 func nearest_road(at: Vector3) -> Dictionary:
 	var best := {"distance": INF, "point": Vector3.ZERO, "direction": Vector3.FORWARD, "road_id": 0}
