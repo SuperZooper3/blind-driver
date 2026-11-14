@@ -373,5 +373,5 @@ func _build_model() -> void:
 		glow.name = "RedBeaconGlow" if i == 0 else "BlueBeaconGlow"
 		glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		# Shader expansion must remain inside the CPU's culling bounds.
-		glow.extra_cull_margin = 4.0
+		glow.extra_cull_margin = 41.0
 		beacon_glows.append(glow)

@@ -35,6 +35,19 @@ func _run() -> void:
 	Input.action_press("repair")
 	await frames(2)
 	check(car.repairing and car.repair_part == damage.ENGINE, "holding R below 15 km/h repairs the engine first")
+	game.ui.set_mode("split")
+	await frames(2)
+	check(game.ui.repair_overlays[0].is_visible_in_tree() and game.ui.repair_overlays[1].is_visible_in_tree(), "both seat views show the repairing overlay")
+	var overlay = game.ui.repair_overlays[1]
+	check(overlay.health.size() == damage.PART_COUNT and overlay.health[damage.REAR_BUMPER] == damage.health[damage.REAR_BUMPER] and overlay.health[damage.WHEEL_FL] == 1.0, "repair bars include queued damage and already healthy parts")
+	game.ui.toggle_map()
+	await frames(25)
+	check(game.ui.map_open and overlay.visible and game.ui.map_clip.z_index > overlay.z_index, "the open map sits above the repair display")
+	game.ui.rear_button_held = true
+	await frames(2)
+	check(game.looking_back and not game.ui.map_open and overlay.visible and overlay.mouse_filter == Control.MOUSE_FILTER_IGNORE, "look-back works and the repairing overlay stays visible")
+	game.ui.rear_button_held = false
+	game.ui.set_mode("solo")
 	Input.action_press("accelerate")
 	var start: Vector3 = car.global_position
 	await frames(120)
@@ -43,6 +56,7 @@ func _run() -> void:
 	await frames(2)
 	var partial: float = damage.health[damage.ENGINE]
 	check(not car.repairing and partial > 0.3 and partial < 1.0, "letting go of R stops repairs part-way")
+	check(not overlay.visible, "releasing repair removes the overlay so driving can resume")
 	await frames(60)
 	check(car.global_position.distance_to(start) > 0.5 and is_equal_approx(damage.health[damage.ENGINE], partial), "the car drives on half-repaired")
 	Input.action_release("accelerate")
@@ -54,11 +68,14 @@ func _run() -> void:
 	await frames(220)
 	check(damage.alive(damage.ENGINE) and damage.health[damage.ENGINE] >= 1.0 and not car.smoke.emitting, "engine is fully repaired first and stops smoking")
 	check(car.repair_part == damage.WHEEL_FR, "the flat tire is repaired next, before the less damaged one")
+	check(overlay.active_part == damage.WHEEL_FR and overlay.health[damage.ENGINE] == 1.0, "repair bars retain the completed engine while the next part repairs")
 	await frames(330)
 	check(car.punctured_tires == 0 and car.wheel_pivots[damage.WHEEL_FR].scale.y == 1.0 and damage.alive(damage.WHEEL_FR), "repaired flat tire is reinflated")
 	await frames(360)
 	Input.action_release("repair")
 	check(damage.is_pristine() and not car.repairing, "repairs finish once every part is whole")
+	await frames(2)
+	check(not overlay.visible, "the repair overlay disappears when all work is complete")
 	await frames(60)
 	check(car.global_position.distance_to(start) > 0.5, "the car drives normally after repairs")
 	Input.action_release("accelerate")

@@ -118,6 +118,16 @@ The engine sounds only while actively accelerating or reversing. Coasting and id
 
 The **navigator holds R** to repair while the car is under 15 km/h (on one computer, either player can press it). The car stays parked while you hold it; let go to drive on with whatever has been fixed so far. Repairs fix one part at a time, most crucial first: the engine, then the tires (worst first), the windshield, the front bumper and the rear bumper, at 5 seconds for a fully broken part. Lost wheels and bumpers go back on, and flats are reinflated.
 
+Both seats show **REPAIRING... / You can't drive** over a translucent view of the
+road. Eight progress bars show every part's repair percentage, highlight the part
+being worked on, and keep completed parts visible. Looking back still works while
+repairing; the navigator's map opens above the repair display. Releasing R or
+finishing all repairs removes the overlay.
+
+Police beacons grow brighter and their red/blue glow grows larger as the patrol
+gets farther away, so distant flashes remain conspicuous in both camera views.
+The glow still sits in the world: hills and solid obstacles can hide it.
+
 Damage lasts until you repair it or start over. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot. Tuning lives at the top of `scripts/car_damage.gd` (`SAFE_SPEED`, `CURVE`, `RATE`, breakdown penalties) and `scripts/car.gd` (`THORN_WEAR`, `FLAT_TIRE_DRAG`, `HUB_SCRAPE`).
 
 ## Two windows or two computers

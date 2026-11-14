@@ -22,6 +22,8 @@ const SHOW_P2P_UI := false
 const Map = preload("res://scripts/route_map.gd")
 const ReadableHUD = preload("res://scripts/readable_hud.gd")
 const DirectionWarning = preload("res://scripts/direction_warning.gd")
+const RepairOverlay = preload("res://scripts/repair_overlay.gd")
+var repair_overlays: Array[Control] = []
 var direction_warning: Control
 var readable_ui := false
 var complete_seats := false
@@ -175,6 +177,20 @@ func _build_views() -> void:
 	views.add_child(navigator_screen)
 	driver_screen.clip_contents = true
 	navigator_screen.clip_contents = true
+	for screen in [driver_screen, navigator_screen]:
+		var overlay := RepairOverlay.new()
+		screen.add_child(overlay)
+		repair_overlays.append(overlay)
+
+func update_repairs(car: Node, started: bool) -> void:
+	var active: bool = started and not in_menu and car.repairing and car.run_state == "driving"
+	for i in repair_overlays.size():
+		repair_overlays[i].update_repair(car, active, i == 1 and mode not in ["host", "ai"], mode == "host")
+	# The repair heading replaces the usual seat/route labels until work stops.
+	driver_tag.visible = not in_menu and not active and mode in ["split", "host"]
+	navigator_tag.visible = not in_menu and not active and mode not in ["host", "ai"]
+	hud.get_node("RouteCard").visible = not in_menu and not active and mode not in ["host", "ai"]
+	damage_label.visible = not active
 
 func _build_hud() -> void:
 	hud = Control.new()

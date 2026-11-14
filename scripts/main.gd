@@ -343,8 +343,9 @@ func _process(delta: float) -> void:
 	elif not car.damage.alive(car.damage.ENGINE) and car.run_state == "driving":
 		ui.surface_label.text = "ENGINE WRECKED"
 	repair_notice_time = maxf(0.0, repair_notice_time - delta)
+	ui.update_repairs(car, started)
 	if car.repairing and car.repair_part != -1 and car.run_state == "driving":
-		ui.surface_label.text = "REPAIRING %s  %d%%" % [car.damage.NAMES[car.repair_part], floori(car.damage.health[car.repair_part] * 100.0)]
+		ui.surface_label.text = "REPAIRING / CAN'T DRIVE"
 	elif repair_notice_time > 0.0:
 		ui.surface_label.text = repair_notice
 	ui.damage_label.text = car.damage.summary() if started else ""
