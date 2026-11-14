@@ -62,7 +62,7 @@ research harness remains separate.
 | B (hold) | Navigator/solo: look behind and check police distance |
 | H | Headlights |
 | R (hold) | Repair (navigator; the car must be under 15 km/h) |
-| V | Mute/unmute motor, tire, and siren audio |
+| V | Mute/unmute all audio, including the driving radio |
 | F | Fullscreen/windowed |
 | F8 | Connection check, live network metrics, and logs |
 | Escape | Menu; driver applies brakes while the menu is open |
@@ -82,6 +82,21 @@ where clear. Short heading changes are filtered; returning from marked dead ends
 is allowed.
 
 ### Car damage
+
+The car radio starts when you first move, playing the supplied **Chip Chase**
+music from the beginning. Its last half second before **2:04** crossfades into
+**0:13–0:13.5**, then continues from **0:13.5**, looping indefinitely. Brief
+stops keep the music going. Crashes instantly cut it with electrical static and
+a tuning squeal; after a short retune it resumes when you move again. Falling
+or Game Over silences it until a new ride. Damage adds progressively stronger
+bitcrushing, muffling, static, pitch wobble and dropouts; repairs clean it up.
+Menus and connection recovery pause the radio. Both seats hear their own radio
+react to shared damage, and **V** mutes it along with the other sounds.
+
+The prepared track is `assets/audio/driving_music.ogg`. To rebuild it from the
+original supplied `music.mp3`, use `python3 tools/prepare_driving_music.py /path/to/music.mp3`
+with FFmpeg on PATH. The crossfade is baked into the audio and the player loops
+on the audio thread, so the transition does not depend on rendered frames.
 
 Crashes and thorns break the car. A damaged car limps on, slower and slower, but the police never follow you into the forest, so the car **breaks down and the run ends** once three tires are broken, or the engine is blown and two tires are broken.
 
@@ -217,6 +232,7 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/engine_audio.gd`, `scripts/police_siren.gd` | Procedural engine/tire sound and distance-based stereo siren |
 | `scripts/police_pursuit.gd` | Driver-owned patrol navigation, obstacle avoidance, gap estimates, and capture |
 | `scripts/impact_audio.gd` | Synthesized crash and tire-pop sounds |
+| `scripts/driving_radio.gd` | Looping driving music, crash retuning, and damage-based radio distortion |
 | `scripts/car_damage.gd` | Part health, impact zones, dents, breakdown penalties, debris; `SAFE_SPEED` and `RATE` tune how fragile the car is |
 | `scripts/windshield_cracks.gd` | Procedural crack pattern, painted onto the 3D windshield glass |
 | `shaders/driver_blur.gdshader` | Driver's vision |
