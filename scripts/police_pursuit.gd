@@ -5,9 +5,11 @@ const Challenge = preload("res://scripts/road_challenge.gd")
 const HEAD_START := 6.0
 const START_GAP := 85.0
 const BOOST_FULL_GAP := 240.0
-const CATCH_UP_SPEED := 40.0
+## About 61 km/h, just under a car on two flat tires (~62 km/h): driving cleanly
+## with one or two flats still pulls away, while a bad crash or a dead end does not.
+const CATCH_UP_SPEED := 17.0
 const BRAKING := 9.0
-const CATCH_SECONDS := 1.5
+const CATCH_SECONDS := 2.0
 const CAPTURE_RADIUS := 24.0
 const CAPTURE_ROUTE_REACH := 14.0
 const CAPTURE_HEIGHT_REACH := 4.0
@@ -171,11 +173,11 @@ func advance(delta: float, running: bool) -> void:
 			return
 		phase = "chasing"
 	var direction: int = route.direction
-	var cruise := 25.0 + clampf(car.distance_driven / 2000.0, 0, 1) * 8.0
+	var cruise := 14.0 + clampf(car.distance_driven / 2000.0, 0, 1) * 2.5
 	# Earned space gives breathing room, then the patrol gradually reels it back in.
 	# Fade the boost out before capture range; never jump the patrol toward the car.
 	var boost := smoothstep(START_GAP, BOOST_FULL_GAP, gap)
-	var pace := lerpf(1.0, 1.8, boost)
+	var pace := lerpf(1.0, 1.3, boost)
 	var guidance := _guidance(direction, pace)
 	cruise = lerpf(cruise, CATCH_UP_SPEED, boost)
 	var desired_speed: float = minf(cruise, guidance.speed_limit)
@@ -205,7 +207,7 @@ func advance(delta: float, running: bool) -> void:
 	# and cars falling into a ravine from capture through the terrain.
 	var separation := car.global_position - global_position
 	var nearby := Vector2(separation.x, separation.z).length() < CAPTURE_RADIUS and absf(separation.y) < CAPTURE_HEIGHT_REACH and _route_gap(target_id, target.station) < CAPTURE_ROUTE_REACH
-	catch_time = catch_time + delta if nearby else maxf(0, catch_time - delta * 2.0)
+	catch_time = catch_time + delta if nearby else maxf(0, catch_time - delta * 3.0)
 	if catch_time >= CATCH_SECONDS:
 		phase = "caught"
 		car.finish_run("The police caught you")

@@ -164,11 +164,25 @@ func _check_damage(game, car) -> void:
 	check(car.run_state == "driving" and damage.power_scale() < 0.75, "two broken tires cripple the car but do not end the run")
 	damage.set_part(damage.ENGINE, 0.0)
 	await frames(5)
-	check(car.run_state == "driving" and car.smoke.emitting and damage.power_scale() < 0.35, "a wrecked engine smokes and loses most of its power")
+	check(car.run_state == "game_over" and car.crash_reason.contains("broke down"), "a blown engine with two broken tires ends the run")
+	game._restart_run()
+	game.police.phase = "escaped"
+	await frames(30)
+	damage.set_part(damage.WHEEL_FL, 0.0)
+	damage.set_part(damage.ENGINE, 0.0)
+	await frames(5)
+	check(car.run_state == "driving" and car.smoke.emitting and damage.power_scale() < 0.4, "a wrecked engine with one broken tire smokes and loses most of its power")
 	var wrecked_speed := absf(await _yaw_drift(game, car, 110))
 	wrecked_speed = car.signed_speed
 	print("Speed after 110 frames: healthy=%.1f m/s, wrecked=%.1f m/s" % [healthy_speed, wrecked_speed])
 	check(car.run_state == "driving" and wrecked_speed < healthy_speed * 0.6, "a wrecked car still drives, much slower")
+	game._restart_run()
+	game.police.phase = "escaped"
+	await frames(30)
+	for wheel in 3:
+		damage.set_part(wheel, 0.0)
+	await frames(5)
+	check(car.run_state == "game_over" and car.crash_reason.contains("broke down"), "three broken tires end the run even away from the police")
 	game._restart_run()
 	game.police.phase = "escaped"
 	await frames(30)

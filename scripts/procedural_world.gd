@@ -14,6 +14,10 @@ const THORN_DISTANCE := 18.0
 const THORN_CELL := 4.0
 const CULDESAC_RADIUS := 14.0
 const HEAT_DISTANCE := 750.0
+const CLIFF_SIZE := Vector3(160, 36, 112)
+## A narrower pit fits between the two through routes when it sits in the middle.
+const MIDDLE_HOLE_SIZE := Vector3(64, 36, 64)
+const MIDDLE_HOLE_CHANCE := 0.4
 const PROFILES := ["main", "scenic", "rough", "culdesac", "cliff"]
 var difficulty := 0
 ## Opt-in harness curriculum; ordinary play retains the original generator.
@@ -137,15 +141,25 @@ func grow_near(at: Vector3) -> void:
 					var scenic := PackedVector3Array()
 					var shortcut := PackedVector3Array()
 					var side := -1.0 if left_safe else 1.0
+					# After the first three-way junction teaches the layout, the straight
+					# middle road is sometimes the pit and both through routes swing around it.
+					var middle_hole := fork_index >= 2 and fork_rng.randf() < MIDDLE_HOLE_CHANCE
 					for i in 33:
 						var t := i / 32.0
 						scenic.append(ground_point(end.x + side * 110.0 * pow(sin(t * PI), 2), end.z - t * 240.0, 0.17))
-						shortcut.append(ground_point(end.x, end.z - t * 240.0, 0.17))
+						var swing := -side * 80.0 * pow(sin(t * PI), 2) if middle_hole else 0.0
+						shortcut.append(ground_point(end.x + swing, end.z - t * 240.0, 0.17))
 					var scenic_id := _add_road(end, 0.0, depth, frontier.id, 240, false, "scenic", scenic)
 					_add_road(end, 0.0, depth, frontier.id, 240, false, "rough", shortcut)
 					roads[-1].merge_with = scenic_id
-					var terminal := "culdesac" if fork_index % 2 == 1 else "cliff"
-					_add_road(end, -0.88 if left_safe else 0.88, depth, frontier.id, 140, terminal == "cliff", terminal)
+					if middle_hole:
+						var drop := PackedVector3Array()
+						for i in 33:
+							drop.append(ground_point(end.x, end.z - i / 32.0 * 96.0, 0.17))
+						_add_road(end, 0.0, depth, frontier.id, 96, true, "cliff", drop, MIDDLE_HOLE_SIZE)
+					else:
+						var terminal := "culdesac" if fork_index % 2 == 1 else "cliff"
+						_add_road(end, -0.88 if left_safe else 0.88, depth, frontier.id, 140, terminal == "cliff", terminal)
 				else:
 					_add_road(end, 0.66 if left_safe else -0.66, depth, frontier.id)
 					var terminal := "cliff" if fork_index == 0 else "culdesac"
@@ -169,7 +183,7 @@ func grow_near(at: Vector3) -> void:
 	if removed:
 		_rebuild_road_index()
 
-func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, length: float = 155.0, danger: bool = false, profile: String = "main", supplied_points: PackedVector3Array = PackedVector3Array()) -> int:
+func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, length: float = 155.0, danger: bool = false, profile: String = "main", supplied_points: PackedVector3Array = PackedVector3Array(), hole_size: Vector3 = CLIFF_SIZE) -> int:
 	if danger: profile = "cliff"
 	var rng := RandomNumberGenerator.new()
 	rng.seed = world_seed + next_id * 7919
@@ -196,10 +210,10 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 		for i in points.size():
 			points[i].z += shift * float(i) / (points.size() - 1)
 			points[i].y = height_at(points[i].x, points[i].z) + 0.17
-		var center := Vector3(roundf(points[-1].x / 8.0) * 8.0, 0, lip - 56.0)
-		center.x += signf(points[-1].x - start.x) * 32.0
-		center.y = height_at(center.x, center.z) - 36.0
-		hazards.append({"kind": "cliff", "position": center, "size": Vector3(160, 36, 112), "yaw": 0.0})
+		var center := Vector3(roundf(points[-1].x / 8.0) * 8.0, 0, lip - hole_size.z * 0.5)
+		center.x += signf(roundf(points[-1].x - start.x)) * 32.0
+		center.y = height_at(center.x, center.z) - hole_size.y
+		hazards.append({"kind": "cliff", "position": center, "size": hole_size, "yaw": 0.0})
 	else:
 		# The first stretch teaches driving; every later road has a readable obstacle rhythm.
 		if not challenge_kind.is_empty():

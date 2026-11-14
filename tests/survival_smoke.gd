@@ -21,10 +21,11 @@ func _run() -> void:
 	check(not world.thorn_at(Vector3(12, 0, 12)) and world.thorn_at(Vector3(26, 0, 12)), "road shoulders allow evasive driving before dense thorn forest")
 	car.distance_driven = 2468.0
 	car.recover(world.ground_point(26, 12, 0.17), Vector3.FORWARD)
-	await frames(120)
-	check(car.punctured_tires != 0 and car.run_state == "driving", "grounded tires in deep forest go flat without ending the run")
-	# Crippled cars end when caught; stand in for the patrol here.
-	car.finish_run("The police caught you")
+	# The patrol never enters the forest, so shredded tires there must end the run themselves.
+	for _i in 600:
+		await physics_frame
+		if car.run_state != "driving": break
+	check(car.punctured_tires != 0 and car.damage.broken_tires() >= 3 and car.crash_reason.contains("broke down"), "tires shredded in deep forest leave the car undriveable")
 	await frames(60)
 	check(car.linear_velocity.length() < 0.7 and game.ui.result_panel.visible, "punctured tires stop the car and show failure")
 	check(game.records.best_distance >= 2468.0 and game.ui.result_detail.text.contains("PERSONAL BEST"), "failure records distance and celebrates a personal best")
