@@ -130,7 +130,10 @@ The first [visual-agent harness](docs/AI_HARNESS.md) runs two complete game wind
 accepts keyboard inputs from both agents, and records a recap video with dialogue
 and metrics. It supports scripted/Cohere agents, adjustable simulation speed, and
 model/role/speed comparisons, a live terminal timeline for both agents, and recaps
-that restore normal game speed. Cohere runs default to Aya Vision 32B in both seats
+that restore normal game speed. It includes a large-display profile with sound
+captions, background conversation recaps, safety scoring, and local Stop/Restart
+controls. The basic AI course restores roadside thorns and ends on four punctures.
+Cohere runs default to Aya Vision 32B in both seats
 at 25% speed. The [research plan](docs/AI_HARNESS_PLAN.md) describes
 the longer path toward reinforcement learning.
 

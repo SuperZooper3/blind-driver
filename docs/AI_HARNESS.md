@@ -3,8 +3,8 @@
 The primary output is a recap video showing **two complete game windows**, agent
 dialogue, keyboard inputs, timestamps, and live metrics. Python alternates the
 navigator and driver while Godot keeps running. Both seats use ordinary keyboard
-inputs. No split-screen crops, reconstructed dashboards, or world-state observations
-are sent to the models.
+inputs. No split-screen crops or hidden world-state observations are sent to the models.
+A game-rendered large-display profile and audible-event captions improve readability.
 
 This is an evaluation prototype, not reinforcement-learning training yet. It can
 establish baselines and collect demonstrations for later coaching/fine-tuning.
@@ -65,8 +65,18 @@ one simulated minute takes about twenty real minutes. The recorder also measures
 actual clock advancement, because rendering and host load can change it.
 
 Each seat has its own history, model ID, prompt, and received messages. Only the
-current full-window JPEG is sent on each request. The last 16 role-local text
-turns are retained by default; old visual frames are not repeatedly resent.
+current full-window JPEG is sent on each request. The last 32 role-local text
+turns are retained by default; previous images are never sent. Each action may also
+contain short `notes` recording observations, its decision, and unresolved questions.
+Notes belong to that seat; only `message` goes to its partner. These are concise
+working records, not private chain-of-thought transcripts.
+Every three own accepted actions (`--memory-every 3`), that seat updates a rolling
+recap while the other seat makes its next action request. Recap calls are text-only,
+use the same model, and receive immutable snapshots of conversation/notes. They do
+not select controls, pause play, or overwrite live history. The latest completed
+recap, with a `through_turn` watermark, accompanies later current-image requests.
+Recent turns remain verbatim even while a recap is pending. Set `--memory-every 0`
+to disable this. Errors retain the previous recap and are recorded separately.
 The history policy and exact prompts are saved. Use `--history-turns` to change it.
 Optional `--driver-instructions file.txt` and `--navigator-instructions file.txt`
 append coaching instructions; use `--label coached-v1` to identify the experiment.
@@ -83,10 +93,12 @@ invalid output still counts as an error.
 [structured output](https://docs.cohere.com/docs/structured-outputs),
 [reasoning controls](https://docs.cohere.com/docs/reasoning).
 
-The shared limiter defaults to 18 requests/minute across both seats. Latency can
-make the actual rate lower. Bound runs with `--max-requests`, `--max-tokens`, and
-`--timeout`; the token cap is checked between requests and can overshoot by one
-response. Three consecutive provider/format errors stop the trial. No hidden
+The shared limiter defaults to 18 requests/minute across both seats, including
+background recap calls, with a two-call burst for concurrent action/recap requests.
+A due action/recap pair reserves both rate slots together. Recapping therefore
+uses quota and can reduce action frequency; it is an explicit benchmark condition. Bound runs with `--max-requests`, `--max-tokens`, and
+`--timeout`; the token cap is checked between requests and can overshoot by an
+in-flight group (up to three calls). Three consecutive provider/format errors stop the trial. No hidden
 provider/model fallback occurs. Dollar cost is recorded as unknown, not zero;
 token usage is retained for calculating it using the account's actual pricing.
 
@@ -95,7 +107,7 @@ token usage is retained for calculating it using the account's actual pricing.
 `run` now prints a single chronological stream for both agents: requests, inference
 latency, proposed keys, accepted messages, errors, token usage, and periodic game
 status (simulation/real time, speed, progress, hits, and held keys).
-These are completed responses, not token-by-token generation or private reasoning.
+These are completed responses and factual working recaps, not token-by-token generation or private reasoning.
 Messages are shown as delivered only after the game acknowledges their action.
 
 To open the same live timeline in a separate terminal, without an API key:
@@ -112,14 +124,22 @@ To open the same live timeline in a separate terminal, without an API key:
 # Open http://127.0.0.1:8766/
 ```
 
-Closing this read-only viewer does not stop the run. Ctrl-C in the terminal
+Closing the viewer does not stop the run. **Stop run** releases both agents’ keys,
+ends the episode, and saves its partial recap. **Restart run** first stops/saves
+the selected run, then starts a fresh episode with the same models, seed, speed,
+and budgets. Conversation and working memory start fresh. Existing artifacts remain.
+Restart uses the current checkout revision, recorded in the new manifest. Ctrl-C in the terminal
 running the `run` command does stop it and compiles the captured portion.
 The viewer retains scrollback, while `events.jsonl` and `transcript.txt` preserve
 the timeline on disk. It does not expose API keys or image payloads.
 The browser page includes both complete screenshots and updates once per second.
-It serves only on localhost, has no game-control endpoints, and requires no key.
-The newest run appears automatically. Disable **Follow latest** to read older
-messages; the recap link appears after video rendering finishes.
+It serves only on localhost. Viewing and stopping require no provider key; Cohere
+restart requires `COHERE_API_KEY` in the viewer server’s environment. Controls use
+a same-origin token, a specific run ID, and fixed argument lists, never browser-supplied
+commands. They cannot control unrelated game instances.
+The newest run appears automatically. **Follow latest** scrolls only when a new
+partner message arrives, never on image refreshes or bookkeeping updates. Disable
+it to keep reading older messages; the recap link appears after video rendering finishes.
 
 ## Keyboard contract
 
@@ -129,7 +149,8 @@ Both models return the same shape:
 {
   "hold": ["W", "A"],
   "tap": [],
-  "message": "Turning left; tell me when to straighten."
+  "message": "Turning left; tell me when to straighten.",
+  "notes": "Road bends left. Need the next view to confirm alignment."
 }
 ```
 
@@ -143,7 +164,7 @@ key-down/key-up pair. Toggles retain normal semantics: tapping M twice opens the
 closes the map. The normal map animation/occlusion is preserved. S brakes, then
 reverses after stopping. Opposite inputs, duplicate keys, cross-role controls,
 malformed responses, and stale observations are rejected. Messages are capped at
-240 characters. There is no hold-duration field.
+240 characters; optional notes at 600. There is no hold-duration field.
 
 The navigator observes, sends a message and keys, then the driver observes a new
 frame, chooses keys and replies. **Held keys remain pressed until that same agent's
@@ -158,7 +179,7 @@ already accepted hold. Ending the episode (including errors, Ctrl-C, and limits)
 releases every held key. Game menus/network recovery retain their ordinary pause
 behavior. Pause/restart and changes to speed are not model actions.
 
-Schema version 2 records `hold_policy: until_replaced`. Older timed-hold runs remain
+Schema version 3 adds working recaps and readable-display settings; it still records `hold_policy: until_replaced`. Older timed-hold runs remain
 readable, with their fallback metrics retained, but should not be pooled with new
 runs. The source/configuration fingerprint keeps those benchmark groups separate.
 
@@ -187,9 +208,22 @@ pixel-simultaneous. A capture stall over three seconds invalidates the run.
 ## Courses and measurement
 
 `--course basic` gives one continuing road with gentle bends and sparse rocks,
-without police, forks, jumps, timed bridges, lakes, thorns, or heat escalation.
+without police, forks, jumps, timed bridges, lakes, or heat escalation. Roadside
+thorns start roughly 18 metres from the road center. In this basic course, all
+four tires punctured by thorns ends the run. The normal human/standard course
+retains its existing crippled-car behavior; flat tires alone do not end that mode.
 Vehicle physics, blur, collisions, rollover, and modular damage remain active.
 The full map is accessible but route planning is limited on this first course.
+
+`--readable-ui` is on by default for harness runs; `--no-readable-ui` keeps the
+original display. It uses large digital speed/odometer/surface/movement readouts,
+a narrower 60° camera field of view (objects appear larger), and a map with doubled
+text/line/icon scale, north-up orientation, and a larger rotating car arrow plus
+heading degrees. The map still covers the road but leaves the instruments visible.
+Collision, tire-pop, engine-knock and siren captions appear in the game itself;
+unheard caption events with timestamps also accompany the next model request.
+No map obstacle detector, angle advice, or hidden damage/location values are added
+to model inputs. Ordinary human sessions retain their existing UI.
 `--course standard` selects the existing human game and all its hazards.
 
 The basic profile's progress measure is the maximum new forward (-Z) displacement
@@ -207,7 +241,21 @@ FPS, capture cost, applied keys, hold policy, and real/simulation clocks. Impact
 events come from the game's impact signal, not every physics contact. Per-request
 logs include observations, image references, dialogue, latencies, tokens,
 responses, validation failures, and acknowledgments. Precise telemetry is never
-included in model inputs.
+included in model inputs (sound captions are the explicit accessibility exception).
+
+The versioned evaluation score is:
+
+`forward progress metres − 25 × significant hits − 2 × off-road simulation seconds
+− 100 × mean fraction of part health lost − 100 if Game Over`.
+
+The hit count uses audible collision events (roughly above 3 m/s closing speed,
+with contact/cooldown deduplication), not every persistent physics contact. The
+weights are a first evaluation choice, recorded in each manifest; raw measurements
+remain available for alternative scoring. A time/token/request limit or operator
+stop is a truncation, not a failure penalty. Negative scores are valid. Scoring is
+for evaluation only; no policy is being trained. Score and penalty components
+appear in the live page, video, CSV and summary. Background recap counts, tokens,
+and latency are also exported separately from action latency.
 
 | Artifact | Purpose |
 | --- | --- |
@@ -215,7 +263,7 @@ included in model inputs.
 | `recap_simulation.mp4` | Same normal-speed video; retained separately when an explicit review-speed override is used |
 | `recap.jpg` | Final recap still |
 | `recap_settings.json` | Playback/export settings used by the latest recap rebuild |
-| `metrics.png` | Speed, progress, road deviation, and distance plots |
+| `metrics.png` | Speed, progress, road deviation, distance, score and penalty plots |
 | `metrics.csv`, `summary.json` | Detailed driver telemetry and episode statistics |
 | `transcript.txt`, `events.jsonl` | Delivered dialogue and causal request/action events |
 | `driver/`, `navigator/` | Full screenshots, per-frame telemetry, prompts, input acknowledgments, and game logs |
@@ -237,7 +285,7 @@ without making any new API calls:
 .venv/bin/python -m tools.ai_harness recap runs/RUN_ID --review-speed 1
 ```
 
-Videos are silent in this sketch. Captures are sampled, not a promise of perfect
+Videos are silent in this sketch; on-screen sound captions remain visible. Captures are sampled, not a promise of perfect
 frame pacing. The normal-pace video follows the measured simulation clock. Frames
 and logs preserve what happened; repeating controls does not guarantee identical
 physics. Seeds reproduce course configuration in fresh processes, not model output.
@@ -284,6 +332,8 @@ npm --prefix server test
 
 The smoke check verifies real key dispatch for both roles, stale/duplicate/invalid
 actions, holds persisting beyond the old timeout, explicit release, stop cleanup,
-continued simulation, and the basic course at 5% speed.
+continued simulation, the readable map/captions, roadside thorns, and terminal
+all-tire punctures in the basic course at 5% speed. Unit tests cover one-image
+requests, text history, concurrent immutable recaps, score terms, and scoped HTTP controls.
 Rendered scripted runs verify the full-window capture/recap path. Live provider
 trials are separate from those deterministic checks.

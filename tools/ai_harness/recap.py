@@ -14,6 +14,7 @@ import subprocess
 import textwrap
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+from .scoring import DEFAULT_SCORING, score_frame
 
 WIDTH, HEIGHT = 1920, 1080
 BG, PANEL, INK, MUTED = "#101e22", "#1c3036", "#edf4ed", "#a8b9bc"
@@ -53,18 +54,22 @@ def line_chart(draw, box, rows, field, title, color=MINT, until=None):
     times = [r["sim_time"] for r in rows]
     values = [float(r.get(field, 0)) for r in rows]
     xmax = max(1.0, max(times))
-    ymax = max(1.0, max(values))
+    ymin, ymax = min(0.0, min(values)), max(1.0, max(values))
     left, top, right, bottom = x+52, y+48, x+w-18, y+h-28
     draw.line((left, top, left, bottom, right, bottom), fill=MUTED, width=1)
-    points = [(left+t/xmax*(right-left), bottom-v/ymax*(bottom-top)) for t, v in zip(times, values)]
+    points = [(left+t/xmax*(right-left), bottom-(v-ymin)/(ymax-ymin)*(bottom-top)) for t, v in zip(times, values)]
     draw.line(points, fill=color, width=3)
     draw.text((x+8, top), f"{ymax:.0f}", font=font(15), fill=MUTED)
+    if ymin < 0:
+        draw.text((x+5, bottom-15), f"{ymin:.0f}", font=font(15), fill=MUTED)
     draw.text((right-110, bottom+5), f"{xmax:.1f} sim s", font=font(15), fill=MUTED)
 
 
 def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> dict:
     manifest = json.loads((directory / "manifest.json").read_text())
     result = json.loads((directory / "result.json").read_text())
+    scoring = manifest.get("scoring", DEFAULT_SCORING)
+    frames = [{**row, **score_frame(row, scoring)} for row in frames]
     if frames:
         fields = sorted({k for row in frames for k in row})
         with (directory / "metrics.csv").open("w", newline="") as output:
@@ -74,11 +79,14 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
     active = [r for r in frames if r.get("active")]
     final = frames[-1] if frames else {}
     latencies = [e["latency_seconds"] for e in events if e["event"] == "response"]
+    memory_responses = [e for e in events if e["event"] == "memory_response"]
     sim_duration = max((r["sim_time"] for r in frames), default=0)
     conditions = {key: manifest.get(key) for key in (
         "source_sha256", "sim_seconds", "max_requests", "max_tokens", "rpm", "max_output_tokens",
         "history_turns", "timeout", "max_action_age_sim", "capture_fps", "thinking",
-        "driver_prompt_sha256", "navigator_prompt_sha256", "hold_policy")}
+        "driver_prompt_sha256", "navigator_prompt_sha256", "hold_policy", "scoring",
+        "basic_course_version", "readable_ui", "memory_every")}
+    conditions["scoring"] = scoring
     cohort = hashlib.sha256(json.dumps(conditions, sort_keys=True).encode()).hexdigest()[:12]
     fallback_time = 0.0
     for a, b in zip(active, active[1:]):
@@ -90,6 +98,7 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
         "speed_percent": manifest["speed"], "seed": manifest["seed"], "course": manifest["course"],
         "cohort": cohort, "conditions": conditions, "source_sha256": manifest.get("source_sha256"),
         "hold_policy": manifest.get("hold_policy", "timed_legacy"),
+        "scoring": scoring, **score_frame(final, scoring),
         "sim_seconds": sim_duration, "distance_m": final.get("distance_m", 0),
         "forward_progress_m": max((r.get("forward_progress_m", 0) for r in frames), default=0),
         "max_speed_kmh": max((r.get("speed_kmh", 0) for r in frames), default=0),
@@ -101,6 +110,11 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
         "latency_p95_seconds": sorted(latencies)[max(0, math.ceil(.95*len(latencies))-1)] if latencies else None,
         "capture_ms_mean": statistics.mean(r["capture_ms"] for r in frames) if frames else None,
         "driver_frames": len(frames),
+        "memory_requests": sum(e["event"] == "memory_request" for e in events),
+        "memory_completed": len(memory_responses),
+        "memory_errors": sum(e["event"] == "memory_error" for e in events),
+        "memory_tokens": sum(e.get("usage", {}).get("input_tokens", 0) + e.get("usage", {}).get("output_tokens", 0) for e in memory_responses),
+        "memory_latency_mean_seconds": statistics.mean(e["latency_seconds"] for e in memory_responses) if memory_responses else None,
         "max_capture_gap_seconds": max((b["unix_time"]-a["unix_time"] for a,b in zip(active, active[1:])), default=0),
         "cost_usd": None,  # Unknown unless pricing is explicitly configured; never pretend free.
         **result,
@@ -126,7 +140,7 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
             transcript.append(f"[{event['sim_time']:.2f}s sim / {event['unix_time']-start:.2f}s real] "
                               f"{event['role']} → {event['to']}: {event['message']}")
     (directory / "transcript.txt").write_text("\n".join(transcript), encoding="utf-8")
-    chart = Image.new("RGB", (1600, 800), BG)
+    chart = Image.new("RGB", (1600, 1160), BG)
     draw = ImageDraw.Draw(chart)
     draw.text((25, 16), f"{manifest['provider'].upper()} · {manifest['speed']:g}% speed · seed {manifest['seed']}", font=font(28), fill=INK)
     for box, field, title, color in (
@@ -134,6 +148,8 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
         ((810, 70, 770, 340), "forward_progress_m", "New forward progress · m", GOLD),
         ((20, 430, 770, 340), "road_distance_m", "Distance from road center · m", RED),
         ((810, 430, 770, 340), "distance_m", "Odometer · m (includes backtracking)", MINT),
+        ((20, 790, 770, 340), "score", "Safety-adjusted score · points", GOLD),
+        ((810, 790, 770, 340), "penalty_total", "Accumulated penalties · points", RED),
     ):
         line_chart(draw, box, frames, field, title, color)
     chart.save(directory / "metrics.png")
@@ -162,6 +178,7 @@ def build_recap(directory: Path, fps: int = 15, review_speed: float | None = Non
     manifest = json.loads((directory / "manifest.json").read_text())
     events = json_lines(directory / "events.jsonl")
     seats = {role: json_lines(directory / role / "frames.jsonl") for role in ("driver", "navigator")}
+    seats["driver"] = [{**row, **score_frame(row, manifest.get("scoring"))} for row in seats["driver"]]
     summary = export_metrics(directory, seats["driver"], events)
     if not all(seats.values()):
         return summary
@@ -174,7 +191,7 @@ def build_recap(directory: Path, fps: int = 15, review_speed: float | None = Non
                  max(seats[r][-1]["unix_time"] for r in seats))
     times = {r: [v["unix_time"] for v in rows] for r, rows in seats.items()}
     messages = [e for e in events if e["event"] == "message"]
-    responses = [e for e in events if e["event"] == "response"]
+    responses = [e for e in events if "usage" in e]
 
     @lru_cache(maxsize=8)
     def screenshot(role, name):
@@ -204,11 +221,12 @@ def build_recap(directory: Path, fps: int = 15, review_speed: float | None = Non
                  f"PROGRESS {driver.get('forward_progress_m', 0):.1f} m    "
                  f"HITS {driver.get('impact_events', 0)}")
         draw.text((24, 680), stats, font=font(23), fill=INK)
-        draw.text((24, 725), "DELIVERED CONVERSATION", font=font(18), fill=MUTED)
+        draw.text((24, 713), f"SCORE {driver['score']:.1f}    PENALTIES: hits −{driver['penalty_hits']:.0f}  /  off-road −{driver['penalty_offroad']:.1f}  /  damage −{driver['penalty_damage']:.1f}  /  failure −{driver['penalty_failure']:.0f}", font=font(20), fill=GOLD)
+        draw.text((24, 746), "DELIVERED CONVERSATION", font=font(18), fill=MUTED)
         recent = [m for m in messages if m["unix_time"] <= wall][-3:]
-        while sum(32 + max(1, len(textwrap.wrap(m["message"], 83)[:3]))*25 for m in recent) > 260:
+        while sum(32 + max(1, len(textwrap.wrap(m["message"], 83)[:3]))*25 for m in recent) > 250:
             recent.pop(0)
-        y = 760
+        y = 775
         for msg in recent:
             color = GOLD if msg["role"] == "navigator" else MINT
             draw.text((24, y), f"{msg['role'].upper()}  {msg['sim_time']:.2f}s sim · {msg['latency_seconds']:.1f}s inference", font=font(18), fill=color)
@@ -283,11 +301,16 @@ def summarize_runs(root: Path) -> Path:
     for key, samples in groups.items():
         valid = [s for s in samples if s["valid_run"]]
         values = [s["forward_progress_m"] for s in valid]
+        scores = [s["score"] for s in valid if "score" in s]
         grouped.append(dict(zip(("provider", "label", "course", "driver_model", "navigator_model", "speed_percent", "cohort"), key),
                             runs=len(samples), valid_runs=len(valid),
                             mean_progress_m=statistics.mean(values) if values else None,
                             median_progress_m=statistics.median(values) if values else None,
                             stdev_progress_m=statistics.stdev(values) if len(values)>1 else None,
+                            mean_score=statistics.mean(scores) if scores else None,
+                            median_score=statistics.median(scores) if scores else None,
+                            mean_hits=statistics.mean(s.get("impact_events", 0) for s in valid) if valid else None,
+                            mean_offroad_sim_seconds=statistics.mean(s.get("offroad_sim_seconds", 0) for s in valid) if valid else None,
                             seeds=[s["seed"] for s in valid]))
     (root / "benchmark.json").write_text(json.dumps(grouped, indent=2))
     chart = Image.new("RGB", (1600, max(500, 115+len(grouped)*76)), BG)

@@ -15,6 +15,10 @@ const Dashboard = preload("res://scripts/dashboard.gd")
 const FOOTER_HEIGHT := 148.0
 const Map = preload("res://scripts/route_map.gd")
 const Cracks = preload("res://scripts/windshield_cracks.gd")
+const ReadableHUD = preload("res://scripts/readable_hud.gd")
+var readable_ui := false
+var readable_game: Node
+var readable_hud: Control
 var ink := Color("142f2c")
 var cream := Color("f0ead5")
 var muted := Color("a6b7a3")
@@ -105,6 +109,11 @@ func _ready() -> void:
 	_load_preferences()
 	_build_diagnostics()
 	_build_run_result()
+	if readable_ui:
+		readable_hud = ReadableHUD.new()
+		readable_hud.game = readable_game
+		root.add_child(readable_hud)
+		map.readable_ui = true
 	root.resized.connect(_layout)
 	_layout()
 
@@ -471,6 +480,9 @@ func toggle_diagnostics() -> void:
 		_layout()
 
 func _process(delta: float) -> void:
+	if readable_ui:
+		for child in hud.get_children():
+			if child != map_clip: child.visible = false
 	diagnostic_timer += delta
 	if not diagnostics_panel.visible or diagnostic_timer < 0.5:
 		return
@@ -519,6 +531,9 @@ func _layout() -> void:
 	footer_label.visible = width >= 1150
 	views.offset_top = 78
 	views.offset_bottom = 0 if in_menu else -FOOTER_HEIGHT
+	if readable_ui and not in_menu:
+		views.offset_top = 72
+		views.offset_bottom = -170
 	navigator_tag.position = Vector2(width * 0.5 + 28 if mode == "split" else 28, 100)
 	var route_panel := hud.get_node("RouteCard") as PanelContainer
 	route_panel.position = Vector2(width - 340, 190 if mode == "split" else 98)
@@ -535,6 +550,11 @@ func _place_map(value: float) -> void:
 	map_panel.size = Vector2(root.size.x - start_x, root.size.y)
 	map_clip.size = Vector2(root.size.x, lerpf(root.size.y - FOOTER_HEIGHT, root.size.y, value))
 	map.unfolded = map_open
+	if readable_ui:
+		var available := root.size.y - 72.0 - 170.0
+		map_panel.position = Vector2(start_x, lerpf(root.size.y - 170.0 - 64.0, 72.0, value))
+		map_panel.size = Vector2(root.size.x - start_x, available)
+		map_clip.size = Vector2(root.size.x, root.size.y - 170.0)
 
 func _build_run_result() -> void:
 	result_panel = PanelContainer.new()

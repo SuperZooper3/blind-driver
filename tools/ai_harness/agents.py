@@ -19,8 +19,8 @@ class InvalidModelResponse(ValueError):
 
 
 def validate_action(value: object, role: str) -> dict:
-    if not isinstance(value, dict) or set(value) != {"hold", "tap", "message"}:
-        raise ValueError("Expected hold, tap, and message only")
+    if not isinstance(value, dict) or not {"hold", "tap", "message"} <= set(value) or set(value) - {"hold", "tap", "message", "notes"}:
+        raise ValueError("Expected hold, tap, message, and optional notes only")
     for field, allowed in (("hold", HELD_KEYS[role]), ("tap", TAP_KEYS[role])):
         keys = value[field]
         if not isinstance(keys, list) or any(not isinstance(k, str) or k not in allowed for k in keys):
@@ -32,6 +32,8 @@ def validate_action(value: object, role: str) -> dict:
         raise ValueError("Conflicting keys")
     if not isinstance(value["message"], str) or len(value["message"]) > 240:
         raise ValueError("Message must be a string of at most 240 characters")
+    if not isinstance(value.get("notes", ""), str) or len(value.get("notes", "")) > 600:
+        raise ValueError("Notes must be a string of at most 600 characters")
     return value
 
 
@@ -43,8 +45,16 @@ def prompt(role: str, speed: float, course: str) -> str:
         "You see an unmodified full game window with its HUD. Your partner sees their own window. "
         "Keep track of the situation and prior messages. Older advice may be stale. "
         "You may send exactly one concise message to your partner per response. "
-        "Return ONLY a JSON object with exactly these fields: "
-        '{"hold":[],"tap":[],"message":"..."}. '
+        "Return ONLY a JSON object with these fields: "
+        '{"hold":[],"tap":[],"message":"...","notes":"..."}. '
+        "notes is your own brief working record (at most 600 characters): observed facts, "
+        "the decision you made, and uncertainties to check next time. Do not write a detailed "
+        "reasoning transcript. Notes are retained for you, not sent to your partner. "
+        "You receive recent conversation verbatim and a rolling recap of earlier turns. "
+        "The recap may lag; its through_turn says how far it covers. Current evidence takes precedence. "
+        "Each request contains ONLY the current screenshot. Sound captions are text equivalents "
+        "of audible game events, with game timestamps. In the enlarged display, the map is NORTH UP; "
+        "the orange arrow and heading degrees show car orientation (0 north, 90 east). "
         "hold is the complete set of keys to hold, replacing all previous held keys; [] releases them. "
         "Held keys stay pressed throughout inference and your partner's turn until YOUR next valid "
         "response replaces them. There is no duration or automatic release/braking between responses. "
@@ -54,7 +64,8 @@ def prompt(role: str, speed: float, course: str) -> str:
     )
     common += (
         "This is the basic course: gentle bends and static rocks, no police, jumps, bridges, "
-        "cliffs, lakes, or thorns. The car still takes physical damage. "
+        "cliffs, or lakes. Roadside thorns start roughly 18 metres from the road center; "
+        "they wear out tires, and losing all four tires to thorns ends this practice run. "
         if course == "basic" else
         "This is the normal course: forks, dead ends, police, damage, jumps, and timed bridges. "
     )
@@ -94,6 +105,10 @@ class ScriptedAgent:
                       else "Scripted baseline: no visual reasoning or steering advice."}
         return result, {"input_tokens": 0, "output_tokens": 0}
 
+    def summarize(self, previous: dict, turns: list[dict]) -> tuple[str, dict]:
+        return (f"Scripted plumbing recap through turn {turns[-1]['turn']}; no visual reasoning.",
+                {"input_tokens": 0, "output_tokens": 0})
+
 
 class CohereAgent:
     def __init__(self, role: str, model: str, key: str, system_prompt: str,
@@ -118,7 +133,7 @@ class CohereAgent:
             current["content"][0]["text"] = self.system_prompt + "\nCurrent situation:\n" + context
             current["content"].append({"type": "text", "text":
                 "Choose your keyboard action now. Return ONLY the JSON object with hold, tap, "
-                "and message. Do not describe the image outside that object."})
+                "message, and notes. Do not describe the image outside that object."})
         body = {"model": self.model, "messages": [
             {"role": "system", "content": self.system_prompt}, *self.history, current
         ], "max_tokens": self.max_tokens, "temperature": 0.2}
@@ -130,8 +145,39 @@ class CohereAgent:
                     "hold": {"type": "array", "items": {"type": "string", "enum": sorted(HELD_KEYS[self.role])}},
                     "tap": {"type": "array", "items": {"type": "string", "enum": sorted(TAP_KEYS[self.role])}},
                     "message": {"type": "string"},
-                }, "required": ["hold", "tap", "message"], "additionalProperties": False,
+                    "notes": {"type": "string"},
+                }, "required": ["hold", "tap", "message", "notes"], "additionalProperties": False,
             }}
+        content, usage, answer = self._chat(body)
+        try:
+            action = validate_action(json.loads(content), self.role)
+        except (ValueError, TypeError) as exc:
+            raise InvalidModelResponse(str(exc), usage, {"finish_reason": answer.get("finish_reason"),
+                "content_types": [p.get("type") for p in answer.get("message", {}).get("content", [])],
+                "text_preview": content[:300]}) from None
+        # Only current image is sent. Older conversation is text, including own notes.
+        self.history.extend([{"role": "user", "content": context},
+                             {"role": "assistant", "content": json.dumps(action)}])
+        self.history = self.history[-2 * self.history_turns:]
+        return action, usage
+
+    def summarize(self, previous: dict, turns: list[dict]) -> tuple[str, dict]:
+        # Pure snapshot operation: never mutates history while decide() is running.
+        instruction = (f"You maintain the {self.role}'s short working memory in Blind Driver. "
+            "Update the previous recap using only the supplied conversation and own notes. "
+            "Preserve important observations, actions taken, partner instructions, uncertainties, "
+            "and unresolved problems. Distinguish old from current observations using timestamps. "
+            "Do not invent facts or new advice. Return a concise factual recap, at most 900 characters, "
+            "not a detailed reasoning transcript. No image is provided for this bookkeeping task.")
+        body = {"model": self.model, "messages": [{"role": "user", "content": instruction + "\n" +
+            json.dumps({"previous_recap": previous, "turns": turns}, ensure_ascii=False)}],
+            "max_tokens": min(300, self.max_tokens), "temperature": 0.2}
+        if self.model.startswith(("command-a-plus", "command-a-reasoning")):
+            body["thinking"] = {"type": "disabled"}
+        content, usage, _ = self._chat(body)
+        return content[:900], usage
+
+    def _chat(self, body: dict) -> tuple[str, dict, dict]:
         # Vision-only models use JSON instructions; local validation applies to
         # every model. Tool calling is not required.
         request = urllib.request.Request(
@@ -152,14 +198,4 @@ class CohereAgent:
         units = answer.get("usage", {}).get("billed_units", answer.get("usage", {}).get("tokens", {}))
         usage = {"input_tokens": units.get("input_tokens", 0), "output_tokens": units.get("output_tokens", 0),
                  "response_id": answer.get("id"), "finish_reason": answer.get("finish_reason")}
-        try:
-            action = validate_action(json.loads(content), self.role)
-        except (ValueError, TypeError) as exc:
-            raise InvalidModelResponse(str(exc), usage, {"finish_reason": answer.get("finish_reason"),
-                "content_types": [p.get("type") for p in answer.get("message", {}).get("content", [])],
-                "text_preview": content[:300]}) from None
-        # Retain role-local text and delivered dialogue, not an unbounded image history.
-        self.history.extend([{"role": "user", "content": context},
-                             {"role": "assistant", "content": json.dumps(action)}])
-        self.history = self.history[-2 * self.history_turns:]
-        return action, usage
+        return content, usage, answer

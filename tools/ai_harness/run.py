@@ -14,6 +14,8 @@ import uuid
 
 from .agents import CohereAgent, InvalidModelResponse, ScriptedAgent, prompt, validate_action
 from .monitor import ConsoleMonitor
+from .memory import RateBudget, WorkingMemory
+from .scoring import DEFAULT_SCORING
 
 ROOT = Path(__file__).resolve().parents[2]
 ROLES = ("navigator", "driver")
@@ -82,13 +84,15 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime()) + "-" + uuid.uuid4().hex[:6]
     directory = Path(args.output).expanduser().resolve() / run_id
     directory.mkdir(parents=True, mode=0o700)
-    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 2,
+    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 3,
                 "hold_policy": "until_replaced",
+                "scoring": DEFAULT_SCORING.copy(),
+                "basic_course_version": "roadside_thorns_v2",
                 "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
                 "godot_version": subprocess.check_output([godot, "--version"], text=True).strip(),
                 "capture": "two complete game windows; no crops or reconstructed HUD",
-                "history_policy": f"last {args.history_turns} own text turns; current screenshot",
+                "history_policy": f"last {args.history_turns} own text turns + rolling recap; one current screenshot",
                 "benchmark_label": args.label,
                 "provider": args.provider}
     manifest.pop("func", None)
@@ -111,8 +115,13 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     errors = []
     reason = "infrastructure_error"
     latest = {}
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="visual-agent")
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="visual-agent")
     future = None
+    request_context = {}
+    memories = {role: WorkingMemory(args.memory_every) for role in ROLES}
+    heard = {role: 0 for role in ROLES}
+    heartbeat = 0.0
+    rate = RateBudget(args.rpm if args.provider == "cohere" else 120 / args.scripted_interval)
     events_file = (directory / "events.jsonl").open("w", encoding="utf-8")
 
     def log(event: str, **fields) -> dict:
@@ -127,12 +136,39 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         atomic_json(directory / role / "input.json", {"type": kind, "sequence": sequence[role], **fields})
         return sequence[role]
 
+    def status(phase):
+        atomic_json(directory / "runner.json", {"run_id": run_id, "pid": os.getpid(),
+            "phase": phase, "heartbeat": time.time()})
+
+    def stop_requested():
+        control = read_json(directory / "control.json")
+        return control.get("run_id") == run_id and control.get("action") == "stop"
+
+    def collect_memory(role, *, ending=False):
+        nonlocal input_tokens, output_tokens, usage_known_requests
+        memory = memories[role]
+        pending = memory.pending
+        if not pending or (not ending and not pending["future"].done()):
+            return
+        try:
+            recap, usage = memory.finish()
+            input_tokens += int(usage.get("input_tokens", 0))
+            output_tokens += int(usage.get("output_tokens", 0))
+            usage_known_requests += 1
+            log("memory_response", role=role, request_id=pending["request_id"], memory=recap,
+                latency_seconds=time.monotonic() - pending["started"], usage=usage,
+                sim_time=latest.get(role, {}).get("sim_time", 0))
+        except Exception as exc:
+            log("memory_error", role=role, request_id=pending["request_id"],
+                error=str(exc)[:250] if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__)
+
+    status("starting")
     try:
         for role, flag, position in (("driver", "--host", "10,70"), ("navigator", "--join=127.0.0.1", "660,70")):
             seat_dir = directory / role
             seat_dir.mkdir()
             config = {"directory": str(seat_dir), "role": role, "seed": args.seed,
-                      "course": args.course, "speed_percent": args.speed,
+                      "course": args.course, "speed_percent": args.speed, "readable_ui": args.readable_ui,
                       "capture_fps": args.capture_fps, "max_sim_seconds": args.sim_seconds,
                       "max_action_age_sim": args.max_action_age_sim}
             atomic_json(seat_dir / "config.json", config)
@@ -152,6 +188,9 @@ def run_episode(args, *, prepared: bool = False) -> Path:
 
         deadline = time.monotonic() + 45
         while True:
+            status("starting")
+            if stop_requested():
+                raise KeyboardInterrupt
             latest = {role: read_json(directory / role / "latest.json") for role in ROLES}
             if any(p.poll() is not None for p in processes.values()):
                 raise RuntimeError("A Godot process exited; inspect this run's seat godot.log files")
@@ -176,6 +215,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         for role in ROLES:
             command(role, "start")
         start = time.monotonic()
+        status("running")
         log("episode_started", speed=args.speed, seed=args.seed, provider=args.provider)
         inbox = {role: [] for role in ROLES}
         turn = 0
@@ -184,6 +224,14 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         pending_ack = None
         error_streak = 0
         while True:
+            if stop_requested():
+                reason = "operator_stop"
+                break
+            if time.monotonic() - heartbeat > 1:
+                status("running")
+                heartbeat = time.monotonic()
+            for memory_role in ROLES:
+                collect_memory(memory_role)
             latest = {role: read_json(directory / role / "latest.json") for role in ROLES}
             if any(p.poll() is not None for p in processes.values()):
                 raise RuntimeError("Game exited during episode")
@@ -207,7 +255,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 continue
 
             if pending_ack:
-                role, seq, action, latency, observed = pending_ack
+                role, seq, action, latency, context = pending_ack
+                observed = context["observation"]
                 state = latest[role]
                 if state.get("sequence", -1) >= seq:
                     accepted = state.get("applied_sequence") == seq
@@ -218,6 +267,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                         message = log("message", role=role, to=other, message=action["message"],
                                       sim_time=state["sim_time"], observation_sim=observed["sim_time"],
                                       latency_seconds=latency, hold=action["hold"], tap=action["tap"])
+                        memories[role].record(observed, context["delivered"], action, state["sim_time"])
                         inbox[other].append({k: message[k] for k in ("role", "message", "sim_time", "observation_sim")})
                     pending_ack = None
                     turn += 1
@@ -231,12 +281,12 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     input_tokens += int(usage.get("input_tokens", 0))
                     output_tokens += int(usage.get("output_tokens", 0))
                     usage_known_requests += 1
-                    log("response", role=role, request_id=requests, action=action,
+                    log("response", role=role, request_id=request_context["request_id"], action=action,
                         latency_seconds=latency, usage=usage,
                         sim_time=latest[role]["sim_time"], observation_sim=request_context["observation"]["sim_time"])
                     seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap")},
                                   observation_sim=request_context["observation"]["sim_time"])
-                    pending_ack = role, seq, action, latency, request_context["observation"]
+                    pending_ack = role, seq, action, latency, request_context
                     error_streak = 0
                 except Exception as exc:
                     error_streak += 1
@@ -248,7 +298,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                         details = {"usage": exc.usage, "details": exc.details}
                     message = str(exc)[:250] if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__
                     errors.append({"role": role, "error": message})
-                    log("request_error", role=role, error=message, latency_seconds=latency, **details)
+                    log("request_error", role=role, request_id=request_context["request_id"], error=message, latency_seconds=latency, **details)
                     other = "driver" if role == "navigator" else "navigator"
                     inbox[other].append({"role": role, "message": "Partner response unavailable this exchange."})
                     turn += 1
@@ -265,19 +315,36 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     reason = "token_budget"
                     break
                 role = ROLES[turn % 2]
+                other = "driver" if role == "navigator" else "navigator"
+                recap_due = memories[other].due() and requests + 1 < args.max_requests
+                if not rate.take(2 if recap_due else 1):
+                    time.sleep(0.04)
+                    continue
                 state = latest[role]
                 # Explicit whitelist: precise telemetry never enters model inputs.
                 observation = {"frame": state["frame"], "sim_time": state["sim_time"],
-                               "held_keys": state["held"], "input_feedback": state.get("input_error", "")}
+                               "held_keys": state["held"], "input_feedback": state.get("input_error", ""),
+                               "own_turn": memories[role].turn + 1, "working_memory": memories[role].recap.copy(),
+                               "sound_captions": [{k: e[k] for k in ("id", "sim_time", "text")}
+                                   for e in state.get("sound_events", []) if e["id"] > heard[role]]}
+                heard[role] = max([heard[role]] + [e["id"] for e in observation["sound_captions"]])
                 delivered = inbox[role][:]
                 inbox[role].clear()
                 requests += 1
-                request_context = {"role": role, "observation": observation, "started_monotonic": time.monotonic()}
+                request_context = {"role": role, "request_id": requests, "observation": observation, "delivered": delivered, "started_monotonic": time.monotonic()}
                 log("request", role=role, request_id=requests, observation=observation,
                     image=f"{role}/{state['image']}", partner_messages=delivered)
                 future = executor.submit(agents[role].decide, directory / role / state["image"], observation, delivered)
-                interval = args.scripted_interval if args.provider == "scripted" else 60 / args.rpm
+                interval = args.scripted_interval if args.provider == "scripted" else 0
                 next_request = time.monotonic() + interval
+                # Reserve both slots together so background work cannot starve
+                # behind fast actions. The non-acting seat recaps concurrently.
+                if recap_due:
+                    requests += 1
+                    pending = memories[other].start(executor, agents[other], requests)
+                    log("memory_request", role=other, request_id=requests,
+                        through_turn=pending["through_turn"], concurrent_action=request_context["request_id"],
+                        sim_time=latest[other]["sim_time"])
             time.sleep(0.04)
     except KeyboardInterrupt:
         reason = "operator_stop"
@@ -285,12 +352,33 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         errors.append({"error": str(exc)[:500]})
         log("infrastructure_error", error=str(exc)[:500])
     finally:
+        status("stopping")
         for role in processes:
             command(role, "stop", reason=reason)
         # Let each window record its final control state before shutting it down.
         time.sleep(0.4)
         for process in processes.values():
             stop_process(process)
+        # Stop keys/game first, then account for already-issued calls. No late
+        # response is ever applied to a stopped run. Provider timeout bounds this.
+        if future:
+            try:
+                _, usage = future.result()
+                input_tokens += int(usage.get("input_tokens", 0))
+                output_tokens += int(usage.get("output_tokens", 0))
+                usage_known_requests += 1
+                log("response_discarded", role=request_context["role"], request_id=request_context["request_id"],
+                    usage=usage, reason="episode_ended")
+            except InvalidModelResponse as exc:
+                input_tokens += int(exc.usage.get("input_tokens", 0))
+                output_tokens += int(exc.usage.get("output_tokens", 0))
+                usage_known_requests += 1
+                log("response_discarded", role=request_context["role"], request_id=request_context["request_id"],
+                    usage=exc.usage, reason="episode_ended_invalid_response")
+            except Exception:
+                pass
+        for role in ROLES:
+            collect_memory(role, ending=True)
         executor.shutdown(wait=False, cancel_futures=True)
         for output in logs:
             output.close()
@@ -303,6 +391,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     "requests_without_usage": requests - usage_known_requests,
                     "terminated": reason == "game_over", "truncated": reason != "game_over",
                     "valid_run": reason not in {"infrastructure_error", "provider_errors", "wall_time_limit", "capture_error", "capture_stalled"}})
+    status("rendering")
     from .recap import build_recap
     events_file = (directory / "events.jsonl").open("a", encoding="utf-8")
     try:
@@ -314,6 +403,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         raise
     finally:
         events_file.close()
+        status("finished")
     if reason in {"infrastructure_error", "provider_errors", "capture_error", "capture_stalled"}:
         raise RuntimeError(f"Run ended with {reason}; diagnostic artifacts: {directory}")
     return directory

@@ -22,7 +22,7 @@ func frames(count: int) -> void:
 func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(directory)
 	var config := {"directory": directory, "role": "driver", "speed_percent": 5, "seed": 123,
-		"course": "basic", "capture_fps": 6, "max_sim_seconds": 10, "max_action_age_sim": 1}
+		"course": "basic", "readable_ui": true, "capture_fps": 6, "max_sim_seconds": 10, "max_action_age_sim": 1}
 	var file := FileAccess.open(directory.path_join("config.json"), FileAccess.WRITE)
 	file.store_string(JSON.stringify(config))
 	file.close()
@@ -34,13 +34,22 @@ func _run() -> void:
 	game._start("split")
 	check(is_equal_approx(Engine.time_scale, 0.05), "configured 5% simulation speed")
 	check(game.world.basic_course, "basic course enabled")
-	check(not game.world.thorn_at(Vector3(100, 0, 100)), "basic course has no thorns")
+	check(game.world.thorn_at(Vector3(100, 0, 100)), "basic course restores deep roadside thorns")
+	check(not game.world.thorn_at(Vector3(0, 0, 0)), "road center remains clear of thorns")
+	check(game.ui.readable_hud != null and game.ui.map.readable_ui, "readable HUD and larger map enabled")
+	# North-up map orientation must not rotate the road when the car turns.
+	var north_before: Vector2 = game.ui.map._project(game.car.global_position + Vector3(0, 0, -10))
+	game.car.rotation.y = 1.0
+	check(game.ui.map._project(game.car.global_position + Vector3(0, 0, -10)).is_equal_approx(north_before), "map stays north up while car heading changes")
+	game.car.rotation.y = 0.0
 	for road in game.world.roads:
 		check(not road.danger, "basic route has no fatal branch")
 		for hazard in road.hazards:
 			check(hazard.kind == "rock", "only basic static obstacles")
 	write_command({"type": "start", "sequence": 1})
 	await frames(4)
+	game.car.impacted.emit(0.5)
+	check(game.ui.readable_hud.sounds[-1].text.begins_with("CRASH"), "crash sound has a human-visible text caption")
 	write_command({"type": "keys", "sequence": 2, "hold": ["W", "A"], "tap": ["H"], "observation_sim": 0})
 	await frames(4)
 	check(Input.is_action_pressed("accelerate") and Input.is_action_pressed("steer_left"), "driver keys use normal Input map")
@@ -61,6 +70,9 @@ func _run() -> void:
 	write_command({"type": "keys", "sequence": 5, "hold": [], "tap": [], "observation_sim": game.ai_capture.sim_time})
 	await frames(4)
 	check(not Input.is_action_pressed("accelerate") and not Input.is_action_pressed("handbrake"), "empty hold releases all keys without automatic braking")
+	# Isolate key persistence from the newly lethal roadside course.
+	game.car.freeze = true
+	game.car.position = Vector3(0, 5, 0)
 	game.ai_capture.options.role = "navigator"
 	write_command({"type": "keys", "sequence": 6, "hold": [], "tap": ["M", "C"], "observation_sim": game.ai_capture.sim_time})
 	await frames(4)
@@ -77,6 +89,13 @@ func _run() -> void:
 	write_command({"type": "stop", "sequence": 9, "reason": "operator_stop"})
 	await frames(4)
 	check(not Input.is_action_pressed("look_back") and game.ai_capture.held.is_empty(), "ending the run releases held keys")
+	game.ai_capture.active = true
+	game.car.recovery_grace = 0
+	game.car.reset_pending = false
+	game.car.wear_tires(15, 1.1)
+	await frames(5)
+	check(game.car.punctured_tires == 15 and game.car.run_state == "game_over", "all four thorn punctures end the basic course")
+	check(game.car.crash_reason.contains("Thorns"), "thorn failure has an explicit cause")
 	game.queue_free()
 	await process_frame
 	quit(1 if failures else 0)

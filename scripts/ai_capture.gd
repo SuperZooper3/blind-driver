@@ -87,6 +87,7 @@ func _finish(reason: String) -> void:
 	active = false
 	finished_reason = reason
 	_set_held([])
+	if not game.car.remote: game.car.freeze = true
 	_event("finished", {"reason": reason})
 
 func _read_command() -> void:
@@ -192,6 +193,7 @@ func _capture() -> void:
 		"active": active, "connected": connected, "finished_reason": finished_reason,
 		"sequence": sequence, "applied_sequence": applied_sequence, "input_error": last_error,
 		"held": held, "hold_policy": "until_replaced",
+		"sound_events": game.ui.readable_hud.sounds.duplicate(true) if game.ui.readable_hud != null else [],
 		"speed_kmh": absf(car.signed_speed) * 3.6, "signed_speed_mps": car.signed_speed,
 		"distance_m": car.distance_driven, "forward_progress_m": maxf(0.0, progress),
 		"position": [car.position.x, car.position.y, car.position.z],
