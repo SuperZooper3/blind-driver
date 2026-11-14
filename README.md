@@ -2,6 +2,10 @@
 
 # BLIND DRIVER
 
+## [▶ PLAY NOW — IN YOUR BROWSER](https://blind-driver-frontend.onrender.com/)
+
+**The server may take a moment to start up on your first visit. Hang tight while it wakes up!**
+
 ### One drives. One sees the way.
 
 A chaotic co-op getaway through an endless low-poly forest.<br>
