@@ -12,7 +12,7 @@ var epoch := 0
 var run_id := -1
 var sent_epoch := -1
 var sent_at := 0
-var received_at := 0
+var observation_at := 0
 var retry_at := 0
 var latency_ms := 0
 var instruction := ""
@@ -21,7 +21,7 @@ var endpoint := ""
 
 func _ready() -> void:
 	request = HTTPRequest.new()
-	request.timeout = 30.0
+	request.timeout = 65.0
 	request.body_size_limit = 8192
 	add_child(request)
 	request.request_completed.connect(_completed)
@@ -65,7 +65,7 @@ func reset() -> void:
 	instruction = ""
 	error_text = ""
 	latency_ms = 0
-	received_at = 0
+	observation_at = 0
 	retry_at = 0
 	map_view.render_target_update_mode = SubViewport.UPDATE_DISABLED
 
@@ -93,9 +93,9 @@ func _process(_delta: float) -> void:
 	if not error_text.is_empty():
 		state = error_text if permanent_error else ("Retrying… " + error_text if busy else "%s Retry in %d s" % [error_text, maxi(0, ceili((retry_at - now) / 1000.0))])
 	var age := ""
-	if received_at > 0:
-		age = " · %.1f s old" % ((now - received_at) / 1000.0)
-		if now - received_at > 5000:
+	if observation_at > 0:
+		age = " · View %.1f s old" % ((now - observation_at) / 1000.0)
+		if now - observation_at > 5000:
 			age += " · Advice is stale: slow down"
 	panel.detail.text = "GEMINI HYDROGEN · %s%s · %s" % [latency, age, state]
 	panel.instruction.text = instruction if not instruction.is_empty() else (error_text if permanent_error else "Wait for your first direction. W / S to drive, A / D to steer.")
@@ -123,7 +123,7 @@ func _capture_and_request() -> void:
 		"speed_kmh": snappedf(game.car.signed_speed * 3.6, 0.1),
 		"route": game.ui.route_label.text + ": " + game.ui.route_distance.text,
 		"previous_instruction": instruction, "previous_latency_ms": latency_ms,
-		"instruction_age_ms": mini(86400000, now - received_at) if received_at > 0 else 0}
+		"instruction_age_ms": mini(86400000, now - observation_at) if observation_at > 0 else 0}
 	sent_at = now
 	sent_epoch = epoch
 	var result := request.request(endpoint, ["Content-Type: application/json"], HTTPClient.METHOD_POST, JSON.stringify(body))
@@ -141,7 +141,7 @@ func _completed(result: int, code: int, _headers: PackedStringArray, body: Packe
 	if result == HTTPRequest.RESULT_SUCCESS and code == 200 and data is Dictionary and data.get("instruction") is String and not data.instruction.strip_edges().is_empty() and data.instruction.length() <= 240:
 		instruction = data.instruction.strip_edges()
 		latency_ms = maxi(1, now - sent_at)
-		received_at = now
+		observation_at = sent_at
 		ready_to_drive = true
 		error_text = ""
 		retry_at = 0

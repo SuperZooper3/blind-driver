@@ -22,6 +22,7 @@ test('fresh visual observation uses Hydrogen low thinking; returns only advice a
     assert.equal(options.headers['x-goog-api-key'], 'secret-fixture');
     const body = JSON.parse(options.body);
     assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'low');
+    assert.equal(body.generationConfig.mediaResolution, 'MEDIA_RESOLUTION_LOW');
     assert.equal(body.contents[0].parts.filter(p => p.inlineData).length, 2);
     assert.match(body.contents[0].parts[0].text, /Straight ahead/);
     return answer('Ease left (A), then straighten.');
@@ -76,4 +77,22 @@ test('timed out calls release capacity for another request', async t => {
   } });
   assert.match((await (await post()).json()).error, /timed out/);
   assert.equal((await post()).status, 200);
+});
+
+test('disconnecting the game cancels its upstream call', async t => {
+  let started;
+  let cancelled;
+  const begun = new Promise(resolve => { started = resolve; });
+  const aborted = new Promise(resolve => { cancelled = resolve; });
+  const { base } = await fixture(t, { key: 'fixture', fetchImpl: async (_url, { signal }) => {
+    started();
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => { cancelled(); reject(new Error('cancelled')); }));
+  } });
+  const controller = new AbortController();
+  const pending = fetch(`${base}/api/ai/navigate`, { method: 'POST', signal: controller.signal,
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(observation) }).catch(() => {});
+  await begun;
+  controller.abort();
+  await Promise.race([aborted, new Promise((_resolve, reject) => { const timer = setTimeout(() => reject(new Error('upstream not cancelled')), 1000); timer.unref(); })]);
+  await pending;
 });

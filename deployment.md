@@ -370,9 +370,9 @@ The same-origin `/api/ai/navigate` endpoint sends two compact JPEGs (passenger v
 and map), speed, route card, previous instruction and timing to Gemini. It uses
 [Hydrogen](https://aistudio.google.com/docs/models/gemini-4-hydrogen) with
 [low thinking](https://aistudio.google.com/docs/thinking#thinking-levels), its
-lowest supported latency setting. Calls are sequential with no intentional delay
+lowest supported latency setting, plus low media resolution to reduce image tokens. Calls are sequential with no intentional delay
 on success; the frontend server keeps at most four calls in flight across players.
-API quota responses set a shared provider cooldown. Requests time out after 25 s;
+API quota responses set a shared provider cooldown. Requests time out after 60 s;
 no screenshots, credentials, provider error bodies or dialogue are logged/stored.
 This is a public game endpoint backed by the host's Gemini quota.
 

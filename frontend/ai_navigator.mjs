@@ -30,7 +30,7 @@ function retryDelay(response, body) {
   return Math.min(3600, Math.max(5, Math.ceil(delay || 60)));
 }
 
-export function createNavigator({ key = process.env.GEMINI_API_KEY || '', fetchImpl = fetch, timeoutMs = 25_000 } = {}) {
+export function createNavigator({ key = process.env.GEMINI_API_KEY || '', fetchImpl = fetch, timeoutMs = 60_000 } = {}) {
   let active = 0;
   let cooldownUntil = 0;
   return async (request, response) => {
@@ -51,7 +51,10 @@ export function createNavigator({ key = process.env.GEMINI_API_KEY || '', fetchI
     }
     active++;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => {
+      controller.abort();
+      if (!request.complete) request.destroy();
+    }, timeoutMs);
     const disconnected = () => { if (!response.writableEnded) controller.abort(); };
     response.on('close', disconnected);
     try {
@@ -73,7 +76,7 @@ export function createNavigator({ key = process.env.GEMINI_API_KEY || '', fetchI
           contents: [{ role: 'user', parts: [{ text: JSON.stringify(context) },
             { text: 'Current clear passenger view:' }, { inlineData: { mimeType: 'image/jpeg', data: body.view } },
             { text: 'Current heading-relative navigator map:' }, { inlineData: { mimeType: 'image/jpeg', data: body.map } }] }],
-          generationConfig: { thinkingConfig: { thinkingLevel: 'low' }, maxOutputTokens: 2048 } }) });
+          generationConfig: { thinkingConfig: { thinkingLevel: 'low' }, mediaResolution: 'MEDIA_RESOLUTION_LOW', maxOutputTokens: 2048 } }) });
       const result = await upstream.json().catch(() => ({}));
       if (!upstream.ok) {
         if (upstream.status === 429) {

@@ -31,7 +31,7 @@ Choose **Single Player Play with AI** on the browser loading page or the in-game
 start screen. You drive with the blurred windshield; **Gemini Hydrogen** sees the
 clear passenger camera and map and gives one current instruction across the top.
 The small spinner means a request is in flight. **Latest latency** is the most
-recent successful request's full round trip in milliseconds; advice age is shown
+recent successful request's full round trip in milliseconds; source-image age is shown
 separately, with a warning once it is older than five seconds.
 
 The game runs at normal speed. Your first instruction starts the ride and police
