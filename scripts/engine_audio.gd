@@ -12,6 +12,7 @@ var roughness := 0.0
 var misfire := 1.0
 
 func _ready() -> void:
+	playback_type = AudioServer.PLAYBACK_TYPE_STREAM
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = 22050.0
 	generator.buffer_length = 0.12

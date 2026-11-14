@@ -8,8 +8,8 @@ const SPRING_LENGTH := 0.62
 const WHEEL_RADIUS := 0.36
 const SPRING_STRENGTH := 28000.0
 const SPRING_DAMPING := 3800.0
-const ENGINE_FORCE := 7800.0
-const MAX_SPEED := 29.0
+const ENGINE_FORCE := 11500.0
+const MAX_SPEED := 44.0
 var suspension_points := [Vector3(-0.88, 0.0, -1.3), Vector3(0.88, 0.0, -1.3), Vector3(-0.88, 0.0, 1.25), Vector3(0.88, 0.0, 1.25)]
 var wheel_pivots: Array[Node3D] = []
 var wheel_meshes: Array[Node3D] = []
@@ -17,6 +17,16 @@ var steering := 0.0
 var throttle := 0.0
 var brake_input := 0.0
 var handbrake := false
+var run_state := "driving"
+var crash_reason := ""
+var run_id := 0
+var punctured_tires := 0
+## Tires touching thorns this frame, as a wheel bitmask.
+var thorn_contact := 0
+var broken_down := false
+## Tire health lost per second while a tire sits in thorns.
+const THORN_WEAR := 0.8
+var rollover_time := 0.0
 var driving_enabled := false
 var remote := false
 var on_road := true
@@ -26,6 +36,7 @@ var distance_driven := 0.0
 var wheel_spin := 0.0
 var reset_transform := Transform3D.IDENTITY
 var reset_pending := false
+var recovery_grace := 0
 var recovery_serial := 0
 var impact_strength := 0.0
 var steering_wheel: Node3D
@@ -43,7 +54,10 @@ func _ready() -> void:
 	mass = 1050.0
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = Vector3(0, -0.26, 0.12)
-	linear_damp = 0.05
+	# A light cabin protects occupants without treating its empty volume as heavy metal.
+	inertia = Vector3(1450, 1750, 400)
+	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	linear_damp = 0.02
 	angular_damp = 1.5
 	continuous_cd = true
 	can_sleep = false
@@ -59,9 +73,25 @@ func _ready() -> void:
 	shape.shape = box
 	shape.position.y = 0.1
 	add_child(shape)
+	# The old chassis-only collider let the entire cabin sink through the ground.
+	var roof := CollisionShape3D.new()
+	roof.name = "RoofCollision"
+	var roof_box := BoxShape3D.new()
+	roof_box.size = Vector3(1.94, 0.24, 2.35)
+	roof.shape = roof_box
+	roof.position = Vector3(0, 1.62, 0.38)
+	add_child(roof)
+	for x in [-0.88, 0.88]:
+		var side := CollisionShape3D.new()
+		var side_box := BoxShape3D.new()
+		side_box.size = Vector3(0.18, 1.35, 2.25)
+		side.shape = side_box
+		side.position = Vector3(x, 0.98, 0.38)
+		add_child(side)
 	_build_model()
 	damage.part_broken.connect(_on_part_broken)
-	body_entered.connect(func(_body: Node): impact_strength = clampf(linear_velocity.length() / 12.0, 0.0, 1.0))
+	body_entered.connect(func(_body: Node):
+		impact_strength = clampf(linear_velocity.length() / 12.0, 0.0, 1.0))
 
 func _build_model() -> void:
 	var paint := Geo.material(Color("d3924b"))
@@ -70,7 +100,7 @@ func _build_model() -> void:
 	var trim := Geo.material(Color("c3c4a9"))
 	var seat := Geo.material(Color("55645a"))
 	Geo.box(self, Vector3(1.9, 0.55, 3.9), Vector3(0, 0.05, 0), paint)
-	damage.register(Damage.HOOD, Geo.box(self, Vector3(1.84, 0.26, 1.15), Vector3(0, 0.43, -1.28), paint))
+	damage.register(Damage.ENGINE, Geo.box(self, Vector3(1.84, 0.26, 1.15), Vector3(0, 0.43, -1.28), paint))
 	Geo.box(self, Vector3(1.8, 0.14, 0.66), Vector3(0, 0.64, -0.58), dark)
 	damage.register(Damage.FRONT_BUMPER, Geo.box(self, Vector3(1.94, 0.19, 0.16), Vector3(0, -0.13, -2.03), trim))
 	damage.register(Damage.REAR_BUMPER, Geo.box(self, Vector3(1.94, 0.19, 0.16), Vector3(0, -0.13, 2.03), trim))
@@ -89,7 +119,9 @@ func _build_model() -> void:
 		Geo.box(self, Vector3(0.1, 0.5, 2.25), Vector3(x, 0.45, 0.35), paint)
 	for x in [-0.44, 0.44]:
 		Geo.box(self, Vector3(0.62, 0.25, 0.65), Vector3(x, 0.45, 0.35), seat)
-		Geo.box(self, Vector3(0.62, 0.75, 0.18), Vector3(x, 0.83, 0.68), seat)
+		var seat_back := Geo.box(self, Vector3(0.62, 0.75, 0.18), Vector3(x, 0.83, 0.68), seat)
+		# Hide the backrest from both first-person cameras, as with the occupants.
+		seat_back.layers = 2
 		var person := Geo.sphere(self, 0.21, Vector3(x, 1.2, 0.32), Geo.material(Color("c3ad84") if x < 0 else Color("b9ccba")))
 		# Occupants are visible in chase view but hidden from both seat cameras.
 		person.layers = 2
@@ -136,12 +168,15 @@ func _build_model() -> void:
 		headlights.append(light)
 
 func _physics_process(delta: float) -> void:
+	recovery_grace = maxi(0, recovery_grace - 1)
 	if remote:
 		return
 	var steer_target := 0.0
 	throttle = 0.0
 	brake_input = 0.0
 	handbrake = false
+	if run_state != "driving":
+		driving_enabled = false
 	if driving_enabled:
 		steer_target = Input.get_axis("steer_right", "steer_left")
 		var forward := Input.get_action_strength("accelerate")
@@ -156,12 +191,14 @@ func _physics_process(delta: float) -> void:
 	else:
 		brake_input = 1.0
 	steering = move_toward(steering, steer_target, delta * (3.6 if steer_target != 0.0 else 5.2))
+	angular_damp = 0.45 if grounded_wheels == 0 else 1.5
 	signed_speed = linear_velocity.dot(-global_basis.z)
-	distance_driven += linear_velocity.length() * delta if driving_enabled else 0.0
+	distance_driven += Vector2(linear_velocity.x, linear_velocity.z).length() * delta if driving_enabled and grounded_wheels > 0 and recovery_grace == 0 and not reset_pending else 0.0
 	impact_strength = move_toward(impact_strength, 0.0, delta * 2.0)
 	wheel_spin += signed_speed * delta / WHEEL_RADIUS
 	steering_wheel.rotation.z = steering * 1.9
 	update_wheel_visuals()
+	update_tire_visuals()
 
 ## Shared by the driver and the navigator's interpolated copy.
 func update_wheel_visuals() -> void:
@@ -194,7 +231,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	for i in suspension_points.size():
 		var local: Vector3 = suspension_points[i]
 		var origin := state.transform * local
-		var query := PhysicsRayQueryParameters3D.create(origin, origin - up * (SPRING_LENGTH + WHEEL_RADIUS))
+		var radius := WHEEL_RADIUS * (0.55 if punctured_tires & (1 << i) else 1.0)
+		var query := PhysicsRayQueryParameters3D.create(origin, origin - up * (SPRING_LENGTH + radius))
 		query.exclude = [get_rid()]
 		if not damage.alive(i):
 			_scrape(state, origin, up)
@@ -205,12 +243,12 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			continue
 		grounded_wheels += 1
 		var distance: float = origin.distance_to(hit.position)
-		var compression := clampf(SPRING_LENGTH - (distance - WHEEL_RADIUS), 0.0, SPRING_LENGTH)
+		var compression := clampf(SPRING_LENGTH - (distance - radius), 0.0, SPRING_LENGTH)
 		var offset: Vector3 = origin - state.transform.origin
 		var velocity := state.linear_velocity + state.angular_velocity.cross(offset - state.transform.basis * center_of_mass)
 		var spring_force := clampf(compression * SPRING_STRENGTH - velocity.dot(up) * SPRING_DAMPING, 0.0, 14000.0)
 		state.apply_force(up * spring_force, offset)
-		wheel_pivots[i].position.y = -(distance - WHEEL_RADIUS)
+		wheel_pivots[i].position.y = -(distance - radius)
 		var tire_forward := forward.rotated(up, (steering_angle() if i < 2 else 0.0) + damage.wheel_toe(i))
 		tire_forward = tire_forward.slide(hit.normal).normalized()
 		var tire_side := tire_forward.cross(hit.normal).normalized()
@@ -223,12 +261,15 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var tire_offset := offset - up * 0.18
 		state.apply_force(tire_side * side_force, tire_offset)
 		var speed := velocity.dot(tire_forward)
-		var speed_limit := MAX_SPEED * damage.speed_scale() if throttle >= 0.0 else 9.0
-		var drive := throttle * ENGINE_FORCE * damage.engine_scale() / 4.0 * clampf(1.0 - absf(speed) / speed_limit, 0.0, 1.0)
+		var speed_limit := MAX_SPEED if throttle >= 0.0 else 9.0
+		var drive := throttle * ENGINE_FORCE / 4.0 * clampf(1.0 - absf(speed) / speed_limit, 0.0, 1.0)
 		var brake_force := -speed * (1700.0 * brake_input + (700.0 if handbrake else 0.0))
-		var rolling := -speed * (16.0 if on_road else 100.0)
+		var rolling := -speed * ((16.0 if on_road else 100.0) + (320.0 if punctured_tires & (1 << i) else 0.0))
 		var traction := clampf(drive + brake_force + rolling, -spring_force * 1.3, spring_force * 1.3)
 		state.apply_force(tire_forward * traction, tire_offset)
+	if run_state == "game_over" and (punctured_tires != 0 or broken_down) and grounded_wheels > 0:
+		# Flat tires and tangled brambles bring the wreck to a halt, without cancelling gravity.
+		state.apply_central_force(-Vector3(state.linear_velocity.x, 0, state.linear_velocity.z) * mass * 7.0)
 	# Aerodynamic drag and gentle roll damping; never lock pitch/roll or erase collisions.
 	state.apply_central_force(-state.linear_velocity * state.linear_velocity.length() * 0.8)
 	if grounded_wheels > 1:
@@ -285,15 +326,75 @@ func _on_part_broken(part: int) -> void:
 		lamp_material.albedo_color = Color("4a4a42")
 		for light in headlights:
 			light.visible = false
+	if remote or run_state != "driving":
+		return
+	if part == Damage.ENGINE:
+		broken_down = true
+		finish_run("Your engine broke down")
+	elif part <= Damage.WHEEL_RR and damage.broken_tires() >= Damage.TIRES_TO_BREAK_DOWN:
+		broken_down = true
+		finish_run("Thorns shredded your tires" if thorn_contact != 0 else "Your tires gave out")
 
 func _damage_reset() -> void:
+	broken_down = false
+	thorn_contact = 0
 	lamp_material.emission_enabled = true
 	lamp_material.albedo_color = Color("f8e6ae")
 
+func begin_fall(reason: String) -> void:
+	if remote or run_state != "driving":
+		return
+	run_state = "falling"
+	crash_reason = reason
+	driving_enabled = false
+
+func finish_run(reason: String = "") -> void:
+	if remote or run_state == "game_over":
+		return
+	if not reason.is_empty():
+		crash_reason = reason
+	run_state = "game_over"
+	driving_enabled = false
+	throttle = 0.0
+	brake_input = 1.0
+	impact_strength = 1.0
+
+func check_rollover(delta: float) -> void:
+	if run_state != "driving":
+		return
+	# Let airborne tricks finish; fail once the body has landed on its roof/side.
+	if global_basis.y.dot(Vector3.UP) < 0.25 and get_contact_count() > 0:
+		rollover_time += delta
+	else:
+		rollover_time = 0.0
+	if rollover_time >= 0.65:
+		finish_run("You rolled the car")
+
+## Thorns tear at every tire touching them. Tires go flat one by one; the run
+## only ends once the car can no longer go on (see _on_part_broken).
+func wear_tires(mask: int, delta: float) -> void:
+	thorn_contact = mask & 15
+	if remote or run_state != "driving" or mask == 0:
+		return
+	for wheel in 4:
+		if mask & (1 << wheel):
+			damage.wear_tire(wheel, THORN_WEAR * delta)
+
+func flatten_tire(wheel: int) -> void:
+	punctured_tires |= 1 << wheel
+	update_tire_visuals()
+
+func update_tire_visuals() -> void:
+	for i in wheel_pivots.size():
+		wheel_pivots[i].scale.y = 0.55 if punctured_tires & (1 << i) else 1.0
+
 func recover(point: Vector3, direction: Vector3) -> void:
+	if run_state != "driving":
+		return
 	var flat := Vector3(direction.x, 0.0, direction.z).normalized()
 	reset_transform = Transform3D(Basis.looking_at(flat), point + Vector3.UP * 1.05)
 	reset_pending = true
+	recovery_grace = 3
 
 func toggle_lights() -> void:
 	if not damage.headlights_ok():

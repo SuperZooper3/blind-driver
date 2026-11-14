@@ -5,11 +5,22 @@ const Car = preload("res://scripts/car.gd")
 const UI = preload("res://scripts/game_ui.gd")
 const Audio = preload("res://scripts/engine_audio.gd")
 const Session = preload("res://scripts/session.gd")
+const Pursuit = preload("res://scripts/police_pursuit.gd")
+const Siren = preload("res://scripts/police_siren.gd")
+var police: Node3D
+var siren: AudioStreamPlayer
+var looking_back := false
+const Records = preload("res://scripts/run_records.gd")
+var records := Records.new()
+var record_timer := 0.0
+var record_run_id := -1
 var world: Node3D
 var car: RigidBody3D
 var ui: CanvasLayer
 var driver_view: SubViewport
 var navigator_view: SubViewport
+var mirror_view: SubViewport
+var mirror_camera: Camera3D
 var driver_camera: Camera3D
 var navigator_camera: Camera3D
 var motor: AudioStreamPlayer
@@ -25,6 +36,7 @@ var local_navigator_pid := -1
 var local_pair_deadline := 0
 
 func _ready() -> void:
+	records.load_record()
 	_setup_input()
 	_setup_environment()
 	world = World.new()
@@ -34,44 +46,67 @@ func _ready() -> void:
 	car.name = "Car"
 	car.position = Vector3(0, World.height_at(0, 12) + 1.1, 12)
 	add_child(car)
+	police = Pursuit.new()
+	police.name = "Police"
+	police.car = car
+	police.world = world
+	add_child(police)
+	police.reset()
 	driver_view = _make_view("DriverView")
 	navigator_view = _make_view("NavigatorView")
 	driver_camera = _make_camera(driver_view)
 	navigator_camera = _make_camera(navigator_view)
+	mirror_view = _make_view("MirrorView")
+	mirror_view.size = Vector2i(640, 200)
+	mirror_camera = _make_camera(mirror_view)
+	mirror_camera.fov = 65
 	ui = UI.new()
 	add_child(ui)
 	ui.driver_screen.texture = driver_view.get_texture()
 	ui.navigator_screen.texture = navigator_view.get_texture()
+	ui.driver_mirror.texture = mirror_view.get_texture()
+	ui.navigator_mirror.texture = mirror_view.get_texture()
 	blur_material = ShaderMaterial.new()
 	blur_material.shader = preload("res://shaders/driver_blur.gdshader")
 	ui.driver_screen.material = blur_material
+	ui.driver_mirror.material = blur_material
 	ui.blur_slider.value_changed.connect(func(value: float): blur_material.set_shader_parameter("blur_amount", value))
 	ui.map.world = world
 	ui.map.car = car
 	ui.play_requested.connect(_start)
 	ui.resume_requested.connect(_resume)
-	ui.recover_requested.connect(_recover)
+	ui.restart_requested.connect(func():
+		_restart_run()
+		_resume())
 	ui.host_requested.connect(_host)
 	ui.connect_requested.connect(_join)
 	ui.online_create_requested.connect(_host_online)
-	ui.online_join_requested.connect(_join_online)
+	ui.online_join_requested.connect(func(address: String, lobby: String): _join_online(address, "", lobby))
 	ui.online_cancel_requested.connect(_leave_online)
 	ui.show_menu(true, false)
 	motor = Audio.new()
 	motor.car = car
 	add_child(motor)
+	siren = Siren.new()
+	siren.pursuit = police
+	siren.car = car
+	add_child(siren)
 	session = Session.new()
 	session.name = "Session"
 	session.car = car
 	session.world = world
+	session.police = police
 	add_child(session)
-	session.status_changed.connect(func(message: String): ui.status_label.text = message)
+	session.status_changed.connect(func(message: String):
+		ui.status_label.text = message
+		if session.online and ui.in_menu:
+			ui.online_status.text = message)
 	session.connection_lost.connect(func(): car.driving_enabled = false)
 	session.navigator_joined.connect(func():
 		if session.online:
 			_online_ready()
 		car.driving_enabled = not ui.in_menu and session.can_drive())
-	session.room_created.connect(ui.display_room_code)
+	session.room_created.connect(ui.display_lobby_ready)
 	session.online_joined.connect(_online_ready)
 	session.ride_restored.connect(func(): car.driving_enabled = not ui.in_menu and session.can_drive())
 	ui.network_session = session
@@ -149,17 +184,23 @@ func _make_camera(view: SubViewport) -> Camera3D:
 func _resize_views() -> void:
 	driver_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.driver_screen.visible else SubViewport.UPDATE_DISABLED
 	navigator_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.navigator_screen.visible else SubViewport.UPDATE_DISABLED
+	mirror_view.render_target_update_mode = SubViewport.UPDATE_DISABLED if ui.in_menu else SubViewport.UPDATE_ALWAYS
 	var size := get_viewport().get_visible_rect().size
 	var width := size.x * 0.5 if mode == "split" and not ui.in_menu else size.x
 	# Low resolution plus the blur pass makes the driver's vision genuinely unreadable.
-	driver_view.size = Vector2i(maxi(64, int(width / 5.0)), maxi(64, int((size.y - 172) / 5.0)))
-	navigator_view.size = Vector2i(int(width), maxi(64, int(size.y - 172)))
+	driver_view.size = Vector2i(maxi(64, int(width / 5.0)), maxi(64, int((size.y - 78 - (0 if ui.in_menu else UI.FOOTER_HEIGHT)) / 5.0)))
+	navigator_view.size = Vector2i(int(width), maxi(64, int(size.y - 78 - (0 if ui.in_menu else UI.FOOTER_HEIGHT))))
 
 func _process(delta: float) -> void:
 	world.focus = car.global_position
+	looking_back = mode != "host" and not ui.in_menu and car.run_state == "driving" and (Input.is_action_pressed("look_back") or ui.rear_button_held)
+	if looking_back and ui.map_open:
+		ui.close_map()
 	_update_cameras(delta)
+	ui.update_pursuit(police, looking_back, car.run_state == "driving")
+	siren.enabled = started and not audio_muted and not ui.in_menu and car.run_state == "driving" and not session.recovering and not session.stale and session.role != "disconnected"
 	motor.enabled = started and not audio_muted and not ui.in_menu
-	if ui.in_menu or (session.online and not session.can_drive()):
+	if ui.in_menu or car.run_state != "driving" or (session.online and not session.can_drive()):
 		car.driving_enabled = false
 	if local_navigator_pid > 0:
 		_local_navigator_running()
@@ -171,53 +212,137 @@ func _process(delta: float) -> void:
 			ui.show_menu(true)
 			ui.status_label.text = "NAVIGATOR DID NOT CONNECT / RETRY LOCAL CO-OP"
 			_resize_views()
-	ui.speed_label.text = "%02d" % roundi(absf(car.signed_speed) * 3.6)
-	ui.distance_label.text = "%.2f\nKILOMETERS" % (car.distance_driven / 1000.0)
+	if started:
+		if record_run_id != car.run_id:
+			records.begin_run()
+			record_run_id = car.run_id
+		records.observe(car.distance_driven)
+		record_timer += delta
+		if record_timer >= 5.0 or car.run_state == "game_over":
+			records.save_record()
+			record_timer = 0.0
+	ui.personal_best_label.text = "PERSONAL BEST   %.2f km" % (records.best_distance / 1000.0)
+	ui.dashboard.best_km = records.best_distance / 1000.0
+	ui.dashboard.speed_kmh = absf(car.signed_speed) * 3.6
+	ui.dashboard.distance_km = car.distance_driven / 1000.0
 	ui.surface_label.text = "GRAVEL" if car.on_road else "OFF ROAD"
+	ui.heat_label.text = "HEAT %d / 5" % (World.heat_for_distance(car.distance_driven) + 1)
+	ui.heat_label.modulate = Color("ef9364").lerp(Color("ef554a"), World.heat_for_distance(car.distance_driven) / 4.0)
 	if car.grounded_wheels == 0 and started:
 		ui.surface_label.text = "AIRBORNE"
 	route_timer += delta
 	if route_timer > 0.25:
 		route_timer = 0.0
 		_update_route()
-		car.on_road = world.road_distance(car.global_position) < 4.6
-	if car.global_position.y < -35:
-		_recover()
-	ui.hint_label.text = "UPSIDE DOWN?  Press R to recover." if car.global_basis.y.dot(Vector3.UP) < 0.35 else ""
+		if not car.remote:
+			car.on_road = world.road_distance(car.global_position) < 4.6
+	ui.show_run_result(car.run_state, car.crash_reason, car.distance_driven, mode == "join", records.best_distance, records.new_best)
+	ui.hint_label.text = "Thorn thickets ahead — stay near the road" if car.run_state == "driving" and world.road_distance(car.global_position) > 12.0 else ""
+	if car.thorn_contact != 0 and car.run_state == "driving":
+		ui.surface_label.text = "THORNS / TIRES TEARING"
+	elif car.punctured_tires != 0:
+		ui.surface_label.text = "FLAT TIRE" if car.run_state == "driving" else "TIRES PUNCTURED"
 	ui.damage_label.text = car.damage.summary() if started else ""
 	ui.set_windshield_crack(car.damage.windshield_crack(), ui.in_menu or chase_camera)
-	motor.roughness = 1.0 - car.damage.engine_scale()
+	motor.roughness = car.damage.engine_roughness()
+
+func _physics_process(delta: float) -> void:
+	if not car.remote:
+		world.difficulty = World.heat_for_distance(car.distance_driven)
+		var running: bool = started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive()
+		if running:
+			world.set_challenge_time(world.challenge_time + delta)
+			world.assist_jump(car)
+		police.advance(delta, running)
+	if not started or car.remote or car.reset_pending or car.recovery_grace > 0:
+		return
+	var hole: Dictionary = world.void_at(car.global_position)
+	if not hole.is_empty():
+		var rim: float = hole.position.y + hole.size.y
+		if car.global_position.y < rim - 1.5:
+			var reasons := {"cliff": "The road ended at a cliff", "lake": "You plunged into the lake", "jump_gap": "You didn't clear the jump", "timed_bridge": "You missed the timed bridge"}
+			car.begin_fall(reasons[hole.kind])
+		if car.run_state == "falling" and (car.global_position.y < hole.position.y + 2.5 or (hole.kind == "lake" and car.global_position.y < rim - 3.0)):
+			car.finish_run()
+	if car.run_state == "driving":
+		car.check_rollover(delta)
+		car.wear_tires(world.puncture_mask(car), delta)
+	if car.global_position.y < -55.0 and car.run_state != "game_over":
+		car.begin_fall("You fell into the valley")
+		car.finish_run()
+
+func _restart_run() -> void:
+	if mode == "join":
+		return
+	records.observe(car.distance_driven)
+	records.save_record()
+	records.begin_run()
+	world.reset_world()
+	police.reset()
+	car.run_id += 1
+	car.punctured_tires = 0
+	car.damage.reset()
+	car.rollover_time = 0.0
+	car.update_tire_visuals()
+	car.run_state = "driving"
+	car.crash_reason = ""
+	car.distance_driven = 0.0
+	car.recover(World.ground_point(0, 12, 0.17), Vector3.FORWARD)
+	car.driving_enabled = not ui.in_menu and session.can_drive()
+	camera_initialized = false
+	ui.close_map()
 
 func _update_cameras(delta: float) -> void:
 	var car_basis := car.global_basis.orthonormalized()
 	var flat_forward := -car_basis.z
 	flat_forward.y = 0.0
+	if flat_forward.length_squared() < 0.001:
+		flat_forward = Vector3.FORWARD
 	flat_forward = flat_forward.normalized()
 	var stable := Basis.looking_at(flat_forward)
 	var seat_basis := stable.slerp(car_basis, 0.35)
 	var driver_target := Transform3D(seat_basis, car.global_transform * Vector3(-0.43, 1.23, -0.05))
 	var nav_target := Transform3D(seat_basis, car.global_transform * Vector3(0.43, 1.23, -0.05))
-	var chase: bool = ui.in_menu or chase_camera
+	var chase: bool = ui.in_menu or (chase_camera and not looking_back) or car.run_state != "driving"
+	if looking_back:
+		nav_target.basis = seat_basis * Basis(Vector3.UP, PI)
+		nav_target.origin = car.global_transform * Vector3(0.43, 1.30, 0.9)
 	navigator_camera.cull_mask = 3 if chase else 1
 	if chase:
 		var offset := Vector3(5.8, 3.8, 7.0) if ui.in_menu else Vector3(0, 3.5, 7.8)
 		var target_position := car.global_position + stable * offset
-		var ground: float = World.height_at(target_position.x, target_position.z)
+		var ground: float = world.surface_height(target_position)
 		target_position.y = maxf(target_position.y, ground + 1.4)
 		nav_target = Transform3D(Basis.looking_at(car.global_position + Vector3.UP * 0.7 - target_position), target_position)
 	var weight := 1.0 - exp(-delta * (7.0 if chase else 18.0))
 	if not camera_initialized:
 		weight = 1.0
 		camera_initialized = true
+	var mirror_target := Transform3D(seat_basis * Basis(Vector3.UP, PI), car.global_transform * Vector3(0, 1.32, 1.35))
+	mirror_camera.global_transform = mirror_camera.global_transform.interpolate_with(mirror_target, 1.0 - exp(-delta * 18.0) if weight < 1.0 else 1.0)
 	driver_camera.global_transform = driver_camera.global_transform.interpolate_with(driver_target, weight)
 	navigator_camera.global_transform = navigator_camera.global_transform.interpolate_with(nav_target, weight)
 	navigator_camera.fov = lerpf(navigator_camera.fov, 76.0 + absf(car.signed_speed) * 0.24, delta * 2.0)
 
 func _update_route() -> void:
+	# The navigator can read the approaching challenge while watching the road.
+	for road: Dictionary in world.roads:
+		for hazard: Dictionary in road.hazards:
+			if not World.Challenge.is_challenge(hazard): continue
+			var relative: Vector3 = hazard.position - car.global_position
+			if relative.dot(-car.global_basis.z) < -12 or relative.length() > 100: continue
+			if hazard.kind == "jump_gap":
+				ui.route_label.text = "Jump gap ahead"
+				ui.route_distance.text = "Line up on the ramp / 65+ km/h"
+			else:
+				var state := World.Challenge.bridge_state(hazard, world.challenge_time)
+				ui.route_label.text = "Bridge closing" if state.warning else ("Bridge open" if state.open else "Wait for the bridge")
+				ui.route_distance.text = ("Closes in %d s" if state.open else "Opens in %d s") % maxi(1, ceili(state.remaining))
+			return
 	var nearest: Dictionary = {}
 	var distance := INF
 	for road: Dictionary in world.roads:
-		if int(road.depth) % 2 != 0:
+		if road.danger or int(road.depth) % 2 != 0:
 			continue
 		var end: Vector3 = road.points[-1]
 		var relative := end - car.global_position
@@ -231,14 +356,12 @@ func _update_route() -> void:
 		ui.route_label.text = "Follow the road"
 		ui.route_distance.text = "The next fork is still ahead."
 		return
-	var left: bool = int(nearest.id) % 2 == 0
-	ui.route_label.text = "↖  Take the left fork" if left else "Take the right fork  ↗"
-	ui.route_distance.text = "%d m to junction   /   M to unfold map" % (roundi(distance / 5.0) * 5)
-	var children: Array[Dictionary] = []
+	# Directions require consulting the sheet; the card never gives the answer away.
+	var exits := 0
 	for road: Dictionary in world.roads:
-		if int(road.parent) == int(nearest.id) and int(road.depth) > int(nearest.depth):
-			children.append(road)
-	ui.map.route_id = int(children[0 if left else 1].id) if children.size() >= 2 else -1
+		if road.parent == nearest.id and road.id != nearest.id: exits += 1
+	ui.route_label.text = "Three ways / check map" if exits >= 3 else "Fork ahead / check map"
+	ui.route_distance.text = "%d m / compare routes and dead ends" % (roundi(distance / 5.0) * 5)
 
 func _start(value: String) -> void:
 	if value == "local_windows":
@@ -246,12 +369,13 @@ func _start(value: String) -> void:
 		return
 	_close_local_navigator()
 	session.stop()
+	ui.set_online_busy(false)
 	mode = value
-	# A new ride is a fresh car; damage otherwise lasts the whole run.
-	car.damage.reset()
 	chase_camera = mode == "solo"
 	started = true
-	car.driving_enabled = true
+	if car.run_state == "game_over":
+		_restart_run()
+	car.driving_enabled = car.run_state == "driving"
 	ui.set_mode(mode)
 	ui.show_menu(false)
 	_resize_views()
@@ -262,15 +386,15 @@ func _resume() -> void:
 	_resize_views()
 
 func _recover() -> void:
-	if mode == "join":
+	if mode == "join" or car.run_state != "driving" or not world.void_at(car.global_position).is_empty():
 		return
-	var road: Dictionary = world.nearest_road(car.global_position)
+	var road: Dictionary = world.recovery_spot(car.global_position)
 	car.recover(road.point, road.direction)
 	camera_initialized = false
 
 func _host(bind_address: String = "*") -> void:
 	_close_local_navigator()
-	car.damage.reset()
+	ui.set_online_busy(false)
 	mode = "host"
 	ui.set_mode(mode)
 	if session.host(bind_address) != OK:
@@ -282,13 +406,13 @@ func _host(bind_address: String = "*") -> void:
 	car.driving_enabled = true
 	chase_camera = false
 	ui.show_menu(false)
-	ui.status_label.text = "DRIVER / HOSTING ON PORT %d" % session.PORT
+	ui.status_label.text = "DRIVER / HOSTING ON PORT %d" % session.port
 	get_window().title = "Blind Driver — Driver"
 	_resize_views()
 
 func _join(address: String) -> void:
 	_close_local_navigator()
-	car.damage.reset()
+	ui.set_online_busy(false)
 	mode = "join"
 	ui.set_mode(mode)
 	if session.join(address) != OK:
@@ -357,31 +481,31 @@ func _local_navigator_running() -> bool:
 	return true
 
 func _exit_tree() -> void:
+	records.save_record()
 	_close_local_navigator()
 	preload("res://scripts/network_log.gd").close()
 
-func _host_online(address: String) -> void:
+func _host_online(address: String, lobby: String = "") -> void:
 	_close_local_navigator()
-	car.damage.reset()
 	mode = "host"
 	ui.set_mode(mode)
 	car.driving_enabled = false
 	chase_camera = false
-	session.host_online(address)
+	session.host_online(address, lobby)
 	_resize_views()
 
-func _join_online(address: String, code: String) -> void:
+func _join_online(address: String, code: String = "", lobby: String = "") -> void:
 	_close_local_navigator()
-	car.damage.reset()
 	mode = "join"
 	ui.set_mode(mode)
 	car.driving_enabled = false
 	chase_camera = false
-	session.join_online(address, code)
+	session.join_online(address, code, lobby)
 	_resize_views()
 
 func _online_ready() -> void:
-	var first_connection: bool = not started or ui.online_panel.visible
+	var first_connection: bool = not started or ui.connecting
+	ui.connecting = false
 	started = true
 	if first_connection:
 		ui.show_menu(false)
@@ -394,8 +518,7 @@ func _leave_online() -> void:
 		started = false
 		mode = "split"
 		ui.set_mode(mode)
-		ui.room_field.text = ""
-		ui.online_status.text = "Enter the relay address, then create or join a room."
+		ui.online_status.text = "Your lobby name is saved. Choose a seat when you’re ready."
 	ui.set_online_busy(false)
 	ui.show_menu(true, started)
 	car.driving_enabled = false
@@ -417,15 +540,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		ui.toggle_map()
 	if event.is_action_pressed("camera"):
 		chase_camera = not chase_camera
-	if event.is_action_pressed("recover"):
-		_recover()
 	if event.is_action_pressed("lights") and mode != "join":
 		car.toggle_lights()
 	if event.is_action_pressed("mute"):
 		audio_muted = not audio_muted
 
 func _setup_input() -> void:
-	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "recover": [KEY_R], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F], "mute": [KEY_V]}
+	var bindings := {"accelerate": [KEY_W, KEY_UP], "reverse": [KEY_S, KEY_DOWN], "steer_left": [KEY_A, KEY_LEFT], "steer_right": [KEY_D, KEY_RIGHT], "handbrake": [KEY_SPACE], "map": [KEY_M, KEY_TAB], "camera": [KEY_C], "look_back": [KEY_B], "menu": [KEY_ESCAPE], "lights": [KEY_H], "fullscreen": [KEY_F], "mute": [KEY_V]}
 	for action: String in bindings:
 		InputMap.add_action(action)
 		for key: int in bindings[action]:
@@ -437,7 +558,7 @@ func _setup_input() -> void:
 		input.axis = entry[1]
 		input.axis_value = entry[2]
 		InputMap.action_add_event(entry[0], input)
-	for entry: Array in [["handbrake", JOY_BUTTON_A], ["map", JOY_BUTTON_Y], ["recover", JOY_BUTTON_BACK], ["menu", JOY_BUTTON_START]]:
+	for entry: Array in [["handbrake", JOY_BUTTON_A], ["map", JOY_BUTTON_Y], ["look_back", JOY_BUTTON_RIGHT_SHOULDER], ["menu", JOY_BUTTON_START]]:
 		var input := InputEventJoypadButton.new()
 		input.button_index = entry[1]
 		InputMap.action_add_event(entry[0], input)

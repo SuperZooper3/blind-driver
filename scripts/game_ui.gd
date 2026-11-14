@@ -2,15 +2,17 @@ extends CanvasLayer
 
 signal play_requested(mode: String)
 signal resume_requested
-signal recover_requested
+signal restart_requested
 signal connect_requested(address: String)
 signal host_requested
 signal leave_requested
-signal online_create_requested(address: String)
-signal online_join_requested(address: String, code: String)
+signal online_create_requested(address: String, lobby: String)
+signal online_join_requested(address: String, lobby: String)
 signal online_cancel_requested
 
-const DEFAULT_RELAY_URL := "https://blind-driver-relay.onrender.com"
+const Settings = preload("res://scripts/lobby_settings.gd")
+const Dashboard = preload("res://scripts/dashboard.gd")
+const FOOTER_HEIGHT := 148.0
 const Map = preload("res://scripts/route_map.gd")
 const Cracks = preload("res://scripts/windshield_cracks.gd")
 var ink := Color("142f2c")
@@ -21,13 +23,24 @@ var root: Control
 var views: HBoxContainer
 var driver_screen: TextureRect
 var navigator_screen: TextureRect
+var driver_mirror: TextureRect
+var navigator_mirror: TextureRect
+var driver_mirror_frame: PanelContainer
+var navigator_mirror_frame: PanelContainer
 var menu: PanelContainer
 var hud: Control
 var map: Control
 var map_panel: PanelContainer
-var speed_label: Label
-var distance_label: Label
+var map_clip: Control
+var dashboard: Control
+var personal_best_label: Label
+var pursuit_box: VBoxContainer
+var pursuit_title: Label
+var pursuit_detail: Label
+var rear_button: Button
+var rear_button_held := false
 var surface_label: Label
+var heat_label: Label
 var route_label: Label
 var route_distance: Label
 var status_label: Label
@@ -43,10 +56,21 @@ var driver_cracks: Control
 var navigator_cracks: Control
 var in_menu := true
 var map_open := false
+var map_reveal := 0.0
+var map_tween: Tween
+var result_panel: PanelContainer
+var result_title: Label
+var result_detail: Label
+var restart_button: Button
 var mode := "split"
-var online_panel: PanelContainer
+var settings_panel: PanelContainer
+var local_panel: PanelContainer
+var new_ride_button: Button
+var leave_lobby_button: Button
+var connecting := false
+var preferred_seat := "driver"
 var relay_address: LineEdit
-var room_field: LineEdit
+var lobby_name: LineEdit
 var online_status: Label
 var create_online_button: Button
 var join_online_button: Button
@@ -62,6 +86,7 @@ var diagnostic_timer := 0.0
 func _ready() -> void:
 	root = Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.clip_contents = true
 	add_child(root)
 	var theme := Theme.new()
 	theme.default_font_size = 16
@@ -78,9 +103,13 @@ func _ready() -> void:
 	root.theme = theme
 	_build_views()
 	_build_hud()
+	_build_mirrors()
 	_build_menu()
-	_build_online_menu()
+	_build_settings()
+	_build_local_menu()
+	_load_preferences()
 	_build_diagnostics()
+	_build_run_result()
 	root.resized.connect(_layout)
 	_layout()
 
@@ -151,7 +180,7 @@ func _build_hud() -> void:
 	var edition := _label("FOREST ROADS  /  PROTOTYPE 01", 11, muted)
 	edition.position = Vector2(29, 47)
 	header.add_child(edition)
-	status_label = _label("LOCAL CO-OP   •   SHARED RIDE", 12, amber)
+	status_label = _label("YOUR NEXT RIDE", 12, amber)
 	status_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	status_label.offset_left = -365
 	status_label.offset_right = -28
@@ -164,25 +193,36 @@ func _build_hud() -> void:
 	navigator_tag = _label("02  /  NAVIGATOR\nKEEP TALKING", 13)
 	hud.add_child(navigator_tag)
 	var footer := Panel.new()
+	footer.name = "DashboardPanel"
 	footer.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	footer.offset_top = -94
+	footer.offset_top = -FOOTER_HEIGHT
 	footer.add_theme_stylebox_override("panel", _style(ink))
 	hud.add_child(footer)
-	speed_label = _label("00", 40)
-	speed_label.position = Vector2(28, 7)
-	footer.add_child(speed_label)
-	var unit := _label("KM/H", 10, muted)
-	unit.position = Vector2(110, 38)
-	footer.add_child(unit)
-	surface_label = _label("GRAVEL", 11, amber)
-	surface_label.position = Vector2(28, 62)
+	dashboard = Dashboard.new()
+	dashboard.position = Vector2(16, 0)
+	footer.add_child(dashboard)
+	surface_label = _label("GRAVEL", 10, amber)
+	surface_label.position = Vector2(211, 117)
 	footer.add_child(surface_label)
-	distance_label = _label("0.00\nKILOMETERS", 14, muted)
-	distance_label.position = Vector2(177, 23)
-	footer.add_child(distance_label)
-	footer_label = _label("W / S  throttle & brake    A / D  steer    SPACE  handbrake\nM / TAB  map    C  camera    R  recover    ESC  menu", 13, cream)
-	footer_label.position = Vector2(340, 26)
+	heat_label = _label("HEAT 1 / 5", 11, amber)
+	heat_label.position = Vector2(211, 131)
+	footer.add_child(heat_label)
+	footer_label = _label("W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nB / RB  look back    C  camera    ESC  menu", 13, cream)
+	footer_label.position = Vector2(386, 44)
 	footer.add_child(footer_label)
+	pursuit_box = VBoxContainer.new()
+	pursuit_box.custom_minimum_size = Vector2(300, 0)
+	pursuit_box.add_theme_constant_override("separation", 4)
+	footer.add_child(pursuit_box)
+	pursuit_title = _label("PATROL BEHIND YOU", 16, amber)
+	pursuit_box.add_child(pursuit_title)
+	pursuit_detail = _label("Listen for the siren", 12, muted)
+	pursuit_box.add_child(pursuit_detail)
+	rear_button = _button("Hold to look back  /  B or RB", func(): pass)
+	rear_button.custom_minimum_size.y = 34
+	rear_button.button_down.connect(func(): rear_button_held = true)
+	rear_button.button_up.connect(func(): rear_button_held = false)
+	pursuit_box.add_child(rear_button)
 	var route_panel := PanelContainer.new()
 	route_panel.name = "RouteCard"
 	route_panel.add_theme_stylebox_override("panel", _style(Color("193c34"), 8))
@@ -197,13 +237,18 @@ func _build_hud() -> void:
 	route_box.add_child(route_distance)
 	map_panel = PanelContainer.new()
 	map_panel.add_theme_stylebox_override("panel", _style(Color("bcb998"), 5))
-	hud.add_child(map_panel)
+	map_clip = Control.new()
+	map_clip.clip_contents = true
+	map_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map_clip.z_index = 10
+	hud.add_child(map_clip)
+	map_clip.add_child(map_panel)
 	map = Map.new()
-	map.custom_minimum_size = Vector2(260, 190)
+	map.custom_minimum_size = Vector2(0, 0)
 	map_panel.add_child(map)
 	hint_label = _label("", 16, amber)
 	hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	hint_label.position = Vector2(28, -135)
+	hint_label.position = Vector2(28, -FOOTER_HEIGHT - 90)
 	hud.add_child(hint_label)
 	damage_label = _label("", 13, Color("e58a6a"))
 	damage_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
@@ -211,106 +256,194 @@ func _build_hud() -> void:
 	damage_label.offset_left = 28
 	hud.add_child(damage_label)
 
+func _build_mirrors() -> void:
+	for seat in ["driver", "navigator"]:
+		var frame := PanelContainer.new()
+		var style := _style(Color("0b211e"), 12, Color("87988b"))
+		style.set_content_margin_all(4)
+		frame.add_theme_stylebox_override("panel", style)
+		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud.add_child(frame)
+		var mirror := TextureRect.new()
+		mirror.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		mirror.stretch_mode = TextureRect.STRETCH_SCALE
+		mirror.flip_h = true
+		mirror.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		frame.add_child(mirror)
+		if seat == "driver":
+			driver_mirror = mirror
+			driver_mirror_frame = frame
+		else:
+			navigator_mirror = mirror
+			navigator_mirror_frame = frame
+
+func _menu_box(panel: PanelContainer) -> VBoxContainer:
+	panel.add_theme_stylebox_override("panel", _style(ink, 14))
+	root.add_child(panel)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 14)
+	scroll.add_child(box)
+	return box
+
 func _build_menu() -> void:
 	menu = PanelContainer.new()
-	menu.add_theme_stylebox_override("panel", _style(Color("142f2c"), 14))
-	root.add_child(menu)
-	var margin := MarginContainer.new()
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 18)
-	menu.add_child(margin)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 13)
-	margin.add_child(box)
-	box.add_child(_label("A COOPERATIVE WRONG TURN", 12, amber))
-	var title := _label("BLIND\nDRIVER", 64)
-	title.add_theme_constant_override("line_spacing", -15)
-	box.add_child(title)
-	var description := _label("One drives. One sees the way.\nA forest, a battered car, and no end in sight.", 17, muted)
-	box.add_child(description)
-	var divider := HSeparator.new()
-	box.add_child(divider)
+	var box := _menu_box(menu)
+	box.add_child(_label("A COOPERATIVE WRONG TURN", 11, amber))
+	box.add_child(_label("BLIND DRIVER", 42))
+	box.add_child(_label("One drives. One sees the way.", 17, muted))
+	personal_best_label = _label("PERSONAL BEST   0.00 km", 13, amber)
+	box.add_child(personal_best_label)
 	resume_button = _button("Resume the ride   →", func(): resume_requested.emit())
-	resume_button.visible = false
+	resume_button.hide()
 	box.add_child(resume_button)
-	box.add_child(_button("Start local co-op / two windows   →", func(): play_requested.emit("local_windows")))
-	var modes := HBoxContainer.new()
-	modes.add_theme_constant_override("separation", 8)
-	box.add_child(modes)
-	for button: Button in [_button("Shared screen", func(): play_requested.emit("split")), _button("Solo drive", func(): play_requested.emit("solo")), _button("Play online…", show_online)]:
+	box.add_child(HSeparator.new())
+	box.add_child(_label("YOUR ONLINE LOBBY", 12, amber))
+	lobby_name = LineEdit.new()
+	lobby_name.placeholder_text = "Choose a name, e.g. forest-friends"
+	lobby_name.max_length = 40
+	lobby_name.custom_minimum_size.y = 46
+	lobby_name.add_theme_font_size_override("font_size", 19)
+	box.add_child(lobby_name)
+	var explanation := _label("Use the same name on both computers.\nIt’s remembered here for your next ride.", 13, muted)
+	explanation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(explanation)
+	var seats := HBoxContainer.new()
+	seats.add_theme_constant_override("separation", 10)
+	box.add_child(seats)
+	create_online_button = _button("Drive", func(): _enter_lobby("driver"))
+	join_online_button = _button("Navigate", func(): _enter_lobby("navigator"))
+	for button in [create_online_button, join_online_button]:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		modes.add_child(button)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	box.add_child(row)
-	row.add_child(_button("Host driver", func(): host_requested.emit()))
-	address = LineEdit.new()
-	address.text = "127.0.0.1"
-	address.placeholder_text = "Host IP"
-	address.custom_minimum_size.x = 140
-	address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(address)
-	row.add_child(_button("Join navigator", func(): connect_requested.emit(address.text)))
-	box.add_child(_label("Two windows? Host here, then join 127.0.0.1 in another.\nTwo computers? Join the host's local network IP.", 11, muted))
-	var blur_row := HBoxContainer.new()
-	box.add_child(blur_row)
-	blur_row.add_child(_label("Driver blur", 13, muted))
+		button.custom_minimum_size.y = 50
+		seats.add_child(button)
+	online_status = _label("Choose your seat. The ride starts when you’re both here.", 13, amber)
+	online_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	online_status.custom_minimum_size.y = 42
+	box.add_child(online_status)
+	leave_lobby_button = _button("Cancel / leave lobby", func(): online_cancel_requested.emit())
+	leave_lobby_button.hide()
+	box.add_child(leave_lobby_button)
+	new_ride_button = _button("Start a new ride", func(): restart_requested.emit())
+	new_ride_button.hide()
+	box.add_child(new_ride_button)
+	box.add_child(HSeparator.new())
+	var options := HBoxContainer.new()
+	options.add_theme_constant_override("separation", 10)
+	box.add_child(options)
+	for button in [_button("Play on this computer", func(): _show_secondary(local_panel)), _button("Settings", func(): _show_secondary(settings_panel))]:
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		options.add_child(button)
+
+func _build_local_menu() -> void:
+	local_panel = PanelContainer.new()
+	var box := _menu_box(local_panel)
+	box.add_child(_label("PLAY HERE", 30))
+	box.add_child(_label("No internet or lobby needed.", 15, muted))
+	if not OS.has_feature("web"):
+		box.add_child(_button("Two players / two windows", func(): play_requested.emit("local_windows")))
+	box.add_child(_button("Two players / shared screen", func(): play_requested.emit("split")))
+	box.add_child(_button("Solo practice", func(): play_requested.emit("solo")))
+	box.add_child(_button("Back", func(): show_menu(true, resume_button.visible)))
+	local_panel.hide()
+
+func _build_settings() -> void:
+	settings_panel = PanelContainer.new()
+	var box := _menu_box(settings_panel)
+	box.add_child(_label("SETTINGS", 30))
+	box.add_child(_label("Driver blur", 14, muted))
 	blur_slider = HSlider.new()
 	blur_slider.min_value = 0.012
 	blur_slider.max_value = 0.055
 	blur_slider.step = 0.001
 	blur_slider.value = 0.028
-	blur_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	blur_row.add_child(blur_slider)
-	box.add_child(_label("WASD  drive  ·  SPACE  handbrake  ·  M  navigator map\nC  camera  ·  R  recover  ·  H  lights  ·  F  fullscreen\nV  mute  ·  F8  connection & logs\nGamepad: left stick + triggers, A brake, Y map", 12, muted))
-
-func _build_online_menu() -> void:
-	online_panel = PanelContainer.new()
-	online_panel.add_theme_stylebox_override("panel", _style(ink, 14))
-	root.add_child(online_panel)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 16)
-	online_panel.add_child(box)
-	box.add_child(_label("TWO SEATS / ANY TWO COMPUTERS", 12, amber))
-	box.add_child(_label("Take the long way.", 34))
-	box.add_child(_label("Both players use the same relay address.\nThe driver creates a room and shares its code.", 16, muted))
-	box.add_child(_label("Relay address", 13, cream))
+	box.add_child(blur_slider)
+	box.add_child(_label("WASD  drive   ·   SPACE  handbrake   ·   M  map\nB / RB  look back   ·   C  camera   ·   H  lights   ·   F  fullscreen   ·   V  mute\nGamepad: left stick + triggers, A brake, Y map", 12, muted))
+	box.add_child(HSeparator.new())
+	var advanced := VBoxContainer.new()
+	advanced.add_theme_constant_override("separation", 10)
+	var reveal := CheckButton.new()
+	reveal.text = "Advanced connection settings"
+	reveal.toggled.connect(func(value: bool): advanced.visible = value)
+	box.add_child(reveal)
+	box.add_child(advanced)
+	advanced.add_child(_label("Online server / already configured", 13, muted))
 	relay_address = LineEdit.new()
-	relay_address.placeholder_text = DEFAULT_RELAY_URL
+	relay_address.placeholder_text = Settings.DEFAULT_RELAY
+	advanced.add_child(relay_address)
+	var help := _label("This website supplies the online server automatically." if OS.has_feature("web") else "Leave this as it is for normal online play.\nDirect LAN below is only for computers on the same Wi-Fi.", 12, muted)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	advanced.add_child(help)
+	address = LineEdit.new()
+	address.text = "127.0.0.1"
+	address.placeholder_text = "Driver’s local IP address"
+	advanced.add_child(address)
+	if OS.has_feature("web"):
+		address.hide()
+		relay_address.editable = false
+	else:
+		advanced.add_child(_button("Direct LAN / host driver", func(): host_requested.emit()))
+		advanced.add_child(_button("Direct LAN / join navigator", func(): connect_requested.emit(address.text)))
+	advanced.hide()
+	box.add_child(_button("Connection check & logs / F8", toggle_diagnostics))
+	box.add_child(_button("Save & back", func():
+		_save_preferences()
+		show_menu(true, resume_button.visible)))
+	settings_panel.hide()
+
+func _show_secondary(panel: PanelContainer) -> void:
+	menu.hide()
+	local_panel.hide()
+	settings_panel.hide()
+	panel.show()
+	_layout()
+
+func _load_preferences(path: String = Settings.PATH) -> void:
+	var saved := Settings.read(path)
+	lobby_name.text = saved.name
+	preferred_seat = saved.seat
 	relay_address.text = OS.get_environment("BLIND_DRIVER_RELAY_URL")
-	var preferences := ConfigFile.new()
-	if relay_address.text.is_empty() and preferences.load("user://network.cfg") == OK:
-		relay_address.text = preferences.get_value("relay", "address", "")
 	if relay_address.text.is_empty():
-		relay_address.text = DEFAULT_RELAY_URL
-	box.add_child(relay_address)
-	create_online_button = _button("Create room / I am driving", func():
-		_save_relay_address()
-		set_online_busy(true)
-		online_status.text = "Connecting… A sleeping free server can take about a minute."
-		online_create_requested.emit(relay_address.text))
-	box.add_child(create_online_button)
-	box.add_child(_label("Room code", 13, cream))
-	var code_row := HBoxContainer.new()
-	box.add_child(code_row)
-	room_field = LineEdit.new()
-	room_field.placeholder_text = "Paste the driver's room code"
-	room_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	code_row.add_child(room_field)
-	code_row.add_child(_button("Copy", func(): DisplayServer.clipboard_set(room_field.text)))
-	join_online_button = _button("Join room / I am navigating", func():
-		_save_relay_address()
-		set_online_busy(true)
-		online_status.text = "Connecting to the driver…"
-		online_join_requested.emit(relay_address.text, room_field.text))
-	box.add_child(join_online_button)
-	online_status = _label("Deploy your relay first: instructions are in deployment.md.", 13, amber)
-	online_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	online_status.custom_minimum_size = Vector2(480, 50)
-	box.add_child(online_status)
-	box.add_child(_button("Connection check & logs   /   F8", toggle_diagnostics))
-	box.add_child(_button("Back / leave online room", func(): online_cancel_requested.emit()))
-	online_panel.visible = false
+		relay_address.text = saved.address
+	if relay_address.text.strip_edges().is_empty():
+		relay_address.text = Settings.DEFAULT_RELAY
+	if OS.has_feature("web"):
+		# Deployment configuration takes precedence over a browser's saved old server.
+		var browser_address: Variant = JavaScriptBridge.eval("window.BLIND_DRIVER_CONFIG && window.BLIND_DRIVER_CONFIG.relayUrl || ''")
+		if browser_address is String and not browser_address.is_empty():
+			relay_address.text = browser_address
+	_highlight_seat()
+
+func _highlight_seat() -> void:
+	create_online_button.add_theme_stylebox_override("normal", _style(Color("52715c") if preferred_seat == "driver" else Color("29483f"), 8))
+	join_online_button.add_theme_stylebox_override("normal", _style(Color("52715c") if preferred_seat == "navigator" else Color("29483f"), 8))
+
+func _save_preferences() -> Error:
+	var result := Settings.write(relay_address.text, lobby_name.text, preferred_seat)
+	if result != OK:
+		online_status.text = "Couldn’t save preferences on this computer. You can still join."
+	return result
+
+func _enter_lobby(seat: String) -> void:
+	var name := Settings.normalize_name(lobby_name.text)
+	if name.is_empty():
+		online_status.text = "Choose a name with 3–40 letters, numbers, spaces, or hyphens."
+		lobby_name.grab_focus()
+		return
+	lobby_name.text = name
+	preferred_seat = seat
+	_highlight_seat()
+	_save_preferences()
+	connecting = true
+	set_online_busy(true)
+	online_status.text = "Joining your lobby… The server may take a moment to wake up."
+	if seat == "driver":
+		online_create_requested.emit(relay_address.text, name)
+	else:
+		online_join_requested.emit(relay_address.text, name)
 
 func _build_diagnostics() -> void:
 	diagnostic_client = preload("res://scripts/relay_client.gd").new()
@@ -320,6 +453,7 @@ func _build_diagnostics() -> void:
 		diagnostic_result.text = message
 		check_button.disabled = false)
 	diagnostics_panel = PanelContainer.new()
+	diagnostics_panel.z_index = 40
 	diagnostics_panel.add_theme_stylebox_override("panel", _style(ink, 12, amber))
 	root.add_child(diagnostics_panel)
 	var box := VBoxContainer.new()
@@ -343,7 +477,10 @@ func _build_diagnostics() -> void:
 	diagnostic_result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	diagnostic_result.custom_minimum_size = Vector2(460, 100)
 	box.add_child(diagnostic_result)
-	box.add_child(_button("Open network logs folder", func(): OS.shell_open(preload("res://scripts/network_log.gd").folder())))
+	if OS.has_feature("web"):
+		box.add_child(_button("Download network logs", func(): preload("res://scripts/network_log.gd").download()))
+	else:
+		box.add_child(_button("Open network logs folder", func(): OS.shell_open(preload("res://scripts/network_log.gd").folder())))
 	box.add_child(_button("Stop check / close   F8", func():
 		diagnostic_client.stop()
 		check_button.disabled = false
@@ -370,24 +507,19 @@ func _process(delta: float) -> void:
 	else:
 		live_network.text = "DIRECT LAN · %s\nReceived snapshots: %d · %s" % [network_session.role.to_upper(), network_session.snapshots_received, "reconnecting" if network_session.recovering else "connected / waiting for partner"]
 
-func _save_relay_address() -> void:
-	var preferences := ConfigFile.new()
-	preferences.set_value("relay", "address", relay_address.text.strip_edges())
-	preferences.save("user://network.cfg")
-
 func set_online_busy(busy: bool) -> void:
 	create_online_button.disabled = busy
 	join_online_button.disabled = busy
+	lobby_name.editable = not busy
+	leave_lobby_button.visible = busy
+	if not busy:
+		connecting = false
 
 func show_online() -> void:
 	show_menu(true)
-	menu.visible = false
-	online_panel.visible = true
-	_layout()
 
-func display_room_code(code: String) -> void:
-	room_field.text = code
-	online_status.text = "Room ready. Copy this code to your navigator. The ride starts when they join."
+func display_lobby_ready(_code: String) -> void:
+	online_status.text = "Lobby ready. Your navigator can join using the same saved name."
 
 func _button(text: String, action: Callable) -> Button:
 	var button := Button.new()
@@ -400,27 +532,65 @@ func _button(text: String, action: Callable) -> Button:
 func _layout() -> void:
 	var width := root.size.x
 	var height := root.size.y
-	menu.position = Vector2(40, maxf(94, (height - 680) * 0.5))
-	menu.size = Vector2(530, 0)
-	if online_panel != null:
-		online_panel.position = Vector2(40, maxf(98, (height - 580) * 0.5))
-		online_panel.size = Vector2(530, 0)
+	var seat_width := width * 0.5 if mode == "split" else width
+	var mirror_size := Vector2(minf(220, seat_width * 0.38), minf(220, seat_width * 0.38) / 3.2 + 8)
+	driver_mirror_frame.size = mirror_size
+	navigator_mirror_frame.size = mirror_size
+	driver_mirror_frame.position = Vector2((seat_width - mirror_size.x) * 0.5, 90)
+	navigator_mirror_frame.position = Vector2((seat_width - mirror_size.x) * 0.5 + (seat_width if mode == "split" else 0.0), 90)
+	driver_mirror_frame.visible = not in_menu and mode in ["split", "host"]
+	navigator_mirror_frame.visible = not in_menu and mode != "host"
+	for panel in [menu, settings_panel, local_panel]:
+		if panel != null:
+			panel.position = Vector2(32, 94)
+			panel.size = Vector2(minf(490, width - 64), minf(610, maxf(260, height - 118)))
 	if diagnostics_panel != null:
 		diagnostics_panel.position = Vector2(maxf(16, width - 540), 98)
 		diagnostics_panel.size = Vector2(510, 0)
+	pursuit_box.position = Vector2(width - 330, 20)
+	footer_label.visible = width >= 1150
 	views.offset_top = 78
-	views.offset_bottom = -94
+	views.offset_bottom = 0 if in_menu else -FOOTER_HEIGHT
 	navigator_tag.position = Vector2(width * 0.5 + 28 if mode == "split" else 28, 100)
 	var route_panel := hud.get_node("RouteCard") as PanelContainer
-	route_panel.position = Vector2(width - 340, 98)
+	route_panel.position = Vector2(width - 340, 190 if mode == "split" else 98)
 	route_panel.size = Vector2(312, 98)
-	if map_open:
-		map_panel.position = Vector2(width * 0.5 + 16 if mode == "split" else 16, 210)
-		map_panel.size = Vector2(width * 0.5 - 32 if mode == "split" else width - 32, height - 320)
-	else:
-		map_panel.position = Vector2(width - 312, height - 338)
-		map_panel.size = Vector2(284, 216)
-	map.large = map_open
+	_place_map(map_reveal)
+	if result_panel != null:
+		result_panel.position = Vector2(maxf(12, (width - 440) / 2), maxf(20, (height - 230) / 2))
+		result_panel.size = Vector2(minf(440, width - 24), 0)
+
+func _place_map(value: float) -> void:
+	map_reveal = value
+	var start_x := root.size.x * 0.5 if mode == "split" else 0.0
+	map_panel.position = Vector2(start_x, lerpf(root.size.y - FOOTER_HEIGHT - 64.0, 0.0, value))
+	map_panel.size = Vector2(root.size.x - start_x, root.size.y)
+	map_clip.size = Vector2(root.size.x, lerpf(root.size.y - FOOTER_HEIGHT, root.size.y, value))
+	map.unfolded = map_open
+
+func _build_run_result() -> void:
+	result_panel = PanelContainer.new()
+	result_panel.z_index = 30
+	result_panel.add_theme_stylebox_override("panel", _style(ink, 12, amber))
+	root.add_child(result_panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 16)
+	result_panel.add_child(box)
+	result_title = _label("GAME OVER", 36, amber)
+	box.add_child(result_title)
+	result_detail = _label("", 18)
+	result_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(result_detail)
+	restart_button = _button("Drive again", func(): restart_requested.emit())
+	box.add_child(restart_button)
+	result_panel.hide()
+
+func show_run_result(state: String, reason: String, distance: float, navigator: bool, best: float = 0.0, new_best: bool = false) -> void:
+	result_panel.visible = state == "game_over" and not in_menu
+	if state != "game_over":
+		return
+	result_detail.text = "%s.\nYou made it %.2f km.\n%s: %.2f km%s" % [reason, distance / 1000.0, "NEW PERSONAL BEST" if new_best else "Personal best", best / 1000.0, "\nWaiting for the driver to restart." if navigator else ""]
+	restart_button.visible = not navigator
 
 func set_mode(value: String) -> void:
 	mode = value
@@ -435,14 +605,20 @@ func set_mode(value: String) -> void:
 
 func show_menu(value: bool, can_resume: bool = true) -> void:
 	in_menu = value
+	if value:
+		rear_button_held = false
 	menu.visible = value
-	if online_panel != null:
-		online_panel.visible = false
+	hud.get_node("DashboardPanel").visible = not value
+	if settings_panel != null:
+		settings_panel.hide()
+	if local_panel != null:
+		local_panel.hide()
 	if not value:
 		var focused := root.get_viewport().gui_get_focus_owner()
 		if focused != null:
 			focused.release_focus()
-	resume_button.visible = can_resume
+	resume_button.visible = can_resume and not connecting
+	new_ride_button.visible = can_resume and not connecting and mode != "join"
 	map_panel.visible = not value and mode != "host"
 	hud.get_node("RouteCard").visible = not value and mode != "host"
 	driver_tag.visible = not value and (mode == "split" or mode == "host")
@@ -454,7 +630,49 @@ func show_menu(value: bool, can_resume: bool = true) -> void:
 		var current_status := status_label.text
 		set_mode(mode)
 		status_label.text = current_status
+	_layout()
 
 func toggle_map() -> void:
+	if mode == "host" or in_menu:
+		return
 	map_open = not map_open
-	_layout()
+	if map_tween != null:
+		map_tween.kill()
+	map_tween = create_tween()
+	map_tween.tween_method(_place_map, map_reveal, 1.0 if map_open else 0.0, 0.38).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+
+func close_map() -> void:
+	map_open = false
+	if map_tween != null:
+		map_tween.kill()
+	_place_map(0.0)
+
+func update_pursuit(patrol: Node3D, rear: bool, driving: bool) -> void:
+	rear_button.visible = mode != "host"
+	rear_button.disabled = not driving
+	if not driving:
+		rear_button_held = false
+	pursuit_title.modulate = Color("f2a073") if patrol.gap < 45 else Color.WHITE
+	if patrol.phase == "caught":
+		pursuit_title.text = "CAUGHT"
+		pursuit_detail.text = "The patrol stopped your ride."
+	elif patrol.phase == "escaped":
+		pursuit_title.text = "YOU LOST THE PATROL"
+		pursuit_detail.text = "Keep your eyes on the road."
+	elif rear:
+		pursuit_title.text = "POLICE  /  %d m AWAY" % (roundi(patrol.gap / 5.0) * 5)
+		var estimate: float = patrol.eta()
+		if patrol.catch_time > 0:
+			pursuit_detail.text = "ON YOUR TAIL — KEEP MOVING!"
+		elif patrol.phase == "waiting":
+			pursuit_detail.text = "A head start. Get moving!"
+		elif estimate >= 0 and estimate < 90:
+			pursuit_detail.text = "Closing · about %d s at this pace" % maxi(1, roundi(estimate))
+		elif patrol.closing_speed < -0.75:
+			pursuit_detail.text = "You're pulling away."
+		else:
+			pursuit_detail.text = "Holding the gap."
+	else:
+		pursuit_title.text = "POLICE ON YOUR TAIL" if patrol.gap < 45 else "POLICE PURSUIT"
+		pursuit_detail.text = "Listen for the siren" if mode == "host" else "Look back to judge the gap."
+	navigator_tag.text = "02  /  LOOKING BACK" if rear else "02  /  NAVIGATOR\nKEEP TALKING"

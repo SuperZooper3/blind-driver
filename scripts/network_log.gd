@@ -45,3 +45,16 @@ static func close() -> void:
 	if file != null:
 		file.close()
 	file = null
+
+static func download() -> void:
+	if not OS.has_feature("web"):
+		return
+	if file != null:
+		file.flush()
+	var contents := ""
+	var names := DirAccess.get_files_at(DIRECTORY)
+	names.sort()
+	for name in names:
+		if name.ends_with(".jsonl"):
+			contents += FileAccess.get_file_as_string(DIRECTORY.path_join(name))
+	JavaScriptBridge.download_buffer(contents.to_utf8_buffer(), "blind-driver-network.jsonl", "application/x-ndjson")

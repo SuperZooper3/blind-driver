@@ -11,11 +11,13 @@ signal ride_restored
 
 const Log = preload("res://scripts/network_log.gd")
 const PORT := 18765
+var port := PORT
 const INTERPOLATION_DELAY := 0.10
 const SNAPSHOT_INTERVAL := 1.0 / 30.0
 const Relay = preload("res://scripts/relay_client.gd")
 var car: RigidBody3D
 var world: Node3D
+var police: Node3D
 var peer: WebSocketMultiplayerPeer
 var role := "local"
 var navigator_id := 0
@@ -43,6 +45,10 @@ var lan_retries := 0
 var last_metrics := 0.0
 
 func _ready() -> void:
+	# Integration checks can use a free port without disrupting a running game.
+	var requested_port := OS.get_environment("BLIND_DRIVER_LAN_PORT")
+	if requested_port.is_valid_int() and int(requested_port) > 0 and int(requested_port) <= 65535:
+		port = int(requested_port)
 	multiplayer.peer_connected.connect(_peer_connected)
 	multiplayer.peer_disconnected.connect(_peer_disconnected)
 	multiplayer.connected_to_server.connect(_connected)
@@ -53,9 +59,10 @@ func _ready() -> void:
 	add_child(relay)
 	relay.room_created.connect(func(code: String):
 		room_code = code
-		status_changed.emit("ROOM READY / SHARE THE CODE WITH YOUR NAVIGATOR")
+		status_changed.emit("Lobby ready. Waiting for your navigator…")
 		room_created.emit(code))
 	relay.joined.connect(func(): online_joined.emit())
+	relay.waiting.connect(func(message: String): status_changed.emit(message))
 	relay.recovering.connect(func(message: String):
 		recovering = true
 		navigator_id = 0
@@ -70,12 +77,14 @@ func _ready() -> void:
 	relay.peer_restored.connect(func():
 		snapshots.clear()
 		last_sequence = -1
-		status_changed.emit("DRIVER RETURNED / SYNCING THE RIDE"))
+		status_changed.emit("Driver connected. Syncing the ride…")
+		if not graph_received:
+			online_joined.emit())
 	relay.navigator_joined.connect(_online_peer_joined)
 	relay.navigator_left.connect(func():
 		navigator_id = 0
 		car.driving_enabled = false
-		status_changed.emit("NAVIGATOR LEFT / REJOIN WITH THE SAME ROOM CODE"))
+		status_changed.emit("Navigator left. They can return to this lobby."))
 	relay.graph_received.connect(_receive_graph)
 	relay.snapshot_received.connect(_receive_snapshot)
 	relay.failed.connect(func(message: String):
@@ -86,15 +95,15 @@ func _ready() -> void:
 		connection_lost.emit()
 		online_error.emit(message))
 
-func host_online(address: String) -> Error:
+func host_online(address: String, lobby: String = "") -> Error:
 	stop()
 	online = true
 	role = "host"
 	car.driving_enabled = false
-	status_changed.emit("CONNECTING TO RELAY / CREATING ROOM")
-	return relay.start(address, "create")
+	status_changed.emit("Connecting to your lobby…")
+	return relay.start(address, "create", "", lobby)
 
-func join_online(address: String, code: String) -> Error:
+func join_online(address: String, code: String = "", lobby: String = "") -> Error:
 	stop()
 	online = true
 	role = "join"
@@ -103,8 +112,8 @@ func join_online(address: String, code: String) -> Error:
 	car.collision_layer = 0
 	car.collision_mask = 0
 	world.allow_generation = false
-	status_changed.emit("CONNECTING TO RELAY / JOINING ROOM")
-	return relay.start(address, "join", code)
+	status_changed.emit("Joining your lobby…")
+	return relay.start(address, "join", code, lobby)
 
 func _online_restored(peer_connected: bool) -> void:
 	recovering = false
@@ -116,6 +125,8 @@ func _online_restored(peer_connected: bool) -> void:
 		_online_peer_joined()
 	else:
 		status_changed.emit("CONNECTION RESTORED / WAITING FOR DRIVER" if role == "join" else "CONNECTED / WAITING FOR NAVIGATOR")
+		if role == "join" and peer_connected and not graph_received:
+			online_joined.emit()
 		ride_restored.emit()
 
 func can_drive() -> bool:
@@ -139,14 +150,14 @@ func _new_peer() -> WebSocketMultiplayerPeer:
 func host(bind_address: String = "*") -> Error:
 	stop()
 	peer = _new_peer()
-	var error := peer.create_server(PORT, bind_address)
+	var error := peer.create_server(port, bind_address)
 	if error != OK:
-		status_changed.emit("PORT %d BUSY / CLOSE THE OTHER HOST" % PORT)
+		status_changed.emit("PORT %d BUSY / CLOSE THE OTHER HOST" % port)
 		peer = null
 		return error
 	role = "host"
 	multiplayer.multiplayer_peer = peer
-	status_changed.emit("DRIVER / HOSTING ON PORT %d" % PORT)
+	status_changed.emit("DRIVER / HOSTING ON PORT %d" % port)
 	return OK
 
 func join(address: String) -> Error:
@@ -156,7 +167,7 @@ func join(address: String) -> Error:
 	if not url.begins_with("ws://") and not url.begins_with("wss://"):
 		url = "ws://" + url
 		if url.get_slice("://", 1).find(":") == -1:
-			url += ":%d" % PORT
+			url += ":%d" % port
 	lan_url = url
 	var error := peer.create_client(url)
 	if error != OK:
@@ -281,7 +292,7 @@ func _process(delta: float) -> void:
 		var buffered: int = relay.buffered_bytes() if online else peer.get_peer(navigator_id).get_current_outbound_buffered_amount()
 		if buffered > 32768:
 			return
-		if world.graph_revision != last_graph_revision and graph_timer > 0.25:
+		if world.graph_revision != last_graph_revision and (graph_timer > 0.25 or car.recovery_grace > 0):
 			graph_timer = 0.0
 			if online:
 				if relay.send_graph(world.export_graph()):
@@ -289,11 +300,17 @@ func _process(delta: float) -> void:
 			else:
 				_receive_graph.rpc_id(navigator_id, world.export_graph())
 				last_graph_revision = world.graph_revision
+		# A restart/recovery must never publish the new run with the old pose or graph.
+		if car.reset_pending or car.recovery_grace > 0 or world.graph_revision != last_graph_revision:
+			return
 		if snapshot_timer >= SNAPSHOT_INTERVAL:
 			snapshot_timer = fmod(snapshot_timer, SNAPSHOT_INTERVAL)
 			sequence += 1
 			reset_serial = car.recovery_serial
-			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "damage": car.damage.health_array()}
+			var wheels: Array = []
+			for wheel: Node3D in car.wheel_pivots:
+				wheels.append(wheel.position.y)
+			var snapshot := {"seq": sequence, "time": Time.get_ticks_msec() / 1000.0, "transform": car.global_transform, "velocity": car.linear_velocity, "speed": car.signed_speed, "steering": car.steering, "throttle": car.throttle, "distance": car.distance_driven, "grounded": car.grounded_wheels, "reset": reset_serial, "lights": car.headlights[0].visible, "angular_velocity": car.angular_velocity, "wheels": wheels, "run_state": car.run_state, "crash_reason": car.crash_reason, "run_id": car.run_id, "on_road": car.on_road, "impact": car.impact_strength, "tires": car.punctured_tires, "police": police.snapshot(), "challenge_time": world.challenge_time, "damage": car.damage.health_array()}
 			if online:
 				relay.send_snapshot(snapshot)
 			else:
@@ -360,11 +377,24 @@ func _interpolate(delta: float) -> void:
 	car.throttle = b.throttle
 	car.distance_driven = b.distance
 	car.grounded_wheels = b.grounded
+	car.linear_velocity = b.velocity
+	car.angular_velocity = b.angular_velocity
+	car.run_state = b.run_state
+	car.crash_reason = b.crash_reason
+	car.run_id = b.run_id
+	car.on_road = b.on_road
+	car.impact_strength = b.impact
+	car.punctured_tires = b.tires
+	car.update_tire_visuals()
+	police.apply_snapshot(a.police, b.police, weight)
+	world.set_challenge_time(lerpf(a.challenge_time, b.challenge_time, weight))
 	for light: SpotLight3D in car.headlights:
 		light.visible = b.lights
 	if b.has("damage"):
 		car.damage.set_health_array(b.damage)
 	car.wheel_spin += car.signed_speed * delta / car.WHEEL_RADIUS
 	car.steering_wheel.rotation.z = car.steering * 1.9
+	for i in car.wheel_pivots.size():
+		car.wheel_pivots[i].position.y = lerpf(a.wheels[i], b.wheels[i], weight)
 	car.update_wheel_visuals()
 

@@ -24,7 +24,7 @@ func _run() -> void:
 	passed = passed and game.local_navigator_pid == -1 and game.session.role == "local"
 	print("%s: changing mode cleans up only the automatically launched navigator" % ("PASS" if passed else "FAIL"))
 	var blocker := WebSocketMultiplayerPeer.new()
-	if blocker.create_server(18765, "127.0.0.1") == OK:
+	if blocker.create_server(game.session.port, "127.0.0.1") == OK:
 		game._start("local_windows")
 		passed = passed and game.local_navigator_pid == -1 and game.ui.in_menu and game.session.role == "local"
 		print("%s: a busy host port fails safely without spawning another window" % ("PASS" if passed else "FAIL"))

@@ -1,10 +1,14 @@
 extends RefCounted
 ## Health for the car's few big, breakable parts, and what each loss costs.
-## The driver's game is authoritative; navigators mirror `health` from snapshots.
+## A damaged part only looks and sounds worse; the car drives normally until a
+## part actually breaks. The driver's game is authoritative; navigators mirror
+## `health` from snapshots.
 
-enum { WHEEL_FL, WHEEL_FR, WHEEL_RL, WHEEL_RR, HOOD, FRONT_BUMPER, REAR_BUMPER, WINDSHIELD }
+enum { WHEEL_FL, WHEEL_FR, WHEEL_RL, WHEEL_RR, ENGINE, FRONT_BUMPER, REAR_BUMPER, WINDSHIELD }
 const PART_COUNT := 8
-const NAMES := ["FL WHEEL", "FR WHEEL", "RL WHEEL", "RR WHEEL", "HOOD", "FRONT BUMPER", "REAR BUMPER", "WINDSHIELD"]
+const NAMES := ["FL TIRE", "FR TIRE", "RL TIRE", "RR TIRE", "ENGINE", "FRONT BUMPER", "REAR BUMPER", "WINDSHIELD"]
+## Broken tires (flat or lost) that leave the car unable to go on.
+const TIRES_TO_BREAK_DOWN := 2
 ## Closing speed (m/s) below which a hit does no harm.
 const SAFE_SPEED := 3.5
 ## Damage per m/s above SAFE_SPEED.
@@ -36,20 +40,35 @@ func register(part: int, node: Node3D) -> void:
 func alive(part: int) -> bool:
 	return health[part] > 0.0
 
-## Lateral grip multiplier: a bent wheel slides more.
+## Lateral grip multiplier: a flat tire slides.
 func wheel_grip(wheel: int) -> float:
-	return lerpf(0.55, 1.0, health[wheel])
+	return 1.0 if alive(wheel) else 0.45
 
-## Permanent toe-out of a bent wheel, in radians. Left wheels pull left, right wheels pull right.
+## A flat tire drags and pulls toward its side, in radians. Left pulls left, right pulls right.
 func wheel_toe(wheel: int) -> float:
-	var side := 1.0 if wheel % 2 == 0 else -1.0
-	return side * (1.0 - health[wheel]) * 0.07
+	if alive(wheel):
+		return 0.0
+	return (1.0 if wheel % 2 == 0 else -1.0) * 0.06
 
-func engine_scale() -> float:
-	return 0.7 if not alive(HOOD) else lerpf(0.9, 1.0, health[HOOD])
+func broken_tires() -> int:
+	var count := 0
+	for wheel in 4:
+		if not alive(wheel):
+			count += 1
+	return count
 
-func speed_scale() -> float:
-	return 0.82 if not alive(HOOD) else 1.0
+## Engine knock grows with damage. It is a warning only; power is unaffected.
+func engine_roughness() -> float:
+	return 1.0 if not alive(ENGINE) else (1.0 - health[ENGINE]) * 0.45
+
+## Thorns tear the tire itself. It goes flat at zero but stays on the car.
+func wear_tire(wheel: int, amount: float) -> void:
+	if not alive(wheel) or amount <= 0.0:
+		return
+	var value := maxf(0.0, health[wheel] - amount)
+	if value <= 0.0 and car.has_method("flatten_tire"):
+		car.flatten_tire(wheel)
+	set_part(wheel, value)
 
 func steer_scale() -> float:
 	var scale := 1.0
@@ -75,7 +94,7 @@ func apply_impact(local_point: Vector3, closing_speed: float) -> void:
 		_hurt(WINDSHIELD, excess)
 	elif local_point.z < -1.45:
 		var spill := _absorb(FRONT_BUMPER, excess)
-		_hurt(HOOD, excess * spill)
+		_hurt(ENGINE, excess * spill)
 		_hurt(WHEEL_FL if left else WHEEL_FR, excess * spill * (1.4 if absf(local_point.x) > 0.5 else 0.6))
 		if closing_speed > WINDSHIELD_SPEED:
 			_hurt(WINDSHIELD, excess * spill)
@@ -159,7 +178,10 @@ func summary() -> String:
 			elif health[i] < 0.7:
 				lost.append("WINDSHIELD CRACKED")
 		elif not alive(i):
-			lost.append(NAMES[i] + (" LOST" if i <= WHEEL_RR else " OFF"))
+			if i <= WHEEL_RR:
+				lost.append(NAMES[i] + (" FLAT" if car.punctured_tires & (1 << i) else " LOST"))
+			else:
+				lost.append(NAMES[i] + (" BROKE DOWN" if i == ENGINE else " OFF"))
 		elif health[i] < 0.5:
 			lost.append(NAMES[i] + " DAMAGED")
 	return "" if lost.is_empty() else "DAMAGE:  " + "  /  ".join(lost)
@@ -170,7 +192,7 @@ func _update_visual(part: int) -> void:
 		var node: Node3D = visuals[part][j]
 		var rest: Transform3D = rest_transforms[part][j]
 		match part:
-			HOOD:
+			ENGINE:
 				node.transform = rest.rotated_local(Vector3.RIGHT, -wear * 0.2).translated(Vector3(0, wear * 0.06, 0))
 			FRONT_BUMPER, REAR_BUMPER:
 				node.transform = rest.rotated_local(Vector3.FORWARD, wear * 0.22).translated(Vector3(0, -wear * 0.09, 0))
@@ -182,6 +204,10 @@ func _update_visual(part: int) -> void:
 
 func _break(part: int) -> void:
 	if part == WINDSHIELD:
+		part_broken.emit(part)
+		return
+	# A flat tire stays on its wheel.
+	if part <= WHEEL_RR and car.punctured_tires & (1 << part):
 		part_broken.emit(part)
 		return
 	for node: Node3D in visuals[part]:

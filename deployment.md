@@ -1,20 +1,84 @@
 # Deploy Blind Driver on Render
 
-This guide gets **two people on different internet connections playing the desktop game together**. Render runs a small relay; each player runs the Godot game on their own computer.
+Render hosts two services: **blind-driver-frontend** is the playable webpage,
+and **blind-driver-relay** connects the two players. The game runs inside each
+player's browser (or in the desktop game). Both can be hosted on Render; a
+Railway account is not required. The optional Railway setup is in
+[docs/RAILWAY.md](docs/RAILWAY.md).
 
 The existing relay is **https://blind-driver-relay.onrender.com**, now the game's default address. You can override it in the menu, through the saved preference, or with `BLIND_DRIVER_RELAY_URL`.
 
+## Add the playable frontend in the Render dashboard
+
+Choose **New + → Web Service**. This implementation uses Render's **Docker**
+runtime: the Dockerfile exports Godot and starts the small Node server that
+serves the game and its deployment configuration. **Do not choose Static Site**
+for this implementation. You do not need to install Docker or Godot locally.
+
+1. On the source screen, select **Git Provider** and connect the
+   **SuperZooper3/blind-driver** repository. If it is missing, connect GitHub or
+   grant the Render GitHub integration access to this repository.
+2. Fill out the new-service form with these values:
+
+   | Field | Value |
+   | --- | --- |
+   | Name | `blind-driver-frontend` |
+   | Branch | `main` |
+   | Region | Frankfurt, matching the existing relay |
+   | Language | **Docker** |
+   | Root Directory | **Leave blank** (repository root) |
+   | Dockerfile Path | `./Dockerfile` |
+   | Docker Build Context Directory, if shown | `.` |
+   | Docker Command | Leave blank; use the Dockerfile's command |
+   | Health Check Path (under Advanced) | `/healthz` |
+
+   There is no publish-directory value or custom build/start command to enter
+   for this Docker service. Free can be used for an initial test; it has cold
+   starts and the [normal Render free-service limits](https://render.com/docs/free).
+3. Add these **Environment Variables**:
+
+   | Key | Value |
+   | --- | --- |
+   | `PORT` | `10000` |
+   | `BLIND_DRIVER_RELAY_URL` | `https://blind-driver-relay.onrender.com` |
+
+   If your relay has a different domain, use its actual public HTTPS URL.
+   Browser clients cannot use Render's internal service hostname.
+4. Click **Deploy Web Service** (or **Create Web Service**, depending on the
+   form). The first build downloads the Godot toolchain and can take several
+   minutes. Render supplies the frontend's public `https://…onrender.com` URL
+   after deployment; use the actual URL displayed on the service page.
+5. Open the frontend URL. Players click **Get in the car**, enter the same lobby
+   name, and choose **Drive** or **Navigate**. Share this frontend URL with
+   friends. Its `/healthz` verifies the exported files; the relay's `/healthz`
+   must separately report **protocol 8** for online play.
+
+Before online play, upgrade the existing relay using the next section. If you
+already created a Static Site, create the Web Service above as a separate
+service; these Docker settings do not belong in a static-site build form.
+
+The checked-in [`render.yaml`](render.yaml) now declares **both services** with
+these settings. If your relay is already managed by that Blueprint, sync the
+existing Blueprint to add the frontend. For a fresh setup, **New + → Blueprint**
+can create both services. If your relay was created manually, the frontend-only
+steps above let you reuse it. If Render assigns a different relay domain, update
+the frontend's `BLIND_DRIVER_RELAY_URL` accordingly.
+
+References: [Render Web Services](https://render.com/docs/web-services),
+[Docker on Render](https://render.com/docs/docker), and
+[Blueprint fields](https://render.com/docs/blueprint-spec).
+
 ## Upgrade the existing service first
 
-This revision uses **protocol 2** for connection checks and resumable seats. On 2026-11-13, the public `/healthz` endpoint still returned **protocol 1**. The updated backend has been tested locally, including a 75-second drive with forced disconnects; it has not been deployed to Render by this change.
+This revision uses **protocol 8** for route choices, cul-de-sacs, rejoining connections, and heat levels, including ramp gaps, timed bridges, and the shared crossing clock, alongside police pursuit, punctured tires, ravines, named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
 
 1. Push these commits to the branch linked to your existing Render service (`git push origin main` if it uses main).
 2. Open **blind-driver-relay** in Render, then **Manual Deploy → Deploy latest commit**. Auto-deploy is off in the supplied configuration.
-3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":2`.
+3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":8`.
 4. Update/restart **both games** from this same revision. Old clients and old servers cannot use the new protocol together.
-5. Both players choose **Play online…**. The address is already filled in. Create a new room and share its code.
+5. Both players enter the same **lobby name** on the start screen, then choose **Drive** or **Navigate**. The online server is already configured. The name is saved locally for next time.
 
-No new service, database, router settings, or environment variables are needed. Deployment ends existing rooms, so do it between rides. The initial-service instructions below are retained for setting up another relay.
+Upgrading the relay alone needs no new service, database, router settings, or environment variables. Deployment ends existing rooms, so do it between rides. The initial-service instructions below are retained for setting up another relay.
 
 ## 1. Understand what is being deployed
 
@@ -35,11 +99,11 @@ The networking modes are:
 
 | Mode | Buttons | Address | Intended use |
 | --- | --- | --- | --- |
-| Automatic local pair | Start local co-op / two windows | Automatic `127.0.0.1` connection | Two independent game processes on this computer |
-| Direct local connection | Host driver / Join navigator | `127.0.0.1` or a local network IP | Same computer or same network |
-| Online room | Play online… → Create room / Join room | Your Render service URL | Different computers, including different networks |
+| Automatic local pair | Play on this computer → Two players / two windows | Automatic `127.0.0.1` connection | Two independent game processes on this computer |
+| Direct local connection | Settings → Advanced connection settings → Direct LAN | `127.0.0.1` or a local network IP | Same computer or same network |
+| Online lobby | Saved lobby name → Drive / Navigate | Your Render service URL | Different computers, including different networks |
 
-`127.0.0.1` always means **the computer you are using**. The automatic local pair uses the same networking path as the LAN mode, but traffic stays inside your computer instead of passing through the router. Giving that address to a friend does not connect them to your computer. For internet play, both of you use the Render URL and the same room code.
+`127.0.0.1` always means **the computer you are using**. The automatic local pair uses the same networking path as the LAN mode, but traffic stays inside your computer instead of passing through the router. Giving that address to a friend does not connect them to your computer. For internet play, both of you use the configured online server and the same saved lobby name.
 
 ## 2. Get the code onto GitHub
 
@@ -56,17 +120,17 @@ The implementation commits contain the deployment files. Check that `render.yaml
 
 ## 3. Create the Render service
 
-The shortest route is a **Blueprint**: Render reads the included [`render.yaml`](render.yaml) and fills in the service settings for you. This is Render's supported configuration-file workflow. [Render Blueprint reference](https://render.com/docs/blueprint-spec)
+For a fresh frontend-and-relay setup, use a **Blueprint**: Render reads the included [`render.yaml`](render.yaml) and fills in both services' settings. This is Render's supported configuration-file workflow. [Render Blueprint reference](https://render.com/docs/blueprint-spec)
 
 1. Open the [Render dashboard](https://dashboard.render.com/) and sign in or create your account.
 2. Choose **New → Blueprint**.
 3. Connect the `SuperZooper3/blind-driver` repository and select the branch containing these commits, normally `main`.
 4. Use the repository-root `render.yaml` file.
-5. Review the proposed **blind-driver-relay** service. The supplied plan is **Free**, with **Frankfurt** as the region. Change the region before creating the service if another region is closer to both players.
+5. Review the proposed **blind-driver-relay** and **blind-driver-frontend** services. Both use the supplied **Free** plan and **Frankfurt** region. Change the region before creating them if another region is closer to both players.
 6. Create/deploy the Blueprint and wait for the service to become **Live**.
 7. Copy the actual `https://…onrender.com` address from its dashboard. Render may add a suffix to the service name; use the address Render displays.
 
-No database, disk, Docker image, Godot installation, or API key is required on Render.
+No database, persistent disk, or API key is required. Render builds the frontend's Docker image from the repository; you do not need to build or upload it yourself.
 
 ### Manual setup instead of a Blueprint
 
@@ -104,7 +168,7 @@ https://blind-driver-relay.onrender.com/healthz
 Open that address in your browser. A ready relay returns:
 
 ```json
-{"ok":true,"protocol":2,"instance":"example-instance","uptime_seconds":123}
+{"ok":true,"protocol":8,"instance":"example-instance","uptime_seconds":123}
 ```
 
 Or check from Terminal:
@@ -131,26 +195,16 @@ You can later distribute exported desktop builds instead of the source project: 
 
 ## 6. Connect the two players
 
-### Driver
+1. Agree on a lobby name, such as `forest-friends`. Use 3–40 letters, numbers, spaces, or hyphens. Names ignore case and treat spaces as hyphens.
+2. Enter that name on both start screens. One player chooses **Drive**, the other **Navigate**.
+3. Either player can arrive first. The lobby waits for the other seat, then opens the ride automatically.
+4. Next time, the lobby name, preferred seat, and server address are already remembered locally. Choose your seat again; no code or link needs pasting.
 
-1. Choose **Play online…** from the game's main menu.
-2. Keep the default **Relay address**: `https://blind-driver-relay.onrender.com`. Change it only when testing a different relay.
-3. Click **Create room / I am driving**.
-4. Wait for the **Room code** field to fill with an 18-character code.
-5. Click **Copy** and share the code with your navigator, along with the Render URL.
-6. Keep the game open. The driving view opens automatically when the navigator joins.
+The server URL is under **Settings → Advanced connection settings**. Leave it at the default unless you run another relay. Both computers must use the same server. The game accepts HTTPS/WSS URLs for public play and HTTP/WS for localhost, adding `/ws` automatically.
 
-### Navigator
+The name identifies a meeting place, not a saved world or permanent account. Leaving as the driver closes the active ride; a later visit creates a fresh room using the same name. A relay restart also ends the run, but both clients retain their name. A crashed client’s seat stays reserved during the existing two-minute recovery window. Another player who knows the name can join a vacant seat.
 
-1. Open the same game version and choose **Play online…**.
-2. Enter the **same Render URL** in Relay address.
-3. Paste the driver's code into **Room code**.
-4. Click **Join room / I am navigating**.
-5. The navigator's view opens automatically. Press **M** to unfold the map and talk the driver through the route.
-
-The game remembers the relay address on each computer. It converts an HTTPS address to `wss://YOUR-SERVICE.onrender.com/ws` automatically. You can also enter that complete WSS address yourself. Public Render connections use **WSS**, which is encrypted WebSocket traffic; ordinary `ws://` is for local testing. [Render WebSocket connection guidance](https://render.com/docs/websocket)
-
-Only two seats are available per room. Each new driver can create a different room on the same service. The room code grants access to the navigator's seat, so share it with the intended player.
+Preferences are stored in Godot’s `user://network.cfg` on each computer. Resume credentials remain in memory and are not written there. Cancel or leave keeps the saved name. Clear or change the name on the start screen to choose another lobby.
 
 Use a voice call or talk in person; voice chat is not built into the game.
 
@@ -159,12 +213,17 @@ Use a voice call or talk in person; voice chat is not built into the game.
 Use two computers, ideally on different networks, and check:
 
 - The navigator sees the car move when the driver accelerates and steers.
-- The navigator receives newly generated roads after taking either fork.
-- Pressing **R** on the driver moves both views to the recovered car.
-- Headlights remain in sync.
+- The navigator receives newly generated roads on the safe branch, and sees the same rocks, trees, ramps, bumps, construction, cliffs, and lakes.
+- There is no R/gamepad recovery shortcut. **Start a new ride** in the driver’s pause menu resets both views and the trip odometer.
+- Headlights, suspension, impacts, and car rotation remain in sync.
+- Drive deep into the thorn forest: both players see punctured tires and the same failure reason. Roll onto the roof: the cabin stays above the ground and the failure screen appears after landing.
+- Check the small rear-view mirror, then hold B / RB on the navigator: the full rear view reveals the patrol and its gap/closing estimate. The driver’s forward view stays unchanged.
+- Both players should see the same patrol position and flashing lights, hear a louder siren as it approaches, and see the same police-capture Game Over. Pause on the driver or disconnect temporarily: pursuit must freeze instead of catching you during recovery.
+- Each computer saves its own PB from the shared run distance. Restart and relaunch to check that the best remains while the trip resets.
+- Drive over a marked cliff: both players see the fall, Game Over, and the same distance. Reconnect a navigator during Game Over and check that the result remains. Choose Drive again on the driver and confirm both return to the start in the same room.
 - Temporarily interrupt either computer's network. The driver brakes once the outage is detected; the navigator holds the last received view. The same running games reconnect automatically and resync the road/car state.
 - A silent connection is detected after 15 seconds without application heartbeat replies. A clean socket failure is detected sooner. Let the connection return within the two-minute recovery window.
-- **Back / leave online room** is intentional: the driver ends the room; the navigator releases their seat. Closing/crashing the game loses its in-memory resume credential. A reserved navigator seat expires after two minutes; a closed driver cannot recover the ride after restarting the application.
+- **Cancel / leave lobby** is intentional: the driver ends the room; the navigator releases their seat. Closing/crashing the game loses its in-memory resume credential. A reserved navigator seat expires after two minutes; a closed driver cannot recover the ride after restarting the application.
 
 The driver's physics stays local and responsive. The navigator sees an interpolated view with network delay; testing from separate networks is still necessary to judge how well spoken directions work.
 
@@ -175,7 +234,7 @@ Auto-deploy is initially off so every code push does not interrupt an active dri
 1. Run the checks below.
 2. Commit and push the change to the linked branch.
 3. In the Render service, choose **Manual Deploy → Deploy latest commit**.
-4. Wait for Live, check `/healthz`, and create a new room.
+4. Wait for Live, check `/healthz`, and join your saved lobby again.
 
 Keep this service at **one instance**. Rooms live in that process's memory. Multiple instances would need shared room coordination, because two clients can otherwise reach different instances. A restart or deployment ends active rooms; temporary connection recovery works only while the same server process and game processes remain alive. Render can also replace instances during platform maintenance. [Render WebSocket lifecycle and scaling behavior](https://render.com/docs/websocket)
 
@@ -193,7 +252,7 @@ npm ci
 npm start
 ```
 
-It normally listens at `http://localhost:10000`; the game accepts `http://127.0.0.1:10000` or `ws://127.0.0.1:10000/ws`. Open two game instances and use **Play online…** to create and join a room. Stop the relay with Ctrl+C.
+It normally listens at `http://localhost:10000`; the game accepts `http://127.0.0.1:10000` or `ws://127.0.0.1:10000/ws`. Open two game instances, set the local URL in advanced settings, and use the same lobby name with Drive / Navigate. Stop the relay with Ctrl+C.
 
 From the repository root:
 
@@ -217,7 +276,7 @@ The relay test does not verify Render's public TLS endpoint. That is covered by 
 
 ## Connection checks and logs
 
-**In either game:** press **F8** (on some Macs, Fn+F8), or open **Play online… → Connection check & logs**. The panel shows live ride metrics and offers a separate **75-second connection check**. It uses the same WebSocket endpoint without occupying a room. You can run it during a ride. Keep the computer awake. Hiding the panel with F8 leaves a running check active; **Stop check / close** cancels it.
+**In either game:** press **F8** (on some Macs, Fn+F8), or open **Settings → Connection check & logs**. The panel shows live ride metrics and offers a separate **75-second connection check**. It uses the same WebSocket endpoint without occupying a room. You can run it during a ride. Keep the computer awake. Hiding the panel with F8 leaves a running check active; **Stop check / close** cancels it.
 
 **In a browser:** open [the relay diagnostics page](https://blind-driver-relay.onrender.com/diagnostics), start the 75-second check, and use **Save results** to download JSONL events. Run it from each player's computer, keeping the tab visible. This page becomes available after deploying protocol 2. `/healthz` checks the running server; `/diagnostics` tests the actual WebSocket round trips.
 
@@ -258,7 +317,7 @@ Open the Render service's **Logs** view. The relay writes JSON events to standar
 | `seat_resumed` / `ride_restored` | The original seat was restored and the game requests a fresh road graph and snapshots. |
 | `backpressure_close` | A receiver is too slow. New snapshots are dropped before the queue grows; sustained congestion triggers recovery. |
 | `event_loop_delay` / `client_poll_stall` | Server/game processing paused, which can resemble a bad network. |
-| `shutdown`, changed instance ID, or `resume_expired` | Deployment, process restart, expired reservation, or invalid resume credential. A restarted server has lost its rooms; create a new one. |
+| `shutdown`, changed instance ID, or `resume_expired` | Deployment, process restart, expired reservation, or invalid resume credential. A restarted server has lost its rooms; join the saved lobby again. |
 
 For another unexplained drop, retain **both clients' logs** plus the Render logs from the same UTC minute. Note who was driving and whether either window froze. This distinguishes transport failures from a server rejection or a stalled game. The initial 75-second idle check against the public protocol-1 service survived; the reported active-driving drop was not conclusively reproduced, so these events are designed to capture its actual cause.
 
@@ -272,22 +331,26 @@ Recovery uses application heartbeats every two seconds, a 15-second client reply
 | Render says no open port | Start command is `npm start`; don't override `HOST` to localhost. Inspect service logs. |
 | `/healthz` is loading or unavailable | Give a free instance time to wake; inspect the latest deploy and runtime logs if it stays unavailable. |
 | Game immediately disconnects from the public relay | Use the public HTTPS or WSS URL, not HTTP/WS. Don't append `:10000` or `:18765`. |
-| Health check works, but joining fails | Use **Play online…**, not the direct-LAN Join navigator button. Both players need the updated game. |
+| Health check works, but joining fails | Use the lobby name and Drive / Navigate on the start screen, not direct LAN. Both players need the updated game. |
 | Room not found | Both players must use the same service URL. Check the copied code. A restart or departed driver invalidates the room. |
 | Both seats are taken | Use Back / leave online room in the old navigator; otherwise its seat remains reserved for two minutes after a drop. |
-| Navigator lost connection | Leave the running game open for automatic retry. For an expired room or a restarted game, create a new room. |
+| Navigator lost connection | Leave the running game open for automatic retry. For an expired room or a restarted game, join your saved lobby again. |
 | Root Render URL shows JSON | Correct: the relay is a backend, not the browser game. |
-| No Play online… button | Update the project/build to the revision containing the relay client and restart the game. |
+| No lobby-name field | Update the project/build to the revision containing the relay client and restart the game. |
 
-## Browser play is a separate next step
+## Browser frontend
 
-This deployment works with desktop Godot clients. It does not export or host the game as a webpage, and it does not produce clickable browser-game invite links.
-
-A browser release would add a Godot Web export on a static host, use this same WSS relay, and test browser rendering, performance, input, and audio. In particular, the generated engine audio needs Godot's Stream playback mode on web; the default web Sample mode does not support procedural audio. Start with a single-threaded export and test it before enabling threads and the corresponding cross-origin isolation headers. [Godot web export documentation](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html)
+The Render Blueprint deploys the frontend and relay. For manual setup, follow
+[Add the playable frontend](#add-the-playable-frontend-in-the-render-dashboard)
+above. The frontend's Dockerfile exports
+the game with Godot 4.7.2; players open its URL and use the same named-lobby flow.
+The Web export uses a single thread and Stream playback for procedural audio.
+Browser-specific mode controls and downloadable logs are included. Room invite
+links are not implemented.
 
 The original broader plan is in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md). The deployable files added for this step are:
 
-- `render.yaml`: one Render Node web service.
+- `render.yaml`: the Node relay and Docker frontend as two Render web services.
 - `server/`: relay, pinned dependency lockfile, protocol checks, and tests.
 - `scripts/relay_client.gd`: outbound WebSocket connection and room messages.
 - `scripts/wire_protocol.gd`: explicit JSON conversion for Godot transforms and road points.
