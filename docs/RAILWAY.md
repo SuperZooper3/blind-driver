@@ -5,15 +5,16 @@ instead: choose **New + → Web Service**, then **Docker**. The steps below are
 only for Railway.
 
 The frontend builds Godot **4.7.2** into WebAssembly and serves a playable page.
-Players open its HTTPS address, click **Get in the car**, enter the same lobby
-name, and choose **Drive** or **Navigate**. Either seat can arrive first.
+Players open its HTTPS address and click **Get in the car**. One creates a room
+(as driver or navigator) and shares the 6-character code or invite link
+(`…/?room=K7Q4MZ`); the other joins with it and takes the remaining seat.
 They do not install Godot. Solo practice, shared screen, maps, settings,
 personal bests, and network diagnostics are available in the browser.
 
 The frontend and relay are separate services. The relay pairs the players and
 forwards state; the driver's browser still simulates the car and police.
 Both services can live in the same Railway project. An existing Render relay
-also works, provided its `/healthz` reports **protocol 8**.
+also works, provided its `/healthz` reports **protocol 9**.
 
 ## Add the frontend to your existing Railway project
 
@@ -49,7 +50,7 @@ also works, provided its `/healthz` reports **protocol 8**.
    Domain**, targeting port **8080**. Open that HTTPS address. This is the
    playable URL to share with friends.
 7. Check `<frontend URL>/healthz` returns `"ok":true`, then check
-   `<relay URL>/healthz` returns `"ok":true,"protocol":8` (additional fields
+   `<relay URL>/healthz` returns `"ok":true,"protocol":9` (additional fields
    are normal). Frontend health verifies the game files, not relay reachability.
 
 No frontend database, persistent disk, API key, manual Godot export, or upload of
@@ -75,7 +76,7 @@ Use each service's public HTTPS domain without appending its internal port.
 Godot converts HTTPS to WSS and adds `/ws` automatically. The relay already
 supports browser WebSockets; there is no additional HTTP CORS configuration.
 The relay root shows service JSON, while the **frontend** root shows the game.
-Desktop clients can join browser players by using the same relay and lobby.
+Desktop clients can join browser players by using the same relay and room code.
 
 ## Checked-in Railway blueprint
 
@@ -134,7 +135,7 @@ repository does not introduce it.
 - Lobby name, preferred seat, and personal best use browser storage for that
   site's origin. Private browsing, cleared data, or changing domains can lose
   these preferences. A reload closes the current game and its in-memory resume
-  credential; it does not resume a saved world. Use **Cancel / leave lobby** before
+  credential; it does not resume a saved world. Use **Cancel / leave room** before
   reloading so the seat is released promptly.
 - **F8 → Download network logs** exports browser-side JSONL. The normal live
   metrics and connection check remain available. See the relay's `/diagnostics`

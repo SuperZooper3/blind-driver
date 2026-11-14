@@ -58,7 +58,7 @@ def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False, haza
         with path.open("w+") as output:
             host = subprocess.Popen(command(probe, temporary / (tag + "-host.log"), "--", "--probe-host", *extra), stdout=output, stderr=subprocess.STDOUT)
             if relay_url:
-                code = wait_output(host, path, r"ROOM_READY=([A-F0-9]{18})").group(1)
+                code = wait_output(host, path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
                 extra.append("--relay-room=" + code)
             else:
                 wait_output(host, path, "HOST_READY")
@@ -66,30 +66,101 @@ def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False, haza
             print(f"[{tag}]", client.stdout)
             host.wait(timeout=15)
             host_output = path.read_text()
-            print(re.sub(r"ROOM_READY=[A-F0-9]+", "ROOM_READY=(test room)", host_output))
+            print(re.sub(r"ROOM_READY=[A-Z0-9]+", "ROOM_READY=(test room)", host_output))
             if client.returncode or host.returncode or "FAIL:" in client.stdout or "SCRIPT ERROR" in client.stderr or "SCRIPT ERROR" in host_output:
                 raise RuntimeError(client.stderr + "\nNetwork integration check failed")
     finally:
         stop(host)
 
 
-def run_named_pair(temporary, relay_url):
-    """Navigator arrives first, then both enter only an agreed name (no exchanged code)."""
+def run_lag_check(temporary):
+    """Drive through a relay that adds realistic jitter and stalls; the navigator's car
+    must stay close to the real one and keep moving (see tests/relay_jitter_server.mjs)."""
+    sys.path.insert(0, str(ROOT / "tests"))
+    import lag_report
+    relay = driver = None
+    relay_output = temporary / "jitter-relay.txt"
+    driver_path = temporary / "lag-driver-output.txt"
+    try:
+        with relay_output.open("w+") as output, driver_path.open("w+") as driver_output:
+            relay = subprocess.Popen(["node", "../tests/relay_jitter_server.mjs"], cwd=ROOT / "server", env={**os.environ, "PORT": "0", "HOST": "127.0.0.1"}, stdout=output, stderr=subprocess.STDOUT)
+            port = wait_output(relay, relay_output, r"listening on 127\.0\.0\.1:(\d+)").group(1)
+            url = f"ws://127.0.0.1:{port}/ws"
+            probe = lambda name, *extra: [GODOT, "--headless", "--path", str(ROOT), "--max-fps", "60", "--log-file", str(temporary / (name + ".log")), "--script", "tests/lag_probe.gd", "--", "--relay-url=" + url, "--out=" + str(temporary / (name + ".txt")), *extra]
+            driver = subprocess.Popen(probe("lag-driver", "--duration=26"), stdout=driver_output, stderr=subprocess.STDOUT)
+            code = wait_output(driver, driver_path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
+            navigator = subprocess.run(probe("lag-navigator", "--relay-room=" + code, "--duration=22"), capture_output=True, text=True, timeout=60)
+            driver.wait(timeout=20)
+        if "SCRIPT ERROR" in navigator.stderr + driver_path.read_text():
+            raise RuntimeError(navigator.stderr + "\nLag probe failed")
+        result = lag_report.report(temporary / "lag-driver.txt", temporary / "lag-navigator.txt")
+        passed = result["p99_m"] < 3.0 and result["frozen_pct"] < 5.0 and result["samples"] > 600
+        print("[online smoothness] {}: navigator vs real car under jitter and stalls: median {median_m:.2f} m, p99 {p99_m:.2f} m, max {max_m:.2f} m; frozen {frozen_pct:.1f}% of moving frames".format("PASS" if passed else "FAIL", **result))
+        if not passed:
+            raise RuntimeError("Online smoothness check failed")
+    finally:
+        stop(driver)
+        stop(relay)
+
+
+def run_direct_pair(temporary, relay_url, blocked=""):
+    """Players meet through the relay, then link directly; `blocked` ("driver" or
+    "navigator") refuses incoming connections, like a Mac firewall in stealth mode."""
+    first = second = None
+    tag = "direct-" + (blocked or "open")
+    first_path = temporary / (tag + "-driver-output.txt")
+    env = {**os.environ, "BLIND_DRIVER_DIRECT_LOOPBACK": "1"}
+    no_listen = {**env, "BLIND_DRIVER_DIRECT_NO_LISTEN": "1"}
+    try:
+        with first_path.open("w+") as first_output:
+            first = subprocess.Popen(command("tests/direct_probe.gd", temporary / (tag + "-driver.log"), "--", "--relay-url=" + relay_url), stdout=first_output, stderr=subprocess.STDOUT, env=no_listen if blocked == "driver" else env)
+            code = wait_output(first, first_path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
+            second = subprocess.run(command("tests/direct_probe.gd", temporary / (tag + "-navigator.log"), "--", "--relay-url=" + relay_url, "--relay-room=" + code), capture_output=True, text=True, timeout=60, env=no_listen if blocked == "navigator" else env)
+            first.wait(timeout=20)
+        outputs = first_path.read_text() + second.stdout
+        print(f"[direct link, {blocked or 'both'} {'blocked' if blocked else 'listening'}]", "\n".join(line for line in outputs.splitlines() if line.startswith(("PASS", "FAIL", "SCRIPT ERROR"))))
+        if first.returncode or second.returncode or "FAIL:" in outputs or "SCRIPT ERROR" in outputs + second.stderr:
+            raise RuntimeError(second.stderr + "\nDirect link integration failed")
+    finally:
+        stop(first)
+
+
+def run_swap_pair(temporary, relay_url):
+    """After a run ends, the navigator swaps seats and the two games trade driver and navigator."""
+    first = second = None
+    first_path = temporary / "swap-first-output.txt"
+    try:
+        with first_path.open("w+") as first_output:
+            first = subprocess.Popen(command("tests/swap_probe.gd", temporary / "swap-first.log", "--", "--relay-url=" + relay_url), stdout=first_output, stderr=subprocess.STDOUT)
+            code = wait_output(first, first_path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
+            second = subprocess.run(command("tests/swap_probe.gd", temporary / "swap-second.log", "--", "--relay-url=" + relay_url, "--relay-room=" + code), capture_output=True, text=True, timeout=60)
+            first.wait(timeout=20)
+        outputs = first_path.read_text() + second.stdout
+        print("[swap roles]", "\n".join(line for line in outputs.splitlines() if line.startswith(("PASS", "FAIL", "SCRIPT ERROR"))))
+        if first.returncode or second.returncode or "FAIL:" in outputs or "SCRIPT ERROR" in outputs + second.stderr:
+            raise RuntimeError(second.stderr + "\nSeat swap integration failed")
+    finally:
+        stop(first)
+
+
+def run_code_pair(temporary, relay_url):
+    """The navigator creates the room; the driver joins with only the short code and is given the driver seat."""
     host = client = None
-    extra = ["--relay-url=" + relay_url, "--lobby-name=integration-friends", "--probe-duration=14"]
-    client_path = temporary / "named-client-output.txt"
-    host_path = temporary / "named-host-output.txt"
+    extra = ["--relay-url=" + relay_url, "--probe-duration=14"]
+    client_path = temporary / "code-client-output.txt"
+    host_path = temporary / "code-host-output.txt"
     try:
         with client_path.open("w+") as client_output, host_path.open("w+") as host_output:
-            client = subprocess.Popen(command("tests/network_probe.gd", temporary / "named-client.log", "--", "--probe-join", "--cut-before-driver", *extra), stdout=client_output, stderr=subprocess.STDOUT)
+            client = subprocess.Popen(command("tests/network_probe.gd", temporary / "code-client.log", "--", "--probe-join", "--create-as-navigator", "--cut-before-driver", *extra), stdout=client_output, stderr=subprocess.STDOUT)
+            code = wait_output(client, client_path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
             wait_output(client, client_path, "WAITING_RECONNECT")
-            host = subprocess.Popen(command("tests/network_probe.gd", temporary / "named-host.log", "--", "--probe-host", *extra), stdout=host_output, stderr=subprocess.STDOUT)
+            host = subprocess.Popen(command("tests/network_probe.gd", temporary / "code-host.log", "--", "--probe-host", "--relay-room=" + code, *extra), stdout=host_output, stderr=subprocess.STDOUT)
             client.wait(timeout=25)
             host.wait(timeout=20)
         outputs = client_path.read_text() + host_path.read_text()
-        print("[named lobby]", re.sub(r"ROOM_READY=[A-F0-9]+", "ROOM_READY=(test room)", outputs))
+        print("[room code]", re.sub(r"ROOM_READY=[A-Z0-9]+", "ROOM_READY=(test room)", outputs))
         if client.returncode or host.returncode or "FAIL:" in outputs or "SCRIPT ERROR" in outputs:
-            raise RuntimeError("Named lobby integration failed")
+            raise RuntimeError("Room code integration failed")
     finally:
         stop(client)
         stop(host)
@@ -122,6 +193,10 @@ if __name__ == "__main__":
         print(survival.stdout)
         if survival.returncode or "FAIL:" in survival.stdout or "SCRIPT ERROR" in survival.stderr:
             sys.exit(survival.stderr or "Survival check failed")
+        prediction = subprocess.run(command("tests/prediction_smoke.gd", temporary / "prediction.log"), capture_output=True, text=True, timeout=20)
+        print(prediction.stdout)
+        if prediction.returncode or "FAIL:" in prediction.stdout or "SCRIPT ERROR" in prediction.stderr:
+            sys.exit(prediction.stderr or "Prediction check failed")
         lobby_ui = subprocess.run(command("tests/lobby_ui_smoke.gd", temporary / "lobby-ui.log"), capture_output=True, text=True, timeout=15)
         print(lobby_ui.stdout)
         if lobby_ui.returncode or "FAIL:" in lobby_ui.stdout or "SCRIPT ERROR" in lobby_ui.stderr:
@@ -153,7 +228,11 @@ if __name__ == "__main__":
                     port = wait_output(relay, relay_output, r"listening on 127\.0\.0\.1:(\d+)").group(1)
                     run_pair(temporary, f"ws://127.0.0.1:{port}/ws", "--resilience" in sys.argv)
                     if "--resilience" not in sys.argv:
-                        run_named_pair(temporary, f"ws://127.0.0.1:{port}/ws")
+                        run_code_pair(temporary, f"ws://127.0.0.1:{port}/ws")
+                        run_swap_pair(temporary, f"ws://127.0.0.1:{port}/ws")
+                        run_lag_check(temporary)
+                        for blocked in ("", "navigator", "driver"):
+                            run_direct_pair(temporary, f"ws://127.0.0.1:{port}/ws", blocked)
                         run_pair(temporary, f"ws://127.0.0.1:{port}/ws", hazards=True)
                     if "--resilience" in sys.argv:
                         print("[faults]", "\n".join(line for line in relay_output.read_text().splitlines() if "FAULT:" in line))

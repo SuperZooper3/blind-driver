@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue, normalizeLobby } from './protocol.mjs';
+import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue, validPose, poseIssue, validDirect, normalizeLobby, normalizeShare, SHARE_ALPHABET, SHARE_LENGTH } from './protocol.mjs';
 
 export function createRelay(options = {}) {
   const maxRooms = options.maxRooms ?? Number(process.env.MAX_ROOMS || 100);
@@ -15,6 +15,14 @@ export function createRelay(options = {}) {
   const heartbeatTimeout = options.heartbeatTimeout ?? 45000;
   const rooms = new Map();
   const lobbyRooms = new Map();
+  const shareRooms = new Map();
+  const newShareCode = () => {
+    let code;
+    do {
+      code = [...randomBytes(SHARE_LENGTH)].map(byte => SHARE_ALPHABET[byte % SHARE_ALPHABET.length]).join('');
+    } while (shareRooms.has(code));
+    return code;
+  };
   const clients = new Set();
   const instance = randomBytes(6).toString('hex');
   const started = performance.now();
@@ -44,9 +52,11 @@ export function createRelay(options = {}) {
   server.requestTimeout = 10000;
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD, perMessageDeflate: false });
 
-  const send = (client, message, droppable = false) => {
+  // `droppable` messages are skipped once this many bytes are already queued to a slow
+  // navigator: the next one supersedes them, and a backlog only adds delay.
+  const send = (client, message, droppable = 0) => {
     if (!client || client.socket.readyState !== WebSocket.OPEN) return false;
-    if (droppable && client.socket.bufferedAmount > 65536) { client.dropped++; return false; }
+    if (droppable && client.socket.bufferedAmount > droppable) { client.dropped++; return false; }
     if (client.socket.bufferedAmount > MAX_PAYLOAD * 2) {
       log('backpressure_close', client, { buffered_bytes: client.socket.bufferedAmount });
       client.socket.close(1013, 'Connection too slow');
@@ -72,6 +82,7 @@ export function createRelay(options = {}) {
     log('room_closed', null, { room: room.id, reason });
     rooms.delete(code);
     if (room.lobby) lobbyRooms.delete(room.lobby);
+    shareRooms.delete(room.share);
     for (const role of ['driver', 'navigator']) {
       const client = room[role]?.client;
       send(client, { type: 'room_closed', message: reason });
@@ -87,7 +98,7 @@ export function createRelay(options = {}) {
     if (intentional) {
       if (client.role === 'driver') { closeRoom(client.room, 'The driver left. Join your saved lobby again for another ride.'); return; }
       room.navigator = null;
-      if (!room.driver) { closeRoom(client.room, 'Lobby closed.'); return; }
+      if (!room.driver) { closeRoom(client.room, 'Room closed.'); return; }
       room.waitingSince = performance.now();
     }
     send(room[otherRole(client.role)]?.client, { type: intentional ? 'navigator_left' : 'peer_reconnecting', role: client.role, grace_seconds: grace / 1000 });
@@ -97,7 +108,7 @@ export function createRelay(options = {}) {
   const seat = client => ({ client, token: randomBytes(32).toString('hex'), deadline: Infinity });
   const replySeat = (client, type) => {
     const room = rooms.get(client.room);
-    send(client, { type, room: client.room, version: VERSION, token: room[client.role].token,
+    send(client, { type, room: client.room, share: room.share, version: VERSION, token: room[client.role].token,
       role: client.role, connection: client.id, instance, peer_connected: !!room[otherRole(client.role)]?.client, grace_seconds: grace / 1000 });
   };
   const notifyReady = (room, role) => {
@@ -137,7 +148,8 @@ export function createRelay(options = {}) {
       const now = performance.now();
       const seconds = (now - client.budgetAt) / 1000;
       // Token buckets tolerate packet bursts after jitter without accepting unbounded floods.
-      client.budget = Math.min(100, client.budget + seconds * 45) - 1;
+      // Drivers send ~30 poses + 10 snapshots + heartbeats per second.
+      client.budget = Math.min(100, client.budget + seconds * 60) - 1;
       client.byteBudget = Math.min(MAX_PAYLOAD * 4, client.byteBudget + seconds * MAX_PAYLOAD * 3) - raw.length;
       client.graphBudget = Math.min(8, client.graphBudget + seconds * 4);
       client.budgetAt = now;
@@ -166,7 +178,10 @@ export function createRelay(options = {}) {
         const named = message.type !== 'resume' && message.lobby !== undefined;
         const lobby = named ? normalizeLobby(message.lobby) : null;
         if (named && !lobby) { fail(client, 'lobby_name', 'Use 3–40 letters, numbers, spaces, or hyphens for the lobby name.'); return; }
-        const code = named ? lobbyRooms.get(lobby) : (typeof message.room === 'string' ? message.room.replaceAll('-', '').trim().toUpperCase() : '');
+        const typed = typeof message.room === 'string' ? message.room.replaceAll('-', '').trim().toUpperCase() : '';
+        const code = named ? lobbyRooms.get(lobby) : (shareRooms.get(normalizeShare(typed)) ?? typed);
+        // The room's creator may take either seat; the friend who joins gets the other.
+        const creatorSeat = message.type === 'create' && !named && message.seat === 'navigator' ? 'navigator' : 'driver';
         let room = /^[A-F0-9]{18}$/.test(code ?? '') ? rooms.get(code) : null;
         if (message.type === 'create' || (named && message.type === 'join' && !room)) {
           if (room?.driver && message.type === 'create') {
@@ -176,15 +191,16 @@ export function createRelay(options = {}) {
             if (rooms.size >= maxRooms) { fail(client, 'capacity', 'Server is full. Try again later.'); return; }
             let newCode;
             do { newCode = randomBytes(9).toString('hex').toUpperCase(); } while (rooms.has(newCode));
-            room = { id: randomBytes(6).toString('hex'), code: newCode, lobby, driver: null, navigator: null, waitingSince: now };
+            room = { id: randomBytes(6).toString('hex'), code: newCode, share: newShareCode(), lobby, driver: null, navigator: null, waitingSince: now };
             rooms.set(newCode, room);
+            shareRooms.set(room.share, newCode);
             if (lobby) lobbyRooms.set(lobby, newCode);
           }
-          client.room = room.code; client.role = message.type === 'create' ? 'driver' : 'navigator';
+          client.room = room.code; client.role = message.type === 'create' ? creatorSeat : 'navigator';
           room[client.role] = seat(client);
-          replySeat(client, client.role === 'driver' ? 'created' : 'joined');
+          replySeat(client, message.type === 'create' ? 'created' : 'joined');
           notifyReady(room, client.role);
-          log(client.role === 'driver' ? 'room_created' : 'seat_waiting', client);
+          log(message.type === 'create' ? 'room_created' : 'seat_waiting', client);
         } else if (message.type === 'resume') {
           const reserved = room && ['driver', 'navigator'].includes(message.role) ? room[message.role] : null;
           const token = typeof message.token === 'string' && /^[a-f0-9]{64}$/.test(message.token) ? message.token : '';
@@ -197,26 +213,54 @@ export function createRelay(options = {}) {
           previous?.socket.close(4001, 'Session resumed elsewhere');
           replySeat(client, 'resumed'); notifyReady(room, client.role); log('seat_resumed', client);
         } else {
-          if (!room) { fail(client, 'not_found', 'Room not found. Check the code or ask the driver to create a room.'); return; }
-          if (room.navigator) { fail(client, 'full', 'Navigator seat is occupied or reserved during reconnection. Wait or create a new room.'); return; }
-          client.room = code; client.role = 'navigator'; room.navigator = seat(client);
+          if (!room) { fail(client, 'not_found', 'Room not found. Check the code with your friend, or create a new room.'); return; }
+          const free = !room.driver ? 'driver' : (!room.navigator ? 'navigator' : null);
+          if (!free) { fail(client, 'full', 'This room already has two players (or one is reconnecting). Wait or create a new room.'); return; }
+          client.room = room.code; client.role = free; room[free] = seat(client);
           replySeat(client, 'joined'); notifyReady(room, client.role); log('seat_joined', client);
         }
         return;
       }
       if (message.type === 'leave') { detach(client, true); socket.close(1000, 'Left room'); return; }
+      if (message.type === 'direct') {
+        // Either player may offer a direct local-network link; only the partner sees it.
+        const room = rooms.get(client.room);
+        if (!room || room[client.role]?.client !== client || raw.length > 1024 || !validDirect(message)) { reject(client, 'Invalid direct offer'); return; }
+        const { on, reply, addrs = [], port = 0, key = '' } = message;
+        send(room[otherRole(client.role)]?.client, { type: 'direct', on, reply, addrs, port, key });
+        log('direct_offer', client, { on, addresses: addrs.length });
+        return;
+      }
+      if (message.type === 'swap') {
+        // Either player may swap seats, but only while both are connected.
+        const room = rooms.get(client.room);
+        if (!room || room[client.role]?.client !== client || !room.driver?.client || !room.navigator?.client) {
+          fail(client, 'swap_unavailable', 'Both players need to be connected to swap seats.'); return;
+        }
+        [room.driver, room.navigator] = [room.navigator, room.driver];
+        for (const role of ['driver', 'navigator']) {
+          room[role].client.role = role;
+          send(room[role].client, { type: 'seat_swapped', role });
+        }
+        log('seats_swapped', client);
+        return;
+      }
       if (client.role !== 'driver') { fail(client, 'not_driver', 'Only the driver can send game state.'); return; }
       const room = rooms.get(client.room);
       if (!room || room.driver.client !== client) return;
-      if (message.type === 'snapshot' && raw.length <= 4096 && validSnapshot(message.state)) {
+      if (message.type === 'pose' && raw.length <= 1024 && validPose(message.state)) {
         client.lastSeen = now;
-        send(room.navigator?.client, message, true);
+        send(room.navigator?.client, message, 16384);
+      } else if (message.type === 'snapshot' && raw.length <= 4096 && validSnapshot(message.state)) {
+        client.lastSeen = now;
+        send(room.navigator?.client, message, 65536);
       } else if (message.type === 'graph' && --client.graphBudget >= 0 && validGraph(message.roads)) {
         client.lastSeen = now;
         send(room.navigator?.client, message);
       } else {
-        reject(client, 'Invalid game state', { kind: ['graph', 'snapshot'].includes(message.type) ? message.type : 'unknown', bytes: raw.length,
-          validation: message.type === 'snapshot' ? (raw.length > 4096 ? 'snapshot_size' : snapshotIssue(message.state)) : (client.graphBudget < 0 ? 'graph_rate' : graphIssue(message.roads)) });
+        reject(client, 'Invalid game state', { kind: ['graph', 'snapshot', 'pose'].includes(message.type) ? message.type : 'unknown', bytes: raw.length,
+          validation: message.type === 'pose' ? (raw.length > 1024 ? 'pose_size' : poseIssue(message.state))
+            : message.type === 'snapshot' ? (raw.length > 4096 ? 'snapshot_size' : snapshotIssue(message.state)) : (client.graphBudget < 0 ? 'graph_rate' : graphIssue(message.roads)) });
       }
     });
   });

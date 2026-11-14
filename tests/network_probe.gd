@@ -41,9 +41,17 @@ func _run() -> void:
 		elif argument.begins_with("--relay-room="):
 			room = argument.trim_prefix("--relay-room=")
 	if not relay_url.is_empty():
-		if is_host:
+		var create_as_navigator := OS.get_cmdline_user_args().has("--create-as-navigator")
+		if is_host and room.is_empty():
 			game.session.room_created.connect(func(code: String): print("ROOM_READY=", code))
 			game._host_online(relay_url, lobby)
+		elif is_host:
+			# Join a room the navigator created: the relay hands us the free driver seat.
+			game._join_online(relay_url, room, lobby)
+		elif create_as_navigator:
+			game.session.room_created.connect(func(code: String): print("ROOM_READY=", code))
+			game.session.relay.waiting.connect(func(_message: String): print("WAITING_FOR_DRIVER"))
+			game._host_online(relay_url, "", "navigator")
 		else:
 			game.session.relay.waiting.connect(func(_message: String): print("WAITING_FOR_DRIVER"))
 			game._join_online(relay_url, room, lobby)
@@ -142,7 +150,7 @@ func _tick() -> void:
 			if expect_lan_recovery:
 				passed = passed and lan_recovered and not session.recovering and not session.stale
 			if expect_recovery:
-				passed = passed and session.relay.reconnects >= 1 and session.relay.is_ready and not session.stale and session.last_sequence > 1000
+				passed = passed and session.relay.reconnects >= 1 and session.relay.is_ready and not session.stale and session.last_sequence + session.last_pose_sequence > 1000
 			print("%s: navigator received %d snapshots, %d roads, reset=%d, distance=%.1f, remote=%s, bridge=%s, clock=%s" % ["PASS" if passed else "FAIL", session.snapshots_received, game.world.roads.size(), session.received_reset, game.car.distance_driven, game.car.remote, bridge_matches, clock_matches])
 			_finish(0 if passed else 1)
 

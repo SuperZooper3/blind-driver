@@ -49,6 +49,42 @@ static func snapshot_from_json(data: Dictionary) -> Dictionary:
 	result.angular_velocity = array_to_vector(data.angular_velocity)
 	return result
 
+## Small, frequent car pose: everything the navigator needs to place and animate the
+## car. The rest of the state rides in the slower full snapshot.
+static func pose_to_json(pose: Dictionary) -> Dictionary:
+	var transform: Transform3D = pose.transform
+	var q := transform.basis.orthonormalized().get_rotation_quaternion()
+	var wheels: Array = []
+	for value: float in pose.wheels:
+		wheels.append(snappedf(value, 0.001))
+	return {"seq": pose.seq, "time": snappedf(pose.time, 0.0001), "reset": pose.reset,
+		"p": _rounded(transform.origin, 0.001), "q": [snappedf(q.x, 0.00001), snappedf(q.y, 0.00001), snappedf(q.z, 0.00001), snappedf(q.w, 0.00001)],
+		"v": _rounded(pose.velocity, 0.001), "w": _rounded(pose.angular_velocity, 0.001),
+		"speed": snappedf(pose.speed, 0.001), "steering": snappedf(pose.steering, 0.001), "throttle": snappedf(pose.throttle, 0.001),
+		"grounded": pose.grounded, "wheels": wheels}
+
+static func pose_from_json(data: Dictionary) -> Dictionary:
+	for key in ["seq", "time", "reset", "speed", "steering", "throttle", "grounded"]:
+		if not _number(data.get(key)):
+			return {}
+	for key: String in ["p", "v", "w"]:
+		if not _vector(data.get(key), 3):
+			return {}
+	if not _vector(data.get("q"), 4) or not _vector(data.get("wheels"), 4):
+		return {}
+	var q: Array = data.q
+	var rotation := Quaternion(q[0], q[1], q[2], q[3])
+	if absf(rotation.length_squared() - 1.0) > 0.02:
+		return {}
+	return {"seq": int(data.seq), "time": float(data.time), "reset": int(data.reset),
+		"transform": Transform3D(Basis(rotation.normalized()), array_to_vector(data.p)),
+		"velocity": array_to_vector(data.v), "angular_velocity": array_to_vector(data.w),
+		"speed": float(data.speed), "steering": float(data.steering), "throttle": float(data.throttle),
+		"grounded": int(data.grounded), "wheels": data.wheels}
+
+static func _rounded(value: Vector3, step: float) -> Array:
+	return [snappedf(value.x, step), snappedf(value.y, step), snappedf(value.z, step)]
+
 static func graph_to_json(roads: Array) -> Array:
 	var result: Array = []
 	for road: Dictionary in roads:

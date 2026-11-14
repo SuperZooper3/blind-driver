@@ -1,6 +1,6 @@
 // Explicit JSON protocol, shared conceptually with scripts/wire_protocol.gd.
 // No Godot objects, Variant decoding, executable payloads, or arbitrary RPC calls.
-export const VERSION = 8;
+export const VERSION = 9;
 export const MAX_PAYLOAD = 512 * 1024;
 export const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const number = (value, min = -1e7, max = 1e7) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
@@ -33,6 +33,34 @@ export function snapshotIssue(state) {
   return null;
 }
 export const validSnapshot = state => snapshotIssue(state) === null;
+
+// The small, frequent car pose (position, rotation, motion, steering); see wire_protocol.gd.
+export function poseIssue(state) {
+  if (!isRecord(state)) return 'state_type';
+  for (const key of ['seq', 'reset']) if (!integer(state[key])) return key;
+  for (const [key, min, max] of [['time', 0, 1e12], ['speed', -200, 200], ['steering', -1.01, 1.01], ['throttle', -1.01, 1.01]]) {
+    if (!number(state[key], min, max)) return key;
+  }
+  for (const key of ['p', 'v', 'w']) if (!vector(state[key], 3)) return key;
+  if (!vector(state.q, 4) || Math.abs(state.q.reduce((sum, value) => sum + value * value, 0) - 1) >= 0.02) return 'q';
+  if (!integer(state.grounded, 0, 4)) return 'grounded';
+  if (!vector(state.wheels, 4) || state.wheels.some(value => value < -2 || value > 2)) return 'wheels';
+  return null;
+}
+export const validPose = state => poseIssue(state) === null;
+
+// Direct-link offer between players on one local network: private IPv4 addresses,
+// a listening port and a random key, relayed to the partner (never used by the relay).
+const privateIPv4 = value => typeof value === 'string' && /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(value)
+  && value.split('.').every(part => Number(part) <= 255)
+  && (/^10\./.test(value) || /^192\.168\./.test(value) || /^169\.254\./.test(value) || /^127\./.test(value)
+    || (/^172\./.test(value) && Number(value.split('.')[1]) >= 16 && Number(value.split('.')[1]) <= 31));
+export function validDirect(message) {
+  if (typeof message.on !== 'boolean' || typeof message.reply !== 'boolean') return false;
+  if (!message.on) return true;
+  return Array.isArray(message.addrs) && message.addrs.length <= 8 && message.addrs.every(privateIPv4)
+    && integer(message.port, 0, 65535) && typeof message.key === 'string' && /^[a-f0-9]{32}$/.test(message.key);
+}
 
 export function graphIssue(roads) {
   if (!Array.isArray(roads) || roads.length < 1 || roads.length > 100) return 'road_count';
@@ -69,6 +97,15 @@ export function graphIssue(roads) {
 export const validGraph = roads => graphIssue(roads) === null;
 
 // Names are reusable rendezvous points, not saved games or permanent reservations.
+// Short, speakable room codes: no 0/O, 1/I/L lookalikes.
+export const SHARE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const SHARE_LENGTH = 6;
+export function normalizeShare(value) {
+  if (typeof value !== 'string' || value.length > 24) return null;
+  const code = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return code.length === SHARE_LENGTH && [...code].every(c => SHARE_ALPHABET.includes(c)) ? code : null;
+}
+
 export function normalizeLobby(value) {
   if (typeof value !== 'string' || value.length > 40 || !/^[a-z0-9 -]+$/i.test(value)) return null;
   const name = value.trim().toLowerCase().replace(/[ -]+/g, '-');

@@ -1,12 +1,19 @@
 extends Node
 ## Outbound WSS transport with resumable seats, application heartbeats and diagnostics.
 signal room_created(code: String)
+## The relay decides each seat: the creator picks one and a friend joining by code gets the other.
+signal seat_assigned(seat: String)
+## Both players' seats were swapped (after a run ends); `seat` is ours now.
+signal seats_swapped(seat: String)
 signal joined
 signal waiting(message: String)
 signal navigator_joined
 signal navigator_left
 signal graph_received(roads: Array)
 signal snapshot_received(state: Dictionary)
+signal pose_received(pose: Dictionary)
+## The partner offered (or withdrew) a direct local-network link.
+signal direct_offer(offer: Dictionary)
 signal failed(message: String)
 signal recovering(message: String)
 signal restored(peer_connected: bool)
@@ -17,7 +24,10 @@ signal check_finished(message: String)
 
 const Wire = preload("res://scripts/wire_protocol.gd")
 const Log = preload("res://scripts/network_log.gd")
-const VERSION := 8
+const VERSION := 9
+## Matches server/protocol.mjs: six characters, no 0/O or 1/I/L lookalikes.
+const SHARE_ALPHABET := "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+const SHARE_LENGTH := 6
 const RECOVERY_SECONDS := 120.0
 var socket: WebSocketPeer
 var active := false
@@ -25,6 +35,9 @@ var is_ready := false
 var handshake_sent := false
 var intent := "create"
 var room_code := ""
+## Short code to tell a friend. room_code stays the relay's internal id for resuming.
+var share_code := ""
+var create_seat := "driver"
 var lobby_name := ""
 var token := ""
 var seat_role := ""
@@ -56,7 +69,20 @@ var backpressure_since := -1.0
 func now() -> float:
 	return Time.get_ticks_msec() / 1000.0
 
-func start(address: String, action: String, code: String = "", lobby: String = "") -> Error:
+## Uppercases a typed code and drops spaces/dashes; "" unless it is a valid short code.
+static func normalize_share(value: String) -> String:
+	var code := ""
+	for character in value.to_upper():
+		if (character >= "A" and character <= "Z") or (character >= "0" and character <= "9"):
+			code += character
+	if code.length() != SHARE_LENGTH:
+		return ""
+	for character in code:
+		if not SHARE_ALPHABET.contains(character):
+			return ""
+	return code
+
+func start(address: String, action: String, code: String = "", lobby: String = "", seat: String = "driver") -> Error:
 	stop()
 	intent = action
 	url = normalize_url(address)
@@ -65,10 +91,16 @@ func start(address: String, action: String, code: String = "", lobby: String = "
 		return ERR_INVALID_PARAMETER
 	intent = action
 	lobby_name = lobby.strip_edges()
+	create_seat = "navigator" if seat == "navigator" else "driver"
+	share_code = ""
 	room_code = code.strip_edges().replace("-", "").to_upper()
-	if intent == "join" and lobby_name.is_empty() and (room_code.length() != 18 or not room_code.is_valid_hex_number(false)):
-		_fail("Paste the 18-character room code from the driver.")
-		return ERR_INVALID_PARAMETER
+	if intent == "join" and lobby_name.is_empty():
+		var short := normalize_share(code)
+		if not short.is_empty():
+			room_code = short
+		elif room_code.length() != 18 or not room_code.is_valid_hex_number(false):
+			_fail("Room codes are 6 letters and numbers, like K7Q4MZ. Check it with your friend.")
+			return ERR_INVALID_PARAMETER
 	token = ""
 	seat_role = ""
 	retry_count = 0
@@ -166,9 +198,13 @@ func _process(_delta: float) -> void:
 	if state == WebSocketPeer.STATE_OPEN:
 		if not handshake_sent:
 			handshake_sent = true
+			# Small game messages must not wait for Nagle's algorithm to batch them.
+			socket.set_no_delay(true)
 			var hello := {"type": intent, "version": VERSION, "room": room_code}
 			if not lobby_name.is_empty():
 				hello.lobby = lobby_name
+			elif intent == "create":
+				hello.seat = create_seat
 			if not token.is_empty():
 				hello = {"type": "resume", "version": VERSION, "room": room_code, "token": token, "role": seat_role}
 			_send(hello)
@@ -244,22 +280,32 @@ func _handle(message: Dictionary) -> void:
 					return
 				room_code = message.room
 				token = message.token
-				seat_role = message.get("role", "")
+				seat_role = str(message.get("role", ""))
+				if message.get("share") is String:
+					share_code = message.share
+				if not seat_role in ["driver", "navigator"]:
+					_fail("Relay sent an invalid seat.")
+					return
+				seat_assigned.emit(seat_role)
 			is_ready = true
 			outage_started = -1.0
 			retry_count = 0
 			last_pong = now()
 			Log.event(type, {"role": seat_role, "peer_connected": message.get("peer_connected", false), "connection": message.get("connection", ""), "instance": message.get("instance", "")})
 			match type:
-				"created":
-					room_created.emit(room_code)
-					if message.get("peer_connected", false):
-						navigator_joined.emit()
-				"joined":
-					if message.get("peer_connected", false):
+				"created", "joined":
+					if type == "created":
+						room_created.emit(share_code if not share_code.is_empty() else room_code)
+					var partner: bool = message.get("peer_connected", false)
+					if seat_role == "driver":
+						if partner:
+							navigator_joined.emit()
+						elif type == "joined":
+							waiting.emit("You're the driver. Waiting for your navigator…")
+					elif partner:
 						joined.emit()
 					else:
-						waiting.emit("You're in. Waiting for your driver to join this lobby…")
+						waiting.emit("You're the navigator. Waiting for your driver to join…")
 				"resumed": restored.emit(bool(message.get("peer_connected", false)))
 				"check_ready":
 					if check_started == 0.0:
@@ -274,33 +320,60 @@ func _handle(message: Dictionary) -> void:
 				if rtts.size() > 300:
 					rtts.pop_front()
 				last_pong = now()
+		"seat_swapped":
+			var seat := str(message.get("role", ""))
+			if not seat in ["driver", "navigator"]:
+				_fail("Relay sent an invalid seat.")
+				return
+			seat_role = seat
+			Log.event("seat_swapped", {"role": seat})
+			seat_assigned.emit(seat)
+			seats_swapped.emit(seat)
 		"navigator_joined": navigator_joined.emit()
 		"navigator_left": navigator_left.emit()
 		"peer_reconnecting":
 			Log.event("peer_reconnecting", {"role": message.get("role", "")})
 			peer_waiting.emit()
 		"peer_restored": peer_restored.emit()
-		"graph":
-			if not message.get("roads") is Array:
-				_fail("Invalid road data from relay.")
-				return
-			var roads := Wire.graph_from_json(message.get("roads", []))
-			if roads.is_empty():
-				_fail("Invalid road data from relay.")
-			else:
-				graph_received.emit(roads)
-		"snapshot":
-			if not message.get("state") is Dictionary:
-				_fail("Invalid car state from relay.")
-				return
-			var snapshot := Wire.snapshot_from_json(message.get("state", {}))
-			if snapshot.is_empty():
-				_fail("Invalid car state from relay.")
-			else:
-				snapshot_received.emit(snapshot)
+		"graph", "pose", "snapshot":
+			if not handle_game_message(message):
+				_fail("Invalid game data from relay.")
+		"direct":
+			direct_offer.emit(message)
 		"error", "room_closed":
 			Log.event("server_rejected", {"code": message.get("code", type)})
 			_fail(str(message.get("message", "Room closed. Create a new room.")))
+
+## Decode the driver's game data (from the relay or a direct link) and emit it.
+## Returns false if it is malformed.
+func handle_game_message(message: Dictionary) -> bool:
+	match str(message.get("type", "")):
+		"graph":
+			var roads := Wire.graph_from_json(message.roads) if message.get("roads") is Array else []
+			if roads.is_empty():
+				return false
+			graph_received.emit(roads)
+		"pose":
+			var pose := Wire.pose_from_json(message.state) if message.get("state") is Dictionary else {}
+			if pose.is_empty():
+				return false
+			pose_received.emit(pose)
+		"snapshot":
+			var snapshot := Wire.snapshot_from_json(message.state) if message.get("state") is Dictionary else {}
+			if snapshot.is_empty():
+				return false
+			snapshot_received.emit(snapshot)
+		_:
+			return false
+	return true
+
+func send_direct(offer: Dictionary) -> bool:
+	var message := {"type": "direct", "on": bool(offer.get("on", false)), "reply": bool(offer.get("reply", false))}
+	if message.on:
+		message.addrs = Array(offer.addrs)
+		message.port = int(offer.port)
+		message.key = str(offer.key)
+	return is_ready and _send(message)
 
 func _send(message: Dictionary) -> bool:
 	if socket == null or socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
@@ -311,8 +384,14 @@ func _send(message: Dictionary) -> bool:
 		return false
 	return true
 
+func request_swap() -> bool:
+	return is_ready and _send({"type": "swap"})
+
 func send_graph(roads: Array) -> bool:
 	return is_ready and _send({"type": "graph", "roads": Wire.graph_to_json(roads)})
+
+func send_pose(pose: Dictionary) -> bool:
+	return is_ready and _send({"type": "pose", "state": Wire.pose_to_json(pose)})
 
 func send_snapshot(state: Dictionary) -> bool:
 	return is_ready and _send({"type": "snapshot", "state": Wire.snapshot_to_json(state)})
