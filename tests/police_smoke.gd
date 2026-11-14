@@ -145,59 +145,82 @@ func check_rubberband(cop: Node3D, car: RigidBody3D) -> void:
 	cop.reset()
 	cop.phase = "chasing"
 	cop.elapsed = 7
-	var player_station: float = cop.station + 600.0
-	cop.last_gap = 600.0
+	# A clean, fast driver builds a lead, then the rubber band holds it instead of letting it grow.
+	var player_station: float = cop.station + 90.0
+	cop.last_gap = 90.0
 	var smooth_motion := true
-	for i in 3600:
-		player_station += 10.0 / 60.0
+	var peak_gap := 0.0
+	for i in 7200:
+		player_station += 28.0 / 60.0
 		car.global_position = cop._sample(0, player_station).point + Vector3.UP
 		var previous: Vector3 = cop.global_position
 		cop.advance(1.0 / 60.0, true)
-		smooth_motion = smooth_motion and previous.distance_to(cop.global_position) <= cop.CATCH_UP_SPEED / 60.0 + 0.001
-		if i == 599:
-			check(cop.phase == "chasing" and cop.visible and cop.gap > 300 and cop.speed > cop.CATCH_UP_SPEED - 1, "a large lead triggers faster pursuit instead of ending the chase")
+		smooth_motion = smooth_motion and previous.distance_to(cop.global_position) <= cop.LEASH_SPEED / 60.0 + 0.001
+		peak_gap = maxf(peak_gap, cop.gap)
+		if i == 2399:
+			check(cop.phase == "chasing" and cop.visible and cop.gap > cop.LEASH_START and cop.speed > 27, "a large lead makes the patrol match the driver's pace instead of ending the chase")
 			var snapshot: Dictionary = cop.snapshot()
 			var replica = load("res://scripts/police_pursuit.gd").new()
 			root.add_child(replica)
 			replica.apply_snapshot(snapshot, snapshot, 1)
-			check(Wire._police_state(snapshot) and is_equal_approx(replica.speed, cop.speed) and is_equal_approx(replica.gap, cop.gap), "boosted pursuit stays within the shared protocol and shares its speed and gap")
+			check(Wire._police_state(snapshot) and is_equal_approx(replica.speed, cop.speed) and is_equal_approx(replica.gap, cop.gap), "leashed pursuit stays within the shared protocol and shares its speed and gap")
 			replica.queue_free()
-	check(cop.gap < 300 and cop.closing_speed > 0.5 and smooth_motion, "rubberbanding reels in a crippled driver continuously without jumping the patrol")
+	print("Leashed at 28 m/s: gap=%.0f peak=%.0f speed=%.1f" % [cop.gap, peak_gap, cop.speed])
+	check(cop.phase == "chasing" and peak_gap < cop.BOOST_FULL_GAP + 30 and cop.gap > 100 and smooth_motion, "the rubber band keeps a fast driver's lead from growing, without jumping the patrol")
 	var before_pause: Vector3 = cop.global_position
 	var paused_gap: float = cop.gap
 	tick(cop, 120, false)
 	check(cop.global_position == before_pause and cop.gap == paused_gap and cop.siren_gain() == 0, "catch-up boost still pauses with menus or connection recovery")
-	# A well-driven car on two flat tires (about 62 km/h) still pulls away from a close patrol.
+	# Even at its top speed, late in a chase, the patrol never overtakes a perfect driver.
+	cop.reset()
+	cop.phase = "chasing"
+	cop.elapsed = 1000
+	player_station = cop.station + 90.0
+	cop.last_gap = 90.0
+	var closest := INF
+	for _i in 7200:
+		player_station += 31.0 / 60.0
+		car.global_position = cop._sample(0, player_station).point + Vector3.UP
+		cop.advance(1.0 / 60.0, true)
+		closest = minf(closest, cop.gap)
+	print("Perfect driving at 31 m/s: closest=%.0f gap=%.0f" % [closest, cop.gap])
+	check(cop.phase == "chasing" and closest > 80, "a healthy car at top speed is never closed down")
+	# Two flat tires (about 62 km/h) pull away early, but the rising patrol pace wins in the end.
 	cop.reset()
 	cop.phase = "chasing"
 	cop.elapsed = 7
 	player_station = cop.station + 90.0
 	cop.last_gap = 90.0
-	for _i in 7200:
+	var early_gap := 0.0
+	for i in 18000:
 		player_station += 17.3 / 60.0
 		car.global_position = cop._sample(0, player_station).point + Vector3.UP
 		cop.advance(1.0 / 60.0, true)
-	print("Two flat tires at 17.3 m/s: gap=%.0f closing=%.2f" % [cop.gap, cop.closing_speed])
-	check(cop.phase == "chasing" and cop.gap > 200 and cop.closing_speed < 0, "a well-driven car on two flat tires keeps pulling away from the patrol")
+		if i == 1799: early_gap = cop.gap
+		if cop.phase == "caught": break
+	print("Two flat tires at 17.3 m/s: gap after 30 s=%.0f, final phase=%s after %.0f s" % [early_gap, cop.phase, cop.elapsed])
+	check(early_gap > 120, "a car on two flat tires can still pull away early in the chase")
+	check(cop.phase == "caught" or cop.gap < 30, "the patrol's rising speed eventually reels in a crippled car")
+	cop.elapsed = 100000
+	check(is_equal_approx(cop.cruise_speed(), cop.MAX_SPEED) and cop.MAX_SPEED <= 31.0, "the patrol's pace is capped near a healthy car's top speed")
 	var early_speed := 0.0
 	for late_run in [false, true]:
 		cop.reset()
 		cop.phase = "chasing"
-		cop.elapsed = 7
-		car.distance_driven = 2200 if late_run else 0
+		cop.elapsed = 300 if late_run else 7
 		for _i in 600:
 			car.global_position = cop._sample(0, cop.station + 70.0).point + Vector3.UP
 			cop.advance(1.0 / 60.0, true)
 		if not late_run:
 			early_speed = cop.speed
-			check(is_equal_approx(early_speed, 14.0), "boost fades out nearby, preserving breathing room before capture")
-	check(cop.speed > early_speed + 2, "distance progression still raises the patrol's normal cruising pace")
+			check(absf(early_speed - cop.cruise_speed()) < 0.2 and early_speed < 15, "boost fades out nearby, preserving breathing room before capture")
+	check(cop.speed > early_speed + 8, "the patrol's cruising pace keeps rising as the chase goes on")
 	# Enter a roadside obstacle at full boosted speed, with room to brake and dodge.
 	car.distance_driven = 0
 	cop.reset()
 	cop.phase = "chasing"
 	cop.elapsed = 7
-	cop.speed = cop.CATCH_UP_SPEED
+	cop.speed = cop.LEASH_SPEED
 	var obstacle_station: float = cop.station + 110
 	var obstacle: Vector3 = cop._sample(0, obstacle_station).point
 	road.roads[0].hazards = [{"kind": "rock", "position": obstacle}]
@@ -209,7 +232,7 @@ func check_rubberband(cop: Node3D, car: RigidBody3D) -> void:
 		cop.advance(1.0 / 60.0, true)
 		minimum_clearance = minf(minimum_clearance, Vector2(cop.global_position.x - obstacle.x, cop.global_position.z - obstacle.z).length())
 		if absf(cop.station - obstacle_station) < 12:
-			slowed = slowed or cop.speed <= cop.CATCH_UP_SPEED
+			slowed = slowed or cop.speed <= 33
 		if cop.station > obstacle_station + 12: break
 	check(slowed and minimum_clearance > 2.2, "full catch-up speed brakes early enough to clear an obstacle")
 	road.queue_free()
@@ -291,4 +314,5 @@ func check_streamed_pursuit(cop: Node3D, car: RigidBody3D, world: Node3D, driver
 	if driver_speed < 15:
 		check(cop.phase in ["chasing", "caught"] and cop.gap < 260 and peak_gap - cop.gap > 70, "rubberbanding regains ground on a slow car through generated bends and obstacles")
 	else:
-		check(cop.phase == "escaped", "a clean, fast driver can leave the patrol behind on generated roads")
+		# This synthetic driver never slows for bumps, rocks, or junctions, unlike the patrol.
+		check(cop.phase == "chasing" and peak_gap < 500 and car.distance_driven > 3000, "the rubber band keeps the patrol in the chase behind a flat-out driver on generated roads")
