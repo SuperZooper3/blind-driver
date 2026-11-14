@@ -118,7 +118,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         if path.is_file() and path.suffix in {".gd", ".py", ".godot", ".tscn"}:
             source_hash.update(name.encode() + b"\0" + path.read_bytes())
     manifest["source_sha256"] = source_hash.hexdigest()
-    manifest["thinking"] = "disabled for Cohere reasoning models"
+    manifest["thinking"] = {"token_budget": args.thinking_tokens, "supported_models_only": True}
     atomic_json(directory / "manifest.json", manifest)
     monitor = ConsoleMonitor(directory, manifest)
     processes, logs = {}, []
@@ -226,7 +226,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
             (directory / role / "prompt.txt").write_text(system, encoding="utf-8")
             model = getattr(args, role + "_model")
             agents[role] = (ScriptedAgent(role) if args.provider == "scripted" else
-                            CohereAgent(role, model, key, system, args.timeout, args.max_output_tokens, args.history_turns))
+                            CohereAgent(role, model, key, system, args.timeout, args.max_output_tokens, args.history_turns,
+                                        thinking_tokens=args.thinking_tokens, image_width=args.image_width))
             manifest[role + "_prompt_sha256"] = hashlib.sha256(system.encode()).hexdigest()
         atomic_json(directory / "manifest.json", manifest)
         for role in ROLES:

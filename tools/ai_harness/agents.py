@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import math
 import urllib.error
@@ -11,8 +12,8 @@ from pathlib import Path
 
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
-DEFAULT_MODEL = "command-a-vision-07-2025"
-PROMPT_REVISION = "grounded-copilot-v4"
+DEFAULT_MODEL = "command-a-plus-05-2026"
+PROMPT_REVISION = "grounded-copilot-v5"
 
 from .prompts import prompt, current_task
 
@@ -74,11 +75,12 @@ class ScriptedAgent:
 
 class CohereAgent:
     def __init__(self, role: str, model: str, key: str, system_prompt: str,
-                 timeout: float, max_tokens: int, history_turns: int):
+                 timeout: float, max_tokens: int, history_turns: int, *, thinking_tokens: int = 0, image_width: int = 0):
         self.role, self.model, self.key = role, model, key
         self.system_prompt = system_prompt
         self.timeout, self.max_tokens = timeout, max_tokens
         self.history_turns = history_turns
+        self.thinking_tokens, self.image_width = thinking_tokens, image_width
         self.history: list[dict] = []
         self.response_feedback = ""
 
@@ -103,7 +105,16 @@ class CohereAgent:
         if result and not result.get("accepted"):
             situation["rejected_action"] = result
         context = json.dumps(situation, ensure_ascii=False, separators=(",", ":"))
-        encoded = base64.b64encode(image.read_bytes()).decode("ascii")
+        picture = image.read_bytes()
+        if self.image_width:
+            from PIL import Image
+            with Image.open(io.BytesIO(picture)) as full:
+                if full.width > self.image_width:
+                    full.thumbnail((self.image_width, self.image_width), Image.Resampling.LANCZOS)
+                    buffer = io.BytesIO()
+                    full.save(buffer, format="JPEG", quality=90)
+                    picture = buffer.getvalue()
+        encoded = base64.b64encode(picture).decode("ascii")
         current = {"role": "user", "content": [
             {"type": "text", "text": context},
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded}},
@@ -124,7 +135,8 @@ class CohereAgent:
         body = {"model": self.model, "messages": [current],
                 "max_tokens": self.max_tokens, "temperature": 0.2}
         if self.model.startswith("command-a-plus") or self.model.startswith("command-a-reasoning"):
-            body["thinking"] = {"type": "disabled"}
+            body["thinking"] = ({"type": "enabled", "token_budget": self.thinking_tokens}
+                                if self.thinking_tokens else {"type": "disabled"})
         if self.model.startswith("command-a-plus"):
             body["response_format"] = {"type": "json_object", "schema": {
                 "type": "object", "properties": {

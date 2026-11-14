@@ -28,7 +28,9 @@ def main():
         p.add_argument("--rpm", type=float, default=18, help="Combined API requests/minute across both seats")
         p.add_argument("--max-requests", type=int, default=200)
         p.add_argument("--max-tokens", type=int, default=200000)
-        p.add_argument("--max-output-tokens", type=int, default=512)
+        p.add_argument("--max-output-tokens", type=int, default=1536)
+        p.add_argument("--thinking-tokens", type=int, default=512, help="Bounded thinking for supported Cohere reasoning models; 0 disables it")
+        p.add_argument("--image-width", type=int, default=960, help="Maximum provider image width; full seat/HUD is retained")
         p.add_argument("--history-turns", type=int, default=2)
         p.add_argument("--memory-every", type=int, default=0, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
         p.add_argument("--decision-interval-sim", type=float, default=.6, help="Minimum game seconds between agent observations; avoids redundant calls at slow speed")
@@ -97,6 +99,10 @@ def main():
         parser.error("Memory interval must be zero or positive")
     if not 0 <= args.decision_interval_sim <= 5:
         parser.error("Decision interval must be 0–5 game seconds")
+    if args.thinking_tokens < 0 or (args.thinking_tokens and args.max_output_tokens < args.thinking_tokens + 1024):
+        parser.error("Leave at least 1024 output tokens beyond the thinking budget, or set --thinking-tokens 0")
+    if not 640 <= args.image_width <= 1280:
+        parser.error("Provider image width must be 640–1280")
     if args.command == "run":
         run_episode(args)
     else:

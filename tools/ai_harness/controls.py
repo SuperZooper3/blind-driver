@@ -15,7 +15,7 @@ def restart_command(directory, env_file=None):
     fields = ("provider", "driver_model", "navigator_model", "driver_instructions", "navigator_instructions",
         "speed", "seed", "course", "sim_seconds", "capture_fps", "video_fps", "review_speed", "rpm",
         "max_requests", "max_tokens", "max_output_tokens", "history_turns", "memory_every", "timeout",
-        "max_action_age_sim", "scripted_interval", "decision_interval_sim", "label", "godot")
+        "max_action_age_sim", "scripted_interval", "decision_interval_sim", "thinking_tokens", "image_width", "label", "godot")
     for field in fields:
         value = manifest.get(field)
         if value is not None:
