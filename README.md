@@ -109,6 +109,10 @@ Agents should read [AGENTS.md](AGENTS.md) for branch ownership, merge compatibil
 and playtesting from the latest `main`. Upcoming gameplay ideas are recorded in
 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md); they are not implemented yet.
 
+The [AI harness plan](docs/AI_HARNESS_PLAN.md) proposes visual agents, continuous
+slow-motion evaluation, two-view recordings, and a path toward reinforcement
+learning. This is a design proposal; the harness is not implemented yet.
+
 The project intentionally builds almost everything in code. The editor's main scene is a small entry point, so an empty-looking 3D editor is expected: **run the project to see the world**.
 
 | File | Responsibility / useful tuning |
