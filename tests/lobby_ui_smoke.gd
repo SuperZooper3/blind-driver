@@ -31,6 +31,13 @@ func _run() -> void:
 	check(game.ui.share_box.visible and game.ui.room_code_label.text == "K7Q4MZ", "a created room shows its code to share")
 	check(not game.ui.relay_address.is_visible_in_tree() and not game.ui.address.is_visible_in_tree(), "connection URLs and LAN addresses are absent from the start screen")
 	check(not InputMap.has_action("recover"), "keyboard and gamepad recovery action is removed")
+	var Version = preload("res://scripts/version.gd")
+	check(game.ui.version_label.text.contains(Version.label()) and Version.label() == "PROTOTYPE %02d" % Version.PROTOTYPE, "the start screen shows the prototype number")
+	check(game.ui.direct_toggle.is_visible_in_tree(), "the direct connection switch is on the start screen")
+	game._check_partner_build(Version.PROTOTYPE - 1)
+	check(game.ui.version_label.text.contains("PROTOTYPE %02d" % (Version.PROTOTYPE - 1)) and game.ui.online_status.text.contains("update"), "a partner on another version is called out")
+	game._check_partner_build(-1)
+	check(game.ui.version_label.text.contains("older version"), "a partner from before version numbers is called out too")
 	game.car.remote = true
 	game.car.freeze = true
 	game.car.signed_speed = 25.0

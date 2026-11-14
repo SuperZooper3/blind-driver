@@ -198,6 +198,18 @@ test('direct-link offers pass between partners in both directions and are valida
   assert.equal((await closed)[0], 1008);
 });
 
+test('each player learns the partner build number to spot mismatched versions', async t => {
+  const { connect } = await setup(t);
+  const driver = await connect();
+  driver.send({ type: 'create', version: 9, build: 2 });
+  const created = await driver.next();
+  assert.equal(created.partner_build, null);
+  const navigator = await connect();
+  navigator.send({ type: 'join', version: 9, room: created.share, build: 1 });
+  assert.equal((await navigator.next()).partner_build, 2);
+  assert.deepEqual(await driver.next(), { type: 'navigator_joined', partner_build: 1 });
+});
+
 test('rooms are isolated and malformed state is rejected', async t => {
   const { connect } = await setup(t);
   const first = await connect();

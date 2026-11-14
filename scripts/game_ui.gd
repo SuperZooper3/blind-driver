@@ -13,6 +13,7 @@ signal online_join_requested(address: String, code: String)
 signal online_cancel_requested
 
 const Settings = preload("res://scripts/lobby_settings.gd")
+const Version = preload("res://scripts/version.gd")
 const Dashboard = preload("res://scripts/dashboard.gd")
 const FOOTER_HEIGHT := 148.0
 const Map = preload("res://scripts/route_map.gd")
@@ -76,6 +77,7 @@ var copy_code_button: Button
 var copy_link_button: Button
 var join_code_button: Button
 var shared_code := ""
+var version_label: Label
 var direct_toggle: CheckButton
 var direct_label: Label
 var online_status: Label
@@ -184,7 +186,7 @@ func _build_hud() -> void:
 	var brand := _label("BLIND DRIVER", 24)
 	brand.position = Vector2(28, 15)
 	header.add_child(brand)
-	var edition := _label("FOREST ROADS  /  PROTOTYPE 01", 11, muted)
+	var edition := _label("FOREST ROADS  /  " + Version.label(), 11, muted)
 	edition.position = Vector2(29, 47)
 	header.add_child(edition)
 	status_label = _label("YOUR NEXT RIDE", 12, amber)
@@ -285,6 +287,9 @@ func _build_menu() -> void:
 	box.add_child(_label("One drives. One sees the way.", 17, muted))
 	personal_best_label = _label("PERSONAL BEST   0.00 km", 13, amber)
 	box.add_child(personal_best_label)
+	# Both players should see the same number here before playing together.
+	version_label = _label("%s   ·   online protocol %d" % [Version.label(), preload("res://scripts/relay_client.gd").VERSION], 11, muted)
+	box.add_child(version_label)
 	resume_button = _button("Resume the ride   →", func(): resume_requested.emit())
 	resume_button.hide()
 	box.add_child(resume_button)
@@ -399,7 +404,7 @@ func _build_settings() -> void:
 	relay_address = LineEdit.new()
 	relay_address.placeholder_text = Settings.DEFAULT_RELAY
 	advanced.add_child(relay_address)
-	var help := _label("This website supplies the online server automatically." if OS.has_feature("web") else "Leave this as it is for normal online play.\nDirect LAN below is only for computers on the same Wi-Fi.", 12, muted)
+	var help := _label("This website supplies the online server automatically." if OS.has_feature("web") else "Leave this as it is for normal online play.\nSame Wi-Fi? Use \"Direct connection\" on the start screen, under the room code box: it works with room codes and needs no IP. The manual Direct LAN buttons below are the older way.", 12, muted)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	advanced.add_child(help)
 	address = LineEdit.new()

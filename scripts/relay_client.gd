@@ -3,6 +3,8 @@ extends Node
 signal room_created(code: String)
 ## The relay decides each seat: the creator picks one and a friend joining by code gets the other.
 signal seat_assigned(seat: String)
+## The partner's PROTOTYPE number (see version.gd), or -1 if their game did not say.
+signal partner_build(build: int)
 ## Both players' seats were swapped (after a run ends); `seat` is ours now.
 signal seats_swapped(seat: String)
 signal joined
@@ -200,13 +202,13 @@ func _process(_delta: float) -> void:
 			handshake_sent = true
 			# Small game messages must not wait for Nagle's algorithm to batch them.
 			socket.set_no_delay(true)
-			var hello := {"type": intent, "version": VERSION, "room": room_code}
+			var hello := {"type": intent, "version": VERSION, "room": room_code, "build": preload("res://scripts/version.gd").PROTOTYPE}
 			if not lobby_name.is_empty():
 				hello.lobby = lobby_name
 			elif intent == "create":
 				hello.seat = create_seat
 			if not token.is_empty():
-				hello = {"type": "resume", "version": VERSION, "room": room_code, "token": token, "role": seat_role}
+				hello = {"type": "resume", "version": VERSION, "room": room_code, "token": token, "role": seat_role, "build": preload("res://scripts/version.gd").PROTOTYPE}
 			_send(hello)
 		var count := 0
 		while active and socket != null and socket.get_available_packet_count() > 0 and count < 128:
@@ -269,6 +271,9 @@ func _process(_delta: float) -> void:
 
 func _handle(message: Dictionary) -> void:
 	var type := str(message.get("type", ""))
+	if message.has("partner_build") and (message.get("peer_connected", true) or type in ["navigator_joined", "peer_restored"]):
+		var build: Variant = message.partner_build
+		partner_build.emit(int(build) if (typeof(build) == TYPE_FLOAT or typeof(build) == TYPE_INT) else -1)
 	match type:
 		"created", "joined", "resumed", "check_ready":
 			if message.get("version") != VERSION:

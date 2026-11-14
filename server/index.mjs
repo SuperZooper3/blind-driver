@@ -105,15 +105,17 @@ export function createRelay(options = {}) {
     log(intentional ? 'seat_left' : 'seat_reserved', client, { grace_ms: intentional ? 0 : grace });
     client.room = null;
   };
-  const seat = client => ({ client, token: randomBytes(32).toString('hex'), deadline: Infinity });
+  // `build` is the game's PROTOTYPE number, passed to the partner so mismatches show in-game.
+  const seat = client => ({ client, token: randomBytes(32).toString('hex'), deadline: Infinity, build: client.build });
   const replySeat = (client, type) => {
     const room = rooms.get(client.room);
     send(client, { type, room: client.room, share: room.share, version: VERSION, token: room[client.role].token,
-      role: client.role, connection: client.id, instance, peer_connected: !!room[otherRole(client.role)]?.client, grace_seconds: grace / 1000 });
+      role: client.role, connection: client.id, instance, peer_connected: !!room[otherRole(client.role)]?.client, partner_build: room[otherRole(client.role)]?.build ?? null, grace_seconds: grace / 1000 });
   };
   const notifyReady = (room, role) => {
-    if (role === 'navigator') send(room.driver?.client, { type: 'navigator_joined' });
-    else if (room.navigator?.client) send(room.navigator.client, { type: 'peer_restored', role: 'driver' });
+    const build = room[role]?.build ?? null;
+    if (role === 'navigator') send(room.driver?.client, { type: 'navigator_joined', partner_build: build });
+    else if (room.navigator?.client) send(room.navigator.client, { type: 'peer_restored', role: 'driver', partner_build: build });
   };
 
   server.on('upgrade', (request, socket, head) => {
@@ -165,6 +167,7 @@ export function createRelay(options = {}) {
         return;
       }
       if (['create', 'join', 'resume', 'check'].includes(message.type)) {
+        client.build = Number.isSafeInteger(message.build) && message.build >= 0 && message.build <= 9999 ? message.build : null;
         if (++client.attempts > 8) { reject(client, 'Too many room attempts'); return; }
         if (client.room || client.role === 'check') { fail(client, 'already_joined', 'Leave the current session first.'); return; }
         if (message.version !== VERSION) { fail(client, 'version', 'Game and relay versions differ. Deploy the updated relay and update both games.'); return; }
@@ -209,7 +212,7 @@ export function createRelay(options = {}) {
           }
           const previous = reserved.client;
           client.room = code; client.role = message.role;
-          reserved.client = client; reserved.deadline = Infinity;
+          reserved.client = client; reserved.deadline = Infinity; reserved.build = client.build;
           previous?.socket.close(4001, 'Session resumed elsewhere');
           replySeat(client, 'resumed'); notifyReady(room, client.role); log('seat_resumed', client);
         } else {
