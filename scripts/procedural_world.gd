@@ -5,6 +5,7 @@ extends Node3D
 const Geo = preload("res://scripts/geometry.gd")
 const Hazards = preload("res://scripts/road_hazards.gd")
 const Challenge = preload("res://scripts/road_challenge.gd")
+const BankSite = preload("res://scripts/bank_site.gd")
 const TILE_SIZE := 80.0
 const TILE_RADIUS := 3
 const ROAD_WIDTH := 8.0
@@ -553,7 +554,7 @@ func recovery_spot(at: Vector3) -> Dictionary:
 func thorn_at(at: Vector3) -> bool:
 	# The same global grid defines the visible thicket and tire contact on both peers.
 	var center := Vector3((floorf(at.x / THORN_CELL) + 0.5) * THORN_CELL, 0, (floorf(at.z / THORN_CELL) + 0.5) * THORN_CELL)
-	return road_distance(center) >= THORN_DISTANCE and void_at(center).is_empty() and void_at(at).is_empty()
+	return not BankSite.contains(center) and not BankSite.contains(at) and road_distance(center) >= THORN_DISTANCE and void_at(center).is_empty() and void_at(at).is_empty()
 
 func puncture_mask(car: RigidBody3D) -> int:
 	if car.grounded_wheels == 0 or car.global_basis.y.dot(Vector3.UP) < 0.4:
@@ -663,6 +664,10 @@ func _build_tile(key: Vector2i) -> void:
 		var scale_y := rng.randf_range(0.7, 1.5)
 		var scale_x := rng.randf_range(0.75, 1.2)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(scale_x, scale_y, scale_x))
+		# Consume the same random draws before skipping, keeping the rest of the
+		# seeded forest unchanged. Never create a hidden trunk collider here either.
+		if BankSite.contains(p):
+			continue
 		trees.append(Transform3D(basis, p))
 		trunks.append(Transform3D(basis, p + Vector3.UP * scale_y * 1.8))
 		var body := StaticBody3D.new()
@@ -679,7 +684,10 @@ func _build_tile(key: Vector2i) -> void:
 		if not void_at(p).is_empty() or road_distance(p) < 7.0:
 			continue
 		var rock_scale := Vector3(rng.randf_range(0.6, 1.8), rng.randf_range(0.4, 1.1), rng.randf_range(0.7, 1.5))
-		rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rock_scale), p))
+		var rock_basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(rock_scale)
+		if BankSite.contains(p):
+			continue
+		rocks.append(Transform3D(rock_basis, p))
 		var body := StaticBody3D.new()
 		var shape := CollisionShape3D.new()
 		var sphere := SphereShape3D.new()

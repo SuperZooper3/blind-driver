@@ -110,7 +110,9 @@ Hits under about 13 km/h are harmless. Harder hits on rocks, trees, barriers and
 | Rear bumper | Falls off. Rear hits reach the rear wheels at full strength. | |
 | Windshield | Cracks spread across the glass itself, so each seat sees them in perspective (blurred for the driver, like the road) and third person sees them from outside; they then shatter into a hazy web. | |
 
-**Opening scene.** The first ride of each launch opens outside the bank the pair just robbed: the alarm bell rings, a red light flashes, and the driver's glasses fly off and break on the road. Both players see the bank, then the broken glasses, before the camera flies into their own seat and the ride begins (about 8.5 seconds; the car and the police wait until it ends). The bank stays beside the starting road.
+**Opening scene.** Every new ride, including restarts, opens outside the bank the pair just robbed: the alarm bell rings, a red light flashes, and the driver's glasses fly off and break on the road. Both players see the bank, then the broken glasses, before the camera flies into their own seat and the ride begins (about 8.5 seconds; the car and the police wait until it ends). Both opening views stay sharp; the driver becomes blurry only after entering their head. The bank's clearing stays free of trees, rocks and thorns. Pausing freezes the opening; resuming continues it.
+
+The engine sounds only while actively accelerating or reversing. Coasting and idling have no engine sound or rolling hiss. The music, crash effects and damage-based radio interference remain separate.
 
 **Spike strips** appear from heat 4. A yellow **SPIKES AHEAD 100 m** sign stands at the start of the road, and the strip is always at least 100 m past it. It lies across one half of the road, striped yellow and black with red spikes, and pops every tire that rolls over it; steer into the clear half.
 
@@ -231,7 +233,7 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `server/`, `render.yaml` | Node relay and Render deployment configuration |
 | `frontend/`, `export_presets.cfg`, `tools/export_web.sh` | Browser loading page, Web export, static server, and browser checks |
 | `Dockerfile`, `server/Dockerfile`, `.railway/` | Railway frontend/relay containers and infrastructure blueprint |
-| `scripts/engine_audio.gd`, `scripts/police_siren.gd` | Procedural engine/tire sound and distance-based stereo siren |
+| `scripts/engine_audio.gd`, `scripts/police_siren.gd` | Throttle-driven engine revs and distance-based stereo siren |
 | `scripts/police_pursuit.gd` | Driver-owned patrol navigation, obstacle avoidance, gap estimates, and capture |
 | `scripts/impact_audio.gd` | Synthesized crash and tire-pop sounds |
 | `scripts/driving_radio.gd` | Looping driving music, crash retuning, and damage-based radio distortion |

@@ -13,7 +13,7 @@ const DRIVER_END := 4.9
 const GLASSES_END := 6.6
 const GLASSES_DROP := 4.0
 const GLASSES_FALL_TIME := 0.7
-const BANK_OFFSET := Vector3(11.5, 0, 6.0)
+const Site = preload("res://scripts/bank_site.gd")
 
 var car: RigidBody3D
 var time := 0.0
@@ -33,7 +33,7 @@ var broken := false
 
 func setup(owner_car: RigidBody3D, ground_y: float) -> void:
 	car = owner_car
-	_build_bank(car.global_position + BANK_OFFSET, ground_y)
+	_build_bank(Site.CENTER, ground_y)
 	_build_glasses()
 	_build_bell()
 
@@ -90,11 +90,11 @@ func _wide(focus: Vector3, angle: float) -> Transform3D:
 	var at := focus + Vector3(-cos(angle) * 14.0, 4.5, sin(angle) * 14.0)
 	return Transform3D(Basis.looking_at(focus - at), at)
 
-func _build_bank(front: Vector3, ground_y: float) -> void:
+func _build_bank(center: Vector3, ground_y: float) -> void:
 	var root := Node3D.new()
 	root.name = "Bank"
 	add_child(root)
-	root.global_position = Vector3(front.x + 5.0, ground_y, front.z)
+	root.global_position = Vector3(center.x, ground_y, center.z)
 	var stone := Geo.material(Color("d8cfb8"))
 	var trim := Geo.material(Color("9c9483"))
 	var glass := Geo.material(Color("33424a"), 0.2)

@@ -46,11 +46,12 @@ var local_navigator_pid := -1
 var local_pair_deadline := 0
 var input_ready := false
 var repair_notice := ""
-## The bank-robbery opening plays once, the first time a ride starts. Headless
+## The bank-robbery opening plays for each new ride. Headless
 ## test runs skip it unless a test turns it on.
 const BankIntro = preload("res://scripts/bank_intro.gd")
 var intro_enabled := DisplayServer.get_name() != "headless"
-var intro_seen := false
+var intro_run_id := -1
+var intro_clear := false
 var intro: Node3D
 var repair_notice_time := 0.0
 
@@ -273,7 +274,8 @@ func _resize_views() -> void:
 	if (ui.readable_ui or ui.complete_seats) and not ui.in_menu:
 		view_height = size.y - 72 - 170
 	# Low resolution plus the blur pass makes the driver's vision genuinely unreadable.
-	driver_view.size = Vector2i(maxi(64, int(width / 5.0)), maxi(64, int(view_height / 5.0)))
+	var divisor := 1.0 if intro_clear else 5.0
+	driver_view.size = Vector2i(maxi(64, int(width / divisor)), maxi(64, int(view_height / divisor)))
 	navigator_view.size = Vector2i(768, 480) if mode == "ai" and not ui.in_menu else Vector2i(int(width), maxi(64, int(view_height)))
 
 func _process(delta: float) -> void:
@@ -288,7 +290,7 @@ func _process(delta: float) -> void:
 		ui.pursuit_title.text = "PRACTICE COURSE"
 		ui.pursuit_detail.text = "No pursuit / static obstacles"
 	siren.enabled = started and not audio_muted and not ui.in_menu and car.run_state == "driving" and not session.recovering and not session.stale and session.role != "disconnected"
-	motor.enabled = started and not audio_muted and not ui.in_menu
+	motor.enabled = started and not audio_muted and not ui.in_menu and not intro_playing() and car.run_state == "driving" and not session.recovering and not session.stale
 	_publish_browser_status(delta)
 	impact_audio.enabled = started and not audio_muted
 	_update_radio(delta)
@@ -408,6 +410,8 @@ func _physics_process(delta: float) -> void:
 func _restart_run() -> void:
 	if mode == "join":
 		return
+	_clear_intro()
+	intro_run_id = -1
 	if ai_navigator != null:
 		ai_navigator.reset()
 	records.observe(car.distance_driven)
@@ -433,20 +437,49 @@ func _restart_run() -> void:
 func intro_playing() -> bool:
 	return intro != null and not intro.finished()
 
+func _clear_intro() -> void:
+	if intro != null:
+		remove_child(intro)
+		intro.queue_free()
+		intro = null
+	car.intro_hold = false
+
+func _set_intro_clear(clear_view: bool) -> void:
+	if intro_clear == clear_view:
+		return
+	intro_clear = clear_view
+	# Disabling the shader alone still leaves a pixelated low-resolution image.
+	blur_material.set_shader_parameter("blind_strength", 0.0 if intro_clear else 1.0)
+	_resize_views()
+
 func _update_intro() -> void:
-	if intro_enabled and not intro_seen and started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending:
-		intro_seen = true
+	var ready_for_intro: bool = started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0
+	# Wait for the driver's first snapshot before placing the navigator's opening.
+	if car.remote:
+		ready_for_intro = ready_for_intro and session.snapshots_received > 0
+	if intro_enabled and intro_run_id != car.run_id and ready_for_intro:
+		_clear_intro()
+		intro_run_id = car.run_id
+		# Rejoining an already moving ride must not put a bank around the car.
+		if car.distance_driven > 1.0:
+			_set_intro_clear(false)
+			return
 		# The opening ends in first person, even in solo's usual chase view.
 		chase_camera = false
 		intro = BankIntro.new()
 		intro.name = "BankIntro"
 		add_child(intro)
-		intro.setup(car, World.height_at(car.global_position.x + 16.5, car.global_position.z + 6.0))
+		var site: Vector3 = BankIntro.Site.CENTER
+		intro.setup(car, World.height_at(site.x, site.z))
 	car.intro_hold = intro_playing()
+	_set_intro_clear(intro_playing())
+	if intro != null:
+		var watching: bool = not ui.in_menu and not session.recovering and not session.stale
+		intro.set_process(watching)
+		intro.bell.stream_paused = not watching or audio_muted
 	# The bank stays put until the car has left it far behind.
 	if intro != null and intro.done_with_sound() and car.global_position.distance_to(intro.get_node("Bank").global_position) > 200.0:
-		intro.queue_free()
-		intro = null
+		_clear_intro()
 
 func _update_cameras(delta: float) -> void:
 	var car_basis := car.global_basis.orthonormalized()
