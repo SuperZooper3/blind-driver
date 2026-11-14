@@ -1,6 +1,7 @@
 /* global Engine */
 (() => {
   const button = document.getElementById('play');
+  const aiButton = document.getElementById('play-ai');
   const status = document.getElementById('status');
   const progress = document.getElementById('progress');
   const canvas = document.getElementById('canvas');
@@ -12,10 +13,12 @@
     button.firstChild.textContent = `Join room ${invited} `;
     status.textContent = 'Your friend invited you. Loading the game joins their room automatically.';
   }
-  button.addEventListener('click', async () => {
+  async function start(aiMode) {
     if (started) { location.reload(); return; }
     started = true;
     button.disabled = true;
+    aiButton.disabled = true;
+    window.BLIND_DRIVER_START_AI = aiMode;
     progress.hidden = false;
     status.textContent = 'Loading the car, forest, and road…';
     try {
@@ -33,6 +36,7 @@
           canvas.hidden = true;
           launch.hidden = false;
           button.disabled = false;
+          aiButton.disabled = false;
           button.textContent = 'Reload game ↗';
           progress.hidden = true;
           status.textContent = code ? 'The game stopped. Reload to try again.' : 'The ride has ended.';
@@ -49,8 +53,11 @@
       progress.hidden = true;
       button.textContent = 'Retry loading ↗';
       button.disabled = false;
+      aiButton.disabled = false;
     }
-  });
+  }
+  button.addEventListener('click', () => start(false));
+  aiButton.addEventListener('click', () => start(true));
   window.addEventListener('keydown', event => {
     if (!canvas.hidden && ['Tab', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) event.preventDefault();
   });

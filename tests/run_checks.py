@@ -209,6 +209,10 @@ if __name__ == "__main__":
         print(lobby_ui.stdout)
         if lobby_ui.returncode or "FAIL:" in lobby_ui.stdout or "SCRIPT ERROR" in lobby_ui.stderr:
             sys.exit(lobby_ui.stderr or "Lobby UI check failed")
+        ai_solo = subprocess.run(command("tests/ai_single_player_smoke.gd", temporary / "ai-single-player.log"), capture_output=True, text=True, timeout=15)
+        print(ai_solo.stdout)
+        if ai_solo.returncode or "FAIL:" in ai_solo.stdout or "SCRIPT ERROR" in ai_solo.stderr:
+            sys.exit(ai_solo.stderr or "AI single-player check failed")
         physics = subprocess.run(command("tests/drive_smoke.gd", temporary / "physics.log", "--fixed-fps", "60", "--quit-after", "2600"), capture_output=True, text=True, timeout=45)
         print(physics.stdout)
         if physics.returncode or "FAIL:" in physics.stdout or "SCRIPT ERROR" in physics.stderr:

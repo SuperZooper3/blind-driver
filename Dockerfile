@@ -22,7 +22,7 @@ FROM node:24-bookworm-slim
 ENV NODE_ENV=production PORT=8080
 WORKDIR /app
 COPY --from=export /project/build/web/ build/web/
-COPY frontend/server.mjs frontend/server.mjs
+COPY frontend/server.mjs frontend/ai_navigator.mjs frontend/
 COPY server/protocol.mjs server/protocol.mjs
 USER node
 EXPOSE 8080

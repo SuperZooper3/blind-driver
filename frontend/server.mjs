@@ -2,6 +2,7 @@ import http from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createNavigator } from './ai_navigator.mjs';
 import { VERSION } from '../server/protocol.mjs';
 
 const defaultDirectory = fileURLToPath(new URL('../build/web/', import.meta.url));
@@ -20,7 +21,8 @@ export function relayAddress(value) {
 }
 
 export function createFrontend({ directory = defaultDirectory,
-  relay = process.env.BLIND_DRIVER_RELAY_URL || 'https://blind-driver-relay.onrender.com' } = {}) {
+  relay = process.env.BLIND_DRIVER_RELAY_URL || 'https://blind-driver-relay.onrender.com', ai = {} } = {}) {
+  const navigate = createNavigator(ai);
   const root = resolve(directory);
   const relayUrl = relayAddress(relay);
   const ready = () => ['game.html', 'game.js', 'game.wasm', 'game.pck', 'launcher.js', 'style.css']
@@ -29,6 +31,7 @@ export function createFrontend({ directory = defaultDirectory,
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     response.setHeader('Cache-Control', 'no-cache');
+    if (request.url === '/api/ai/navigate') { void navigate(request, response); return; }
     if (!['GET', 'HEAD'].includes(request.method)) {
       response.writeHead(405, { Allow: 'GET, HEAD' }); response.end(); return;
     }

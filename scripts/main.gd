@@ -11,6 +11,7 @@ const ImpactAudio = preload("res://scripts/impact_audio.gd")
 const AICapture = preload("res://scripts/ai_capture.gd")
 var ai_options: Dictionary = {}
 var ai_capture: Node
+var ai_navigator: Node
 var impact_audio: Node
 var police: Node3D
 var siren: AudioStreamPlayer
@@ -157,6 +158,9 @@ func _ready() -> void:
 		_resize_views())
 	get_viewport().size_changed.connect(_resize_views)
 	_resize_views()
+	ai_navigator = preload("res://scripts/ai_navigator.gd").new()
+	ai_navigator.game = self
+	add_child(ai_navigator)
 	# Useful for opening two local instances without clicking through the menus.
 	for argument in OS.get_cmdline_user_args():
 		if argument == "--local-coop":
@@ -167,6 +171,8 @@ func _ready() -> void:
 			_host("127.0.0.1" if not ai_options.is_empty() else "*")
 		elif argument.begins_with("--join="):
 			_join(argument.trim_prefix("--join="))
+		elif argument == "--ai":
+			_start("ai")
 		elif argument == "--solo":
 			_start("solo")
 		elif argument == "--split":
@@ -176,7 +182,9 @@ func _ready() -> void:
 	# Browser invite links: https://…/?room=K7Q4MZ joins that room straight away.
 	if OS.has_feature("web"):
 		var invited: Variant = JavaScriptBridge.eval("new URLSearchParams(window.location.search).get('room') || ''")
-		if invited is String and not invited.is_empty():
+		if JavaScriptBridge.eval("window.BLIND_DRIVER_START_AI === true"):
+			_start("ai")
+		elif invited is String and not invited.is_empty():
 			_join_from_invite(invited)
 	if not ai_options.is_empty():
 		ai_capture = AICapture.new()
@@ -245,7 +253,7 @@ func _make_camera(view: SubViewport) -> Camera3D:
 
 func _resize_views() -> void:
 	driver_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.driver_screen.visible else SubViewport.UPDATE_DISABLED
-	navigator_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.navigator_screen.visible else SubViewport.UPDATE_DISABLED
+	navigator_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.navigator_screen.visible or mode == "ai" else SubViewport.UPDATE_DISABLED
 	var size := get_viewport().get_visible_rect().size
 	var width := size.x * 0.5 if mode == "split" and not ui.in_menu else size.x
 	var view_height: float = size.y - 78 - (0 if ui.in_menu else UI.FOOTER_HEIGHT)
@@ -253,11 +261,11 @@ func _resize_views() -> void:
 		view_height = size.y - 72 - 170
 	# Low resolution plus the blur pass makes the driver's vision genuinely unreadable.
 	driver_view.size = Vector2i(maxi(64, int(width / 5.0)), maxi(64, int(view_height / 5.0)))
-	navigator_view.size = Vector2i(int(width), maxi(64, int(view_height)))
+	navigator_view.size = Vector2i(768, 480) if mode == "ai" and not ui.in_menu else Vector2i(int(width), maxi(64, int(view_height)))
 
 func _process(delta: float) -> void:
 	world.focus = car.global_position
-	looking_back = mode != "host" and not ui.in_menu and car.run_state == "driving" and (Input.is_action_pressed("look_back") or ui.rear_button_held)
+	looking_back = mode not in ["host", "ai"] and not ui.in_menu and car.run_state == "driving" and (Input.is_action_pressed("look_back") or ui.rear_button_held)
 	if looking_back and ui.map_open:
 		ui.close_map()
 	_update_cameras(delta)
@@ -269,6 +277,8 @@ func _process(delta: float) -> void:
 	motor.enabled = started and not audio_muted and not ui.in_menu
 	_publish_browser_status(delta)
 	impact_audio.enabled = started and not audio_muted
+	if mode == "ai":
+		car.driving_enabled = not ui.in_menu and car.run_state == "driving" and ai_navigator.ready_to_drive
 	if ui.in_menu or car.run_state != "driving" or (session.online and not session.can_drive()):
 		car.driving_enabled = false
 	if local_navigator_pid > 0:
@@ -320,6 +330,8 @@ func _physics_process(delta: float) -> void:
 	if not car.remote:
 		world.difficulty = 0 if world.basic_course else World.heat_for_distance(car.distance_driven)
 		var running: bool = started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive()
+		if mode == "ai":
+			running = running and ai_navigator.ready_to_drive
 		if ai_capture != null:
 			running = running and ai_capture.active
 		if running:
@@ -358,6 +370,8 @@ func _physics_process(delta: float) -> void:
 func _restart_run() -> void:
 	if mode == "join":
 		return
+	if ai_navigator != null:
+		ai_navigator.reset()
 	records.observe(car.distance_driven)
 	records.save_record()
 	records.begin_run()
@@ -372,7 +386,7 @@ func _restart_run() -> void:
 	car.crash_reason = ""
 	car.distance_driven = 0.0
 	car.recover(World.ground_point(0, 12, 0.17), Vector3.FORWARD)
-	car.driving_enabled = not ui.in_menu and session.can_drive()
+	car.driving_enabled = not ui.in_menu and session.can_drive() and (mode != "ai" or ai_navigator.ready_to_drive)
 	camera_initialized = false
 	shake = 0.0
 	ui.close_map()
@@ -486,19 +500,22 @@ func _start(value: String) -> void:
 	_close_local_navigator()
 	session.stop()
 	ui.set_online_busy(false)
+	if ai_navigator != null:
+		ai_navigator.reset()
+	ui.close_map()
 	mode = value
 	chase_camera = mode == "solo"
 	started = true
-	if car.run_state == "game_over":
+	if car.run_state == "game_over" or mode == "ai":
 		_restart_run()
-	car.driving_enabled = car.run_state == "driving"
+	car.driving_enabled = car.run_state == "driving" and mode != "ai"
 	ui.set_mode(mode)
 	ui.show_menu(false)
 	_resize_views()
 
 func _resume() -> void:
 	ui.show_menu(false)
-	car.driving_enabled = mode != "join" and session.can_drive()
+	car.driving_enabled = mode != "join" and session.can_drive() and (mode != "ai" or ai_navigator.ready_to_drive)
 	_resize_views()
 
 func _recover() -> void:
@@ -639,7 +656,8 @@ func _publish_browser_status(delta: float) -> void:
 	var status := {"prototype": preload("res://scripts/version.gd").PROTOTYPE, "mode": mode, "online": session.online,
 		"seat": session.relay.seat_role, "room": session.relay.share_code, "link": "webrtc" if session.rtc.is_linked() else ("lan" if session.direct.is_linked() else "relay"),
 		"direct_wanted": session.direct_wanted, "webrtc_available": session.rtc_available, "updates_received": session.snapshots_received,
-		"direct_messages": session.rtc.received_count + session.direct.received_count, "webrtc": session.rtc.debug_state(), "run_state": car.run_state, "distance_m": snappedf(car.distance_driven, 0.1)}
+		"direct_messages": session.rtc.received_count + session.direct.received_count, "webrtc": session.rtc.debug_state(), "run_state": car.run_state, "distance_m": snappedf(car.distance_driven, 0.1),
+		"ai": {"thinking": ai_navigator.busy, "ready": ai_navigator.ready_to_drive, "latency_ms": ai_navigator.latency_ms, "error": ai_navigator.error_text, "request_started_ms": ai_navigator.sent_at}}
 	JavaScriptBridge.eval("window.blindDriverStatus = %s;" % JSON.stringify(status), true)
 
 ## Warn when the two games are different builds: features and bugs will not match.
@@ -696,7 +714,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		ui.toggle_diagnostics()
 	if event.is_action_pressed("menu") and started:
 		ui.show_menu(not ui.in_menu)
-		car.driving_enabled = not ui.in_menu and mode != "join" and session.can_drive()
+		car.driving_enabled = not ui.in_menu and mode != "join" and session.can_drive() and (mode != "ai" or ai_navigator.ready_to_drive)
 		_resize_views()
 	if event.is_action_pressed("fullscreen"):
 		var full := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
@@ -705,7 +723,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("map"):
 		ui.toggle_map()
-	if event.is_action_pressed("camera"):
+	if event.is_action_pressed("camera") and mode != "ai":
 		chase_camera = not chase_camera
 	if event.is_action_pressed("lights") and mode != "join":
 		car.toggle_lights()

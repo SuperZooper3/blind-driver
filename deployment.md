@@ -355,3 +355,45 @@ The original broader plan is in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md). The 
 - `scripts/relay_client.gd`: outbound WebSocket connection and room messages.
 - `scripts/wire_protocol.gd`: explicit JSON conversion for Godot transforms and road points.
 - `scripts/session.gd`: shared interpolation for direct LAN and relayed internet connections.
+
+
+## Single-player AI navigator
+
+Deploy the updated **frontend Docker service** and set `GEMINI_API_KEY` as a secret
+runtime environment variable on that frontend service. Its project must have
+access to `gemini-4-hydrogen` and sufficient quota for continuous play. The relay
+and protocol 10 are unchanged. Regular multiplayer and solo practice need no key.
+Never add the key to `config.js`, a Godot export, or a committed file.
+
+The loading-page button and in-game menu both start **Single Player Play with AI**.
+The same-origin `/api/ai/navigate` endpoint sends two compact JPEGs (passenger view
+and map), speed, route card, previous instruction and timing to Gemini. It uses
+[Hydrogen](https://aistudio.google.com/docs/models/gemini-4-hydrogen) with
+[low thinking](https://aistudio.google.com/docs/thinking#thinking-levels), its
+lowest supported latency setting. Calls are sequential with no intentional delay
+on success; the frontend server keeps at most four calls in flight across players.
+API quota responses set a shared provider cooldown. Requests time out after 25 s;
+no screenshots, credentials, provider error bodies or dialogue are logged/stored.
+This is a public game endpoint backed by the host's Gemini quota.
+
+Local development (Node 20.6+; the existing ignored key file can be reused):
+
+```sh
+# Terminal 1, from this checkout. Desktop use does not need a Web export.
+node --env-file=/absolute/path/to/.gemini/.env frontend/server.mjs
+
+# Terminal 2: defaults to http://127.0.0.1:8080/api/ai/navigate
+godot --path . -- --ai
+
+# A desktop client can also use your deployed HTTPS frontend:
+BLIND_DRIVER_AI_URL=https://YOUR-FRONTEND/api/ai/navigate godot --path . -- --ai
+
+# To test in a browser, export first, then open http://localhost:8080:
+GODOT=/path/to/godot bash tools/export_web.sh
+node --test frontend/*.test.mjs
+```
+
+Missing keys and model access failures are explained in the instruction strip.
+Set/update the server secret and restart the service, then pause/resume the game.
+The latency label includes image upload and response delivery, so actual speed
+depends on Gemini quota, load and the player's network.

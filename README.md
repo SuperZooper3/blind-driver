@@ -25,6 +25,30 @@ to add the frontend as a **Web Service / Docker** alongside your relay. The
 
 Local play needs no additional packages or accounts. Models, forest, terrain, map, UI, and engine audio are generated in GDScript. The Compatibility renderer is enabled. Internet rooms use the small Node relay in `server/`.
 
+### Single Player Play with AI
+
+Choose **Single Player Play with AI** on the browser loading page or the in-game
+start screen. You drive with the blurred windshield; **Gemini Hydrogen** sees the
+clear passenger camera and map and gives one current instruction across the top.
+The small spinner means a request is in flight. **Latest latency** is the most
+recent successful request's full round trip in milliseconds; advice age is shown
+separately, with a warning once it is older than five seconds.
+
+The game runs at normal speed. Your first instruction starts the ride and police
+head start. Each completed request triggers a fresh capture on the next frame,
+without a fixed polling delay or a queue of old images. W/S and A/D remain your
+controls. Map, chase-camera and rear-view controls are unavailable in this mode.
+Pause, Game Over and leaving the mode stop requests; restarting clears old advice.
+Quota/network failures show a retry countdown. Model-access/configuration errors
+require the host to fix the service; pause/resume or start a new ride to retry.
+
+The frontend host needs `GEMINI_API_KEY` and access to `gemini-4-hydrogen`.
+The key stays on the Node server; gameplay images are sent to Google only while
+this mode is active. Other play modes do not call Gemini. See
+[AI navigator setup](deployment.md#single-player-ai-navigator) for deployment and
+local desktop commands. This mode uses the human as driver; the existing two-AI
+research harness remains separate.
+
 ### Controls
 
 | Input | Action |

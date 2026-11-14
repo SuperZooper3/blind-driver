@@ -293,6 +293,7 @@ func _build_menu() -> void:
 	resume_button = _button("Resume the ride   →", func(): resume_requested.emit())
 	resume_button.hide()
 	box.add_child(resume_button)
+	box.add_child(_button("Single Player Play with AI", func(): play_requested.emit("ai")))
 	box.add_child(HSeparator.new())
 	box.add_child(_label("PLAY ONLINE", 12, amber))
 	var seat_row := HBoxContainer.new()
@@ -668,13 +669,15 @@ func show_run_result(state: String, reason: String, distance: float, navigator: 
 
 func set_mode(value: String) -> void:
 	mode = value
-	driver_screen.visible = mode == "split" or mode == "host"
-	navigator_screen.visible = mode != "host"
-	driver_tag.visible = mode == "split" or mode == "host"
-	navigator_tag.visible = mode != "host"
-	map_panel.visible = mode != "host" and not in_menu
-	hud.get_node("RouteCard").visible = mode != "host" and not in_menu
-	status_label.text = {"split": "LOCAL CO-OP   /   SHARED RIDE", "solo": "SOLO   /   DRIVING TEST", "host": "DRIVER   /   WAITING FOR NAVIGATOR", "join": "NAVIGATOR   /   CONNECTING"}.get(mode, "LOCAL")
+	driver_screen.visible = mode in ["split", "host", "ai"]
+	navigator_screen.visible = mode not in ["host", "ai"]
+	driver_tag.visible = mode in ["split", "host", "ai"]
+	navigator_tag.visible = mode not in ["host", "ai"]
+	map_panel.visible = mode not in ["host", "ai"] and not in_menu
+	hud.get_node("RouteCard").visible = mode not in ["host", "ai"] and not in_menu
+	driver_tag.visible = driver_tag.visible and mode != "ai"
+	footer_label.text = "W / S  throttle & brake    A / D  steer\nSPACE  handbrake    ESC  menu" if mode == "ai" else "W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nB / RB  look back    C  camera    ESC  menu"
+	status_label.text = {"split": "LOCAL CO-OP   /   SHARED RIDE", "solo": "SOLO   /   DRIVING TEST", "ai": "SINGLE PLAYER   /   AI NAVIGATOR", "host": "DRIVER   /   WAITING FOR NAVIGATOR", "join": "NAVIGATOR   /   CONNECTING"}.get(mode, "LOCAL")
 	_layout()
 
 func show_menu(value: bool, can_resume: bool = true) -> void:
@@ -693,10 +696,10 @@ func show_menu(value: bool, can_resume: bool = true) -> void:
 			focused.release_focus()
 	resume_button.visible = can_resume and not connecting
 	new_ride_button.visible = can_resume and not connecting and mode != "join"
-	map_panel.visible = not value and mode != "host"
-	hud.get_node("RouteCard").visible = not value and mode != "host"
-	driver_tag.visible = not value and (mode == "split" or mode == "host")
-	navigator_tag.visible = not value and mode != "host"
+	map_panel.visible = not value and mode not in ["host", "ai"]
+	hud.get_node("RouteCard").visible = not value and mode not in ["host", "ai"]
+	driver_tag.visible = not value and (mode in ["split", "host", "ai"])
+	navigator_tag.visible = not value and mode not in ["host", "ai"]
 	if value:
 		driver_screen.visible = false
 		navigator_screen.visible = true
@@ -707,7 +710,7 @@ func show_menu(value: bool, can_resume: bool = true) -> void:
 	_layout()
 
 func toggle_map() -> void:
-	if mode == "host" or in_menu:
+	if mode in ["host", "ai"] or in_menu:
 		return
 	map_open = not map_open
 	if map_tween != null:
@@ -722,7 +725,7 @@ func close_map() -> void:
 	_place_map(0.0)
 
 func update_pursuit(patrol: Node3D, rear: bool, driving: bool) -> void:
-	rear_button.visible = mode != "host"
+	rear_button.visible = mode not in ["host", "ai"]
 	rear_button.disabled = not driving
 	if not driving:
 		rear_button_held = false
@@ -748,5 +751,5 @@ func update_pursuit(patrol: Node3D, rear: bool, driving: bool) -> void:
 			pursuit_detail.text = "Holding the gap."
 	else:
 		pursuit_title.text = "POLICE ON YOUR TAIL" if patrol.gap < 45 else "POLICE PURSUIT"
-		pursuit_detail.text = "Listen for the siren" if mode == "host" else "Look back to judge the gap."
+		pursuit_detail.text = "Listen for the siren" if mode in ["host", "ai"] else "Look back to judge the gap."
 	navigator_tag.text = "02  /  LOOKING BACK" if rear else "02  /  NAVIGATOR\nKEEP TALKING"
