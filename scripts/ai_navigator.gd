@@ -1,5 +1,5 @@
 extends Node
-## Human driver + continuous Hydrogen advice. Exactly one fresh observation in flight.
+## Human driver + continuous Cohere advice. Exactly one fresh observation in flight.
 var game: Node
 var request: HTTPRequest
 var map_view: SubViewport
@@ -76,7 +76,7 @@ func _process(_delta: float) -> void:
 		if active:
 			reset()
 		panel.thinking = false
-		panel.detail.text = "GEMINI HYDROGEN · Ride ended"
+		panel.detail.text = "COHERE COMMAND A VISION · Ride ended"
 		panel.instruction.text = "Start a new ride for fresh directions."
 		return
 	if not active or run_id != game.car.run_id:
@@ -97,7 +97,7 @@ func _process(_delta: float) -> void:
 		age = " · View %.1f s old" % ((now - observation_at) / 1000.0)
 		if now - observation_at > 5000:
 			age += " · Advice is stale: slow down"
-	panel.detail.text = "GEMINI HYDROGEN · %s%s · %s" % [latency, age, state]
+	panel.detail.text = "COHERE COMMAND A VISION · %s%s · %s" % [latency, age, state]
 	panel.instruction.text = instruction if not instruction.is_empty() else (error_text if permanent_error else "Wait for your first direction. W / S to drive, A / D to steer.")
 	# Fit wrapped text at small window sizes without covering the dashboard.
 	panel.size.y = 0

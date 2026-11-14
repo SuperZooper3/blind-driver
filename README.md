@@ -28,7 +28,7 @@ Local play needs no additional packages or accounts. Models, forest, terrain, ma
 ### Single Player Play with AI
 
 Choose **Single Player Play with AI** on the browser loading page or the in-game
-start screen. You drive with the blurred windshield; **Gemini Hydrogen** sees the
+start screen. You drive with the blurred windshield; **Cohere Command A Vision** sees the
 clear passenger camera and map and gives one current instruction across the top.
 The small spinner means a request is in flight. **Latest latency** is the most
 recent successful request's full round trip in milliseconds; source-image age is shown
@@ -42,9 +42,9 @@ Pause, Game Over and leaving the mode stop requests; restarting clears old advic
 Quota/network failures show a retry countdown. Model-access/configuration errors
 require the host to fix the service; pause/resume or start a new ride to retry.
 
-The frontend host needs `GEMINI_API_KEY` and access to `gemini-4-hydrogen`.
-The key stays on the Node server; gameplay images are sent to Google only while
-this mode is active. Other play modes do not call Gemini. See
+The frontend host needs `COHERE_API_KEY` and access to `command-a-vision-07-2025`.
+The key stays on the Node server; gameplay images are sent to Cohere only while
+this mode is active. Other play modes do not call Cohere. See
 [AI navigator setup](deployment.md#single-player-ai-navigator) for deployment and
 local desktop commands. This mode uses the human as driver; the existing two-AI
 research harness remains separate.

@@ -4,8 +4,8 @@ import { once } from 'node:events';
 import { createFrontend } from './server.mjs';
 const observation = { view: '/9j/AAAA', map: '/9j/AAAA', speed_kmh: 30, previous_instruction: 'Straight ahead',
   previous_latency_ms: 900, instruction_age_ms: 20, route: 'Fork ahead: 70 m' };
-const answer = instruction => new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [
-  { thought: true, text: 'private reasoning' }, { text: instruction }] } }] }));
+const answer = instruction => new Response(JSON.stringify({ finish_reason: 'COMPLETE', message: { content: [
+  { type: 'thinking', text: 'private reasoning' }, { type: 'text', text: instruction }] } }));
 async function fixture(t, ai) {
   const server = createFrontend({ ai });
   t.after(() => { server.closeAllConnections(); server.close(); });
@@ -14,17 +14,20 @@ async function fixture(t, ai) {
   return { base, post: (body = observation, headers = {}) => fetch(`${base}/api/ai/navigate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) }) };
 }
-test('fresh visual observation uses Hydrogen low thinking; returns only advice and timing', async t => {
+test('clear passenger view and map reach Cohere Command A Vision; returns only advice and timing', async t => {
   let calls = 0;
   const { base, post } = await fixture(t, { key: 'secret-fixture', fetchImpl: async (url, options) => {
     calls++;
-    assert.match(url, /gemini-4-hydrogen:generateContent$/);
-    assert.equal(options.headers['x-goog-api-key'], 'secret-fixture');
+    assert.equal(url, 'https://api.cohere.com/v2/chat');
+    assert.equal(options.headers.Authorization, 'Bearer secret-fixture');
     const body = JSON.parse(options.body);
-    assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'low');
-    assert.equal(body.generationConfig.mediaResolution, 'MEDIA_RESOLUTION_LOW');
-    assert.equal(body.contents[0].parts.filter(p => p.inlineData).length, 2);
-    assert.match(body.contents[0].parts[0].text, /Straight ahead/);
+    assert.equal(body.model, 'command-a-vision-07-2025');
+    assert.equal(body.max_tokens, 128);
+    const current = body.messages.find(message => message.role === 'user').content;
+    assert.deepEqual(current.filter(part => part.type === 'image_url').map(part => part.image_url.url),
+      [observation.view, observation.map].map(jpeg => 'data:image/jpeg;base64,' + jpeg));
+    assert.match(current[0].text, /current clear passenger camera/);
+    assert.match(current[0].text, /Straight ahead/);
     return answer('Ease left (A), then straighten.');
   } });
   const response = await post();
@@ -32,13 +35,13 @@ test('fresh visual observation uses Hydrogen low thinking; returns only advice a
   assert.equal(response.headers.get('cache-control'), 'no-store');
   const data = await response.json();
   assert.equal(data.instruction, 'Ease left (A), then straighten.');
-  assert.equal(data.model, 'gemini-4-hydrogen');
+  assert.equal(data.model, 'command-a-vision-07-2025');
   assert.ok(data.latency_ms >= 0);
   assert.equal(calls, 1);
   const config = await (await fetch(`${base}/config.js`)).text();
   assert.ok(!config.includes('secret-fixture'));
 });
-test('missing key, invalid images, oversized observations and foreign origins never call Gemini', async t => {
+test('missing key, invalid images, oversized observations and foreign origins never call Cohere', async t => {
   const missing = await fixture(t, { key: '' });
   assert.equal((await (await missing.post()).json()).permanent, true);
   let calls = 0;
@@ -53,8 +56,8 @@ test('missing key, invalid images, oversized observations and foreign origins ne
 test('quota errors honor provider cooldown across clients without exposing provider data', async t => {
   let calls = 0;
   const { post } = await fixture(t, { key: 'fixture', fetchImpl: async () => {
-    calls++; return new Response(JSON.stringify({ error: { message: 'sensitive project info', details: [
-      { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '120s' }] } }), { status: 429 });
+    calls++; return new Response(JSON.stringify({ message: 'sensitive project info' }),
+      { status: 429, headers: { 'Retry-After': '120' } });
   } });
   const first = await post(); const data = await first.json();
   assert.equal(first.status, 429); assert.equal(data.retry_after, 120);
@@ -62,11 +65,11 @@ test('quota errors honor provider cooldown across clients without exposing provi
   assert.equal((await post()).status, 429); assert.equal(calls, 1);
 });
 test('access errors stop retries; truncated, empty and excessive replies are rejected', async t => {
-  for (const result of [new Response('{}', { status: 403 }), answer(''), answer('x'.repeat(241)),
-    new Response(JSON.stringify({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'Turn' }] } }] }))]) {
+  for (const result of [new Response('{}', { status: 403 }), new Response('{}', { status: 498 }), answer(''), answer('x'.repeat(241)),
+    new Response(JSON.stringify({ finish_reason: 'MAX_TOKENS', message: { content: [{ type: 'text', text: 'Turn' }] } }))]) {
     const { post } = await fixture(t, { key: 'fixture', fetchImpl: async () => result });
     const response = await post(); assert.equal(response.status, 502);
-    if (result.status === 403) assert.equal((await response.json()).permanent, true);
+    if ([403, 498].includes(result.status)) assert.equal((await response.json()).permanent, true);
   }
 });
 test('timed out calls release capacity for another request', async t => {
