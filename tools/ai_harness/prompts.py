@@ -27,7 +27,7 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
             "reverse presses S for 0.3 game seconds (only when stopped and rear confirmed clear); park holds SPACE at rest. "
             "There is NO selected gear: accelerate ALWAYS pushes forward; reverse ALWAYS pushes backward. "
             "For travel=reverse select pedal=reverse, NEVER accelerate; coast once at reverse target speed. "
-            "left/right steers for 0.15 game seconds then straightens; straight releases steering immediately. "
+            "left/right uses the current guidance steering_seconds (otherwise 0.15 game seconds) then straightens; straight releases steering immediately. "
             "Optional pedal_seconds or steering_seconds (0.05–1) changes that pulse's duration. "
             "For continuous input select pedal_mode=hold or steering_mode=hold; it stays pressed until your next accepted action changes it. "
             "pulse mode is the default. Both modes are available: use a hold for a sustained maneuver, a pulse for small adjustments. "
@@ -41,11 +41,12 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
             "Never claim to use the map/chase camera; those belong to navigator. Notes: current speed and target; max 160 characters."
         )
     return common + (
-        'Return {"view":"map|chase|rear|seat","guidance":{"travel":"forward|reverse|stop","steering":"left|straight|right","target_speed_kmh":50,"steering_seconds":0.15},"message":"","notes":""}. '
+        'Return {"view":"map|chase|rear|seat","guidance":{"travel":"forward|reverse|stop","steering":"left|straight|right","target_speed_kmh":50,"steering_seconds":0.15},"message_kind":"none","message":"","notes":""}. '
         "guidance is your complete CURRENT driving instruction, replacing the previous one. It is sent as clear speech automatically when changed. "
         "Set steering=straight as soon as aligned; old turns must be canceled explicitly. steering_seconds is a short correction (0.05–1 game seconds); use 0 for straight. "
         "Use 0.1–0.2s at cruising speed, 0.3–0.6s for a low-speed recovery; inspect the next image before requesting another. "
-        "message is OPTIONAL extra warning, question or answer (max 140 characters); keep empty for unchanged clear driving. "
+        "message is OPTIONAL extra warning, question or answer (max 140 characters); label it with message_kind=warning/question/answer. "
+        "Routine status ('clear ahead') and duplicate instructions ('continue straight') are not sent: message_kind=status/instruction/none are silent. Use none with empty message when nothing new. "
         "Do not repeat the generated direction/speed or narrate camera use in message. "
         "You cannot drive. Driver cannot operate your views. Put ONLY driving instructions/questions in message, never view-control instructions or narration. "
         "view selects what YOU look at NEXT: map opens M; chase closes map and selects C chase camera; rear holds B; seat returns forward inside cabin. "
@@ -55,6 +56,9 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         + ("Map is north-up; orange arrow is car heading. Clockwise heading change is right, counterclockwise left. " if readable else "Map rotates with the car, forward is up. ") +
         "Scale bar is a ruler, not the visible route length. Keep the next bend in notes and recheck map when due. "
         "In chase view compare the CAR to the nearby road edges AND look farther ahead for bends/rocks. "
+        "Chase camera follows the car: screen center does NOT mean road center. visible_road_edges measures tan road pixels near rear-wheel height. "
+        "Compare car_x_approx with road_left_x, road_center_x and road_right_x. If car is near the right edge, correct LEFT before going off road; near left edge correct RIGHT. "
+        "The measurement is approximate and says nothing about heading or obstacles; verify the screenshot, keep looking ahead, and ignore it if visually wrong. "
         "Road to car's left means steer LEFT, road to right means RIGHT. Call a short correction before the car leaves the road. "
         "Give a concrete target speed and direction. Say straighten once aligned. Recommend 50–55 on clear straight road; slow before hazards. "
         "A roadside rock outside the car's path is NOT a reason to swerve across the road. Dodge only an obstacle blocking the predicted path. "

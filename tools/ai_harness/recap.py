@@ -85,7 +85,7 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
         "source_sha256", "sim_seconds", "max_requests", "max_tokens", "rpm", "max_output_tokens",
         "history_turns", "timeout", "max_action_age_sim", "capture_fps", "thinking",
         "driver_prompt_sha256", "navigator_prompt_sha256", "hold_policy", "scoring",
-        "basic_course_version", "obstacle_palette", "readable_ui", "memory_every", "engine_mode", "decision_interval_sim", "thinking_tokens", "image_width", "driver_image_detail", "navigator_image_detail")}
+        "basic_course_version", "obstacle_palette", "visual_measurement_tool", "readable_ui", "memory_every", "engine_mode", "decision_interval_sim", "thinking_tokens", "image_width", "driver_image_detail", "navigator_image_detail")}
     conditions["scoring"] = scoring
     cohort = hashlib.sha256(json.dumps(conditions, sort_keys=True).encode()).hexdigest()[:12]
     fallback_time = 0.0

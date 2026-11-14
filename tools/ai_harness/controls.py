@@ -24,6 +24,7 @@ def restart_command(directory, env_file=None):
         if field not in manifest:
             command.extend(["--" + field.replace("_", "-"), str(legacy)])
     command.append("--readable-ui" if manifest.get("readable_ui", True) else "--no-readable-ui")
+    command.append("--visual-road-tool" if manifest.get("visual_road_tool", False) else "--no-visual-road-tool")
     if manifest.get("keep_frames"):
         command.append("--keep-frames")
     if env_file is not None:

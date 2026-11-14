@@ -37,6 +37,7 @@ def main():
         p.add_argument("--memory-every", type=int, default=0, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
         p.add_argument("--decision-interval-sim", type=float, default=.6, help="Minimum game seconds between agent observations; avoids redundant calls at slow speed")
         p.add_argument("--readable-ui", action=argparse.BooleanOptionalAction, default=True)
+        p.add_argument("--visual-road-tool", action=argparse.BooleanOptionalAction, default=True, help="Measure visible tan road edges from navigator chase screenshots; no engine geometry")
         p.add_argument("--keep-frames", action="store_true", help="Keep raw screenshots for debugging/rebuilding; otherwise clean them after the recap")
         p.add_argument("--timeout", type=float, default=30)
         p.add_argument("--max-action-age-sim", type=float, default=5)

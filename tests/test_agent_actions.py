@@ -51,6 +51,14 @@ class SemanticActionTests(unittest.TestCase):
                 self.assertEqual(action["hold"], [key])
                 self.assertEqual("pedal_pulse_sim" in action, key != "SPACE")
 
+    def test_omitted_duration_uses_current_matching_instruction_but_explicit_hold_survives(self):
+        decision = {"pedal": "coast", "steering": "left", "message": "", "notes": ""}
+        observation = {"active_guidance": {"instruction": {"steering": "left", "steering_seconds": .4}}}
+        self.assertEqual(translate_decision(decision, "driver", observation)["steering_pulse_sim"], .4)
+        self.assertEqual(translate_decision({**decision, "steering_seconds": .2}, "driver", observation)["steering_pulse_sim"], .2)
+        self.assertEqual(translate_decision({**decision, "steering": "right"}, "driver", observation)["steering_pulse_sim"], .15)
+        self.assertNotIn("steering_pulse_sim", translate_decision({**decision, "steering_mode": "hold"}, "driver", observation))
+
     def test_navigator_view_selection_is_idempotent_and_can_close_map_into_chase(self):
         def select(desired, map_state="closed", camera="seat", facing="forward"):
             return validate_action(translate_decision({"view": desired, "message": "Wait", "notes": "private"}, "navigator",
@@ -71,3 +79,14 @@ class SemanticActionTests(unittest.TestCase):
                                ("driver", {"pedal": "coast", "steering": "left", "teleport": True})):
             with self.assertRaises(ValueError):
                 translate_decision(decision, role, {})
+
+    def test_routine_broadcasts_are_silent_but_new_warnings_and_questions_survive(self):
+        guidance = {"travel": "forward", "steering": "straight", "target_speed_kmh": 50, "steering_seconds": 0}
+        observation = {"active_guidance": {"instruction": guidance}}
+        decision = {"view": "chase", "guidance": guidance, "message": "Continue straight, road clear.", "notes": ""}
+        for kind in ("status", "instruction", "none"):
+            self.assertEqual(translate_decision({**decision, "message_kind": kind}, "navigator", observation)["message"], "")
+        for kind, speech in (("warning", "Rock approaching on the left."), ("question", "Are you still reversing?"), ("answer", "The right side is clear.")):
+            self.assertEqual(translate_decision({**decision, "message_kind": kind, "message": speech}, "navigator", observation)["message"], speech)
+        changed = {**guidance, "target_speed_kmh": 30}
+        self.assertIn("target 30 km/h", translate_decision({**decision, "guidance": changed, "message_kind": "instruction"}, "navigator", observation)["message"])

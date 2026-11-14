@@ -79,12 +79,12 @@ manifest and benchmark fingerprint. Original screenshots remain at full size.
 Each observation includes a transcript of the five instruments actually drawn
 in that seat: rounded speed and trip, surface, motion (including reversing), and
 damage text. Drawing and transcription share the same function. No precise
-position, road geometry, steering angle, hidden obstacle, or evaluator score is
+engine position, road geometry, steering angle, hidden obstacle, or evaluator score is
 passed to either agent. The previous visible-instrument snapshot helps distinguish
 motion from stalling. Discrete own-seat view labels and audible-event captions
 remain available. The map itself must still be interpreted visually.
 
-The `grounded-copilot-v10` instructions and context:
+The `grounded-copilot-v11` instructions and context:
 
 - Plan with the map before departure, read a later fully opened frame, close it,
   and remember the upcoming bend. A map-check reminder tracks the last offered
@@ -92,6 +92,14 @@ The `grounded-copilot-v10` instructions and context:
 - Use the current road view for immediate car alignment and obstacles. The next
   task changes with the visible UI: opening map, readable map, rear view,
   off-road/impact, route check due, or ordinary road watching.
+- In readable chase view, a conservative screenshot tool measures the tan road
+  ribbon at three nearby rows beneath the car. It supplies normalized screen
+  edge positions and an approximate car-screen reference to the navigator only.
+  It uses image pixels, never engine geometry; it does not detect bends, map
+  routes, obstacles or heading, and does not select steering. Ambiguous colors,
+  multiple road-like spans, map/rear/seat views produce no measurement. The model
+  must verify it against the image. Disable with `--no-visual-road-tool`; the
+  `screenshot_road_edges_v1` tool enters the benchmark fingerprint.
 - Give the driver an actionable speed/steering correction. The driver cannot use
   navigator controls. Map-check narration and visual notes stay private.
 - Deliver a complete, timestamped `active_guidance`: travel direction, steering,
@@ -113,7 +121,8 @@ actual held keys, rejected-action feedback, and repetition feedback. Private not
 never cross seats. The full accepted dialogue and action history remain on disk.
 Speech is optional. Changed navigator guidance is rendered as a concise driving
 instruction; unchanged straight cruise guidance is silent unless the model adds a
-warning, answer or question. A fresh directional correction remains deliverable.
+warning, answer or question. `message_kind` distinguishes those from routine
+status and duplicate instruction prose, which are withheld. A fresh directional correction remains deliverable.
 Empty/whitespace messages create no chat event. Invalid controls/format do not
 deliver speech or replace guidance. Raw model decisions and translated controls
 are both retained for auditing mismatches.
@@ -190,7 +199,7 @@ idempotent, so repeatedly selecting `map` does not accidentally close it, and
 selecting `chase` reliably closes the map and returns to the clear road view:
 
 ```json
-{"view":"chase","guidance":{"travel":"forward","steering":"left","target_speed_kmh":35,"steering_seconds":0.15},"message":"Road center is to our left.","notes":"Car right of the road; left side is clear."}
+{"view":"chase","guidance":{"travel":"forward","steering":"left","target_speed_kmh":35,"steering_seconds":0.15},"message_kind":"none","message":"","notes":"Car right of the road; left side is clear."}
 ```
 
 The driver can combine **continuous holds**, **timed pulses**, and **taps**:
@@ -208,7 +217,7 @@ The driver can combine **continuous holds**, **timed pulses**, and **taps**:
 persists until that seat's next accepted action changes it, including during both
 agents' inference. Coast releases W/S; straight releases A/D. Pulse defaults are
 1 game second for acceleration, 0.2 for braking, 0.3 for reverse, and 0.15 for
-steering. Optional `pedal_seconds` / `steering_seconds` select 0.05–1 game seconds;
+steering when no matching current guidance supplies its duration. Optional `pedal_seconds` / `steering_seconds` select 0.05–1 game seconds;
 zero means the gesture default. Park holds SPACE; optional `tap:["H"]` toggles lights.
 Holding throttle accelerates; it does not maintain a specified speed automatically.
 `brake` resolves to the opposing pedal using the visible motion label (S forward,

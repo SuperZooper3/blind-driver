@@ -14,6 +14,7 @@ import uuid
 
 from .agents import CohereAgent, InvalidModelResponse, ScriptedAgent, PROMPT_REVISION, prompt, validate_action
 from .context import TeamContext
+from .vision import road_edges
 from .monitor import ConsoleMonitor
 from .memory import RateBudget, WorkingMemory
 from .scoring import DEFAULT_SCORING
@@ -103,6 +104,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 "scoring": DEFAULT_SCORING.copy(),
                 "basic_course_version": "roadside_thorns_v2",
                 "obstacle_palette": "ai_orange_green_trees_v2",
+                "visual_measurement_tool": "screenshot_road_edges_v1" if args.visual_road_tool and args.readable_ui else None,
                 "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
                 "godot_version": subprocess.check_output([godot, "--version"], text=True).strip(),
@@ -351,6 +353,10 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     continue
                 state = latest[role]
                 observation = team.observation(role, state, memories[role], heard[role])
+                if role == "navigator" and args.visual_road_tool and args.readable_ui:
+                    measured = road_edges(directory / role / state["image"], observation["view"])
+                    if measured:
+                        observation["visible_road_edges"] = measured
                 heard_before = heard[role]
                 heard[role] = max([heard[role]] + [e["id"] for e in observation["sound_captions"]])
                 delivered = inbox[role][:]
