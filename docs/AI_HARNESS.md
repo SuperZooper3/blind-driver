@@ -324,7 +324,8 @@ heading degrees. The map still covers the road but leaves the instruments visibl
 Collision, tire-pop, engine-knock and siren captions appear in the game itself;
 unheard caption events with timestamps also accompany the next model request.
 No map obstacle detector, angle advice, or hidden damage/location values are added
-to model inputs. The five visible instrument strings are also delivered as text. AI sessions also render rocks, thorns, ramps, barriers, cones and dangerous
+to model inputs. The optional screenshot road-edge tool described above measures
+visible pixels only. The five visible instrument strings are also delivered as text. AI sessions also render rocks, thorns, ramps, barriers, cones and dangerous
 course surfaces in bright orange. Road/terrain colors and all collisions/physics
 remain unchanged. Bridge signal and text colors retain their open/closed meanings.
 Trees retain their green foliage and brown trunks, including collidable trees.
@@ -456,3 +457,49 @@ Navigator regressions cover the repeated-map conversation, crash captions, dialo
 ages, silent/rejected delivery, map animation labels, and exclusion of hidden telemetry.
 Rendered scripted runs verify the complete-seat capture/recap path. Live provider
 trials are separate from those deterministic checks.
+
+## Development checkpoint — 14 November 2026
+
+Work is checkpointed on `codex/navigator-500m`, integrated with PROTOTYPE 10
+(`a9a23e7`), and is not merged into `main`. The user requested wrapping up the
+attempt before the latest candidate completed a driving evaluation. **500 m has
+not been demonstrated.** Prototype stays 10 until a completed change is merged.
+
+Selected recordings under `runs/aya-25` and `runs/navigator-500m`:
+
+| Run | Conditions | Forward progress | Outcome |
+| --- | --- | ---: | --- |
+| `20261114-121253-ab08d5` | Old Vision model, 25% speed | 240.5 m | Token cap; 1 impact, 21.1 game seconds off-road |
+| `20261114-122750-1f25a6` | Old Vision model, 25% speed | 315.0 m | Game over; 1 impact |
+| `20261114-125349-62b140` | A+, v7, 5%, semantic pulses | 266.7 m | Stopped after stale steering/recovery errors; 1 impact |
+| `20261114-130747-ad2923` | A+, v10, 5%, green trees/orange hazards | 238.7 m | All four tires lost to thorns; 0 impacts, 10.5 game seconds off-road |
+| `20261114-131726-6a768a` | A+, v11, screenshot tool and filtered speech | 0.1 m | Stopped at user wrap-up after 0.9 game seconds; startup check only |
+
+These are development diagnostics, not a controlled model comparison: prompts,
+perception tools, timing, colors and control interfaces changed. The v10 trial
+also encountered two provider transport errors. Full events, raw decisions,
+accepted controls, frames and normal-speed recaps remain in the local recordings.
+
+The important failures were map/view toggling, stale visual claims, an old turn
+remaining active in driver memory, using forward throttle while describing
+reverse, and S selecting reverse when asked to stop near zero speed. Current
+changes address those interfaces. A saved left-edge image was still called
+“centered” with both 768- and 1280-pixel inputs and a larger reasoning budget.
+With screenshot-derived edge positions, the latest navigator correctly requested
+a right correction on that same image. That is a targeted replay result, not
+proof of sustained driving performance.
+
+Validation: 40 Python tests pass, including accepted-guidance replacement,
+message filtering, continuous holds/pulses/toggles, braking direction, pulse
+inheritance, screenshot measurements and abstention. Native harness smoke checks
+passed for persistent inputs, independent pedal/steering pulse expiry, map/view
+controls, captions and instrumentation. The combined driving/LAN suite passed
+after integrating upstream PROTOTYPE 10. The green-tree palette was visually
+confirmed in the v10 live run. No relay protocol changes or deployment were made.
+
+Next evaluation should run v11 from this checkpoint for the full 60 game seconds
+at 5% speed with the 200,000-token cap, inspect early alignment corrections and
+obstacle avoidance, and only claim 500 m after the measured forward-progress
+metric reaches it. The development viewer is at `http://127.0.0.1:8767/`; the old
+8766 viewer still serves its earlier checkout. The ignored project `.env` is
+read on each launch; credentials are not in source or recordings.

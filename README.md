@@ -154,6 +154,10 @@ recent dialogue, a transcript of the visible instruments, and accepted-control f
 accompany each screenshot. Explicit short steering pulses prevent a small correction
 from staying held through both agents’ model calls. Continuous holds and toggles
 remain selectable, and AI-mode rocks and hazards use bright orange while trees stay green.
+Current navigator guidance replaces older maneuvers. A screenshot-only road-edge
+tool helps the navigator check alignment; it never reads engine road coordinates
+or chooses steering. See the harness document's development checkpoint for the
+current evaluation limits; the 500 m target is not yet demonstrated.
 The [research plan](docs/AI_HARNESS_PLAN.md) describes
 the longer path toward reinforcement learning.
 
