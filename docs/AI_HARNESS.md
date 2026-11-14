@@ -227,6 +227,18 @@ Official references: [Decisions API](https://ai.google.dev/gemini-api/docs/decis
 [active project limits](https://aistudio.google.com/rate-limit),
 [pricing](https://ai.google.dev/gemini-api/docs/pricing#gemini-4-hydrogen).
 
+Initial development smoke trial (November 14, 2026, 8 simulation seconds at 5%,
+40 total requests): 36 driver decisions were accepted with **zero driver speech**;
+driver latency was 0.70–2.26 seconds, median 0.91. Two navigator instructions were
+delivered (4.02 and 45.34 seconds); another navigator call timed out at 60 seconds,
+and its usage remains explicitly unknown. A final navigator response arrived after
+the episode ended and was accounted for without applying its action. There were no
+quota errors. The car made 58.5 m of forward progress without impacts, but spent
+about 4 simulation seconds off-road while guidance lagged. This verifies integration,
+not driving competence or reliable real-time performance. The trial recorded 84,823
+known input and 908 known output tokens, plus the timed-out call's unknown usage.
+The separate model-access probes also succeeded without enabling billing.
+
 ### Watching and controlling a run
 
 Each seat shows **Keys held now** and **Last accepted turn** separately. The latter
