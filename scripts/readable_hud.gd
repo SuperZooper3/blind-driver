@@ -53,6 +53,7 @@ func _draw_seat(width: float, seat: String) -> void:
 	draw_rect(Rect2(0, 0, width, 72), Color("102c2a"))
 	text(seat, Vector2(24, 43), 34)
 	text(("MAP OPEN · M TO CLOSE" if ui.map_open else "MAP CLOSED · M TO OPEN") if seat == "NAVIGATOR" else "W/S DRIVE · A/D STEER · SPACE BRAKE", Vector2(300, 43), 26, amber)
+	text(preload("res://scripts/version.gd").label(), Vector2(width - 190, 62), 18, amber)
 	draw_rect(Rect2(0, footer, width, 170), Color("102c2a"))
 	text("SPEED", Vector2(24, footer + 30), 24, amber)
 	text("%d km/h" % roundi(absf(car.signed_speed) * 3.6), Vector2(24, footer + 98), 58)

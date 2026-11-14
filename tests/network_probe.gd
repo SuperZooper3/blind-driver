@@ -17,6 +17,7 @@ var lan_recovered := false
 var damaged := false
 var cut_before_driver := false
 var waiting_cut := false
+var scenario_started := false
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -74,6 +75,17 @@ func _run() -> void:
 func _tick() -> void:
 	if finished:
 		return
+	# Startup/import time differs between the two processes. Begin the scenario
+	# only after both seats connect, so the host cannot exit before client checks.
+	if not is_host and cut_before_driver and not waiting_cut and game.session.relay.is_ready and not game.started:
+		waiting_cut = true
+		game.session.relay.socket.close()
+		print("WAITING_RECONNECT")
+	if not scenario_started:
+		var ready: bool = game.session.navigator_id != 0 if is_host else game.session.graph_received and game.session.snapshots_received > 0
+		if not ready: return
+		scenario_started = true
+		elapsed = 0.0
 	elapsed += root.get_process_delta_time()
 	if expect_lan_recovery and game.session.recovering:
 		lan_recovered = true
@@ -116,10 +128,6 @@ func _tick() -> void:
 			print("%s: host recovery checks, reconnects=%d, braked=%s" % ["PASS" if passed else "FAIL", game.session.relay.reconnects, saw_braking])
 			_finish(0 if passed else 1)
 	else:
-		if cut_before_driver and not waiting_cut and game.session.relay.is_ready and not game.started:
-			waiting_cut = true
-			game.session.relay.socket.close()
-			print("WAITING_RECONNECT")
 		if elapsed > duration - 2.0:
 			var session = game.session
 			var latest: Dictionary = session.snapshots.back() if not session.snapshots.is_empty() else {}
