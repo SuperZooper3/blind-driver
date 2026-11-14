@@ -120,6 +120,7 @@ class NavigatorContextTests(unittest.TestCase):
         self.assertEqual(body["thinking"], {"type": "disabled"})
         self.assertEqual(body["response_format"]["type"], "json_object")
         self.assertEqual(body["response_format"]["schema"]["properties"]["hold"]["items"]["enum"], ["B"])
+        self.assertNotIn("steering_pulse_sim", body["response_format"]["schema"]["properties"])
         content = body["messages"][-1]["content"]
         self.assertIn("as NAVIGATOR", content[0]["text"])
         self.assertIn("Return ONLY the JSON object", content[-1]["text"])

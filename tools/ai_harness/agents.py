@@ -153,10 +153,13 @@ class CohereAgent:
                     "tap": {"type": "array", "items": {"type": "string", "enum": sorted(TAP_KEYS[self.role])}},
                     "message": {"type": "string"},
                     "notes": {"type": "string"},
-                    "steering_pulse_sim": {"type": "number", "minimum": 0, "maximum": 1, "description": "Driver only: release A/D after game seconds; omit or zero when unused"},
-                    "pedal_pulse_sim": {"type": "number", "minimum": 0, "maximum": 1, "description": "Driver only: release W/S after game seconds; omit or zero when unused"},
+                    "steering_pulse_sim": {"type": "number", "description": "Driver only: release A/D after game seconds; omit or zero when unused"},
+                    "pedal_pulse_sim": {"type": "number", "description": "Driver only: release W/S after game seconds; omit or zero when unused"},
                 }, "required": ["hold", "tap", "message", "notes"], "additionalProperties": False,
             }}
+            if self.role == "navigator":
+                for field in ("steering_pulse_sim", "pedal_pulse_sim"):
+                    body["response_format"]["schema"]["properties"].pop(field)
         content, usage, answer = self._chat(body)
         try:
             action = validate_action(json.loads(content), self.role)
