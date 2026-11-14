@@ -138,5 +138,6 @@ The public game needs no provider credentials. Keep `.env` files, private keys,
 and research recordings out of Git. The AI gateway is disabled by default and
 restricted to local development when explicitly enabled.
 
-**Release clearance:** code licensing and the supplied music’s redistribution
-rights still need owner confirmation; see [release gates](deployment.md#release-gates).
+**Release clearance:** the code is intentionally **unlicensed** for now. The
+supplied “Chip Chase” music’s redistribution rights are **unconfirmed**. See
+[release gates](deployment.md#release-gates) before redistributing a build.

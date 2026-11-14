@@ -638,6 +638,7 @@ relay validation, local AI gateway/dashboard, and release packaging.
   provider folders, recordings, and virtual environments. These rules do not
   remove secrets that were already committed: inspect history before release.
 - Included the required audio assets and landing-page media in browser packaging.
+  Removed EXIF metadata from the supplied screenshots without changing their pixels.
 
 ### Checks and remaining boundaries
 
@@ -668,12 +669,26 @@ relay validation, local AI gateway/dashboard, and release packaging.
   log dumps. Keep credentials in runtime secrets; never inject them into the
   launcher, Godot export, screenshot assets, or `/config.js`.
 
+### Verification snapshot — release 1.0.1
+
+On 14 November 2026: all 10 frontend tests, 23 relay tests, and 48 Python harness
+unit tests passed. `tests/run_checks.py --relay` passed driving, LAN, relay,
+role-swap, direct-link, hazard, and network-jitter checks. Godot emitted resource /
+ObjectDB cleanup warnings when some test processes exited; the checks completed
+successfully. The Godot Web export built and reached the game menu in a browser
+without console errors. The landing page was checked at desktop and 390 px width,
+including the room-invite CTA. Documentation links and screenshot pixel integrity
+were checked. Production Docker hosting and a two-computer public internet session
+still need validation after deployment.
+
 ### Release gates
 
-Confirm a code license and redistribution rights/attribution for the supplied
-“Chip Chase” radio track before calling the repository fully cleared for public
-reuse. No license is assumed on behalf of the owner. The provided screenshots are
-used as project screenshots; they are not evidence of third-party music rights.
+The owner has chosen to keep the code **unlicensed** for now; this cleanup does
+not add an open-source license. Redistribution rights and attribution requirements
+for the supplied **“Chip Chase” radio track are unconfirmed**. The file remains in
+the project, so the repository/build is not represented as fully cleared for public
+reuse. Confirm those rights or replace/remove the track before redistribution.
+The provided screenshots are project screenshots, not evidence of music rights.
 
 Deploy the reviewed frontend, check its `/healthz`, and confirm relay protocol 12.
 Then test a fresh room from two computers. Render auto-deploy is off in the checked-in
