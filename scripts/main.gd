@@ -31,6 +31,11 @@ var mode := "split"
 var started := false
 var chase_camera := false
 var camera_initialized := false
+var driver_base := Transform3D.IDENTITY
+var navigator_base := Transform3D.IDENTITY
+var chase_offset := Vector3.ZERO
+var shake := 0.0
+var shake_time := 0.0
 var route_timer := 0.0
 var blur_material: ShaderMaterial
 var session: Node
@@ -103,6 +108,7 @@ func _ready() -> void:
 	impact_audio = ImpactAudio.new()
 	add_child(impact_audio)
 	car.impacted.connect(impact_audio.crash)
+	car.impacted.connect(_on_car_impact)
 	car.tire_popped.connect(impact_audio.pop)
 	siren = Siren.new()
 	siren.pursuit = police
@@ -368,6 +374,7 @@ func _restart_run() -> void:
 	car.recover(World.ground_point(0, 12, 0.17), Vector3.FORWARD)
 	car.driving_enabled = not ui.in_menu and session.can_drive()
 	camera_initialized = false
+	shake = 0.0
 	ui.close_map()
 
 func _update_cameras(delta: float) -> void:
@@ -396,9 +403,40 @@ func _update_cameras(delta: float) -> void:
 	if not camera_initialized:
 		weight = 1.0
 		camera_initialized = true
-	driver_camera.global_transform = driver_camera.global_transform.interpolate_with(driver_target, weight)
-	navigator_camera.global_transform = navigator_camera.global_transform.interpolate_with(nav_target, weight)
-	navigator_camera.fov = lerpf(navigator_camera.fov, (60.0 if ai_options.get("readable_ui", false) else 76.0) + absf(car.signed_speed) * 0.24, delta * 2.0)
+		chase_offset = nav_target.origin - car.global_position
+		driver_base = driver_target
+		navigator_base = nav_target
+	# Seat cameras stay fixed to their seats (no trailing behind under
+	# acceleration); only their turning is smoothed. The chase camera eases its
+	# offset from the car, so speed never drags it further back either.
+	driver_base = Transform3D(driver_base.basis.slerp(driver_target.basis, weight).orthonormalized(), driver_target.origin)
+	if chase:
+		chase_offset = chase_offset.lerp(nav_target.origin - car.global_position, weight)
+		navigator_base = Transform3D(navigator_base.basis.slerp(nav_target.basis, weight).orthonormalized(), car.global_position + chase_offset)
+	else:
+		chase_offset = nav_target.origin - car.global_position
+		navigator_base = Transform3D(navigator_base.basis.slerp(nav_target.basis, weight).orthonormalized(), nav_target.origin)
+	# Crashes shake both views, harder for harder hits, settling within a second.
+	shake = move_toward(shake, 0.0, delta * 1.6)
+	shake_time += delta
+	driver_camera.global_transform = driver_base * _shake_offset(0.0)
+	navigator_camera.global_transform = navigator_base * _shake_offset(7.3)
+	navigator_camera.fov = 60.0 if ai_options.get("readable_ui", false) else 76.0
+	# Only the local navigator's own first-person view lifts the map to their face.
+	car.map_raise = ui.raise_progress() if mode != "host" and not chase and not looking_back else 0.0
+
+func _on_car_impact(strength: float) -> void:
+	# A 30 km/h knock gives a clear jolt; a head-on crash about 3 degrees.
+	shake = maxf(shake, clampf(strength * 1.6, 0.0, 1.0))
+
+func _shake_offset(seed: float) -> Transform3D:
+	var amount := shake
+	if amount <= 0.0001:
+		return Transform3D.IDENTITY
+	var t := shake_time * 31.0 + seed
+	var turn := Vector3(sin(t * 1.13) + sin(t * 2.71) * 0.5, sin(t * 0.97 + 1.7) + sin(t * 2.31) * 0.5, sin(t * 1.41 + 0.6)) * 0.05 * amount
+	var nudge := Vector3(sin(t * 1.9 + 2.2), sin(t * 2.3 + 0.4), 0.0) * 0.06 * amount
+	return Transform3D(Basis.from_euler(turn), nudge)
 
 func _update_route() -> void:
 	if world.basic_course:

@@ -62,6 +62,8 @@ var damage_label: Label
 var in_menu := true
 var map_open := false
 var map_reveal := 0.0
+## Fraction of the open/close motion spent raising the paper map before the sheet covers the view.
+const MAP_SHEET_START := 0.6
 var map_tween: Tween
 var result_panel: PanelContainer
 var result_title: Label
@@ -625,15 +627,22 @@ func _layout() -> void:
 func _place_map(value: float) -> void:
 	map_reveal = value
 	var start_x := root.size.x * 0.5 if mode == "split" else 0.0
-	map_panel.position = Vector2(start_x, lerpf(root.size.y - FOOTER_HEIGHT - 64.0, 0.0, value))
+	# The paper map first rises to the navigator's face in 3D; the full sheet
+	# slides over the view only for the second half of the motion.
+	var sheet := smoothstep(MAP_SHEET_START, 1.0, value)
+	map_panel.position = Vector2(start_x, lerpf(root.size.y - FOOTER_HEIGHT - 64.0, 0.0, sheet))
 	map_panel.size = Vector2(root.size.x - start_x, root.size.y)
-	map_clip.size = Vector2(root.size.x, lerpf(root.size.y - FOOTER_HEIGHT, root.size.y, value))
+	map_clip.size = Vector2(root.size.x, lerpf(root.size.y - FOOTER_HEIGHT, root.size.y, sheet))
 	map.unfolded = map_open
 	if readable_ui or complete_seats:
 		var available := root.size.y - 72.0 - 170.0
 		map_panel.position = Vector2(start_x, lerpf(root.size.y - 170.0 - 64.0, 72.0, value))
 		map_panel.size = Vector2(root.size.x - start_x, available)
 		map_clip.size = Vector2(root.size.x, root.size.y - 170.0)
+
+## How far the 3D paper map has been lifted toward the navigator's face.
+func raise_progress() -> float:
+	return clampf(map_reveal / MAP_SHEET_START, 0.0, 1.0)
 
 func _build_run_result() -> void:
 	result_panel = PanelContainer.new()
@@ -718,7 +727,7 @@ func toggle_map() -> void:
 	if map_tween != null:
 		map_tween.kill()
 	map_tween = create_tween()
-	map_tween.tween_method(_place_map, map_reveal, 1.0 if map_open else 0.0, 0.38).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	map_tween.tween_method(_place_map, map_reveal, 1.0 if map_open else 0.0, 0.9).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
 
 func close_map() -> void:
 	map_open = false

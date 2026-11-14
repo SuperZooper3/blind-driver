@@ -63,6 +63,11 @@ var crack_pattern: Control
 var crack_view: SubViewport
 var navigator_hands: Node3D
 var cabin_time := 0.0
+## 0 = map resting in the navigator's lap, 1 = held up in front of their face.
+## Set each frame by the game from the local navigator's map animation.
+var map_raise := 0.0
+const MAP_LAP := Vector3(0.24, 0.9, -0.4)
+const MAP_FACE := Vector3(0.43, 1.2, -0.3)
 var headlights: Array[SpotLight3D] = []
 var lamp_material: StandardMaterial3D
 var damage: Damage
@@ -273,10 +278,13 @@ func _build_occupants() -> void:
 		else:
 			navigator_hands = Node3D.new()
 			navigator_hands.name = "NavigatorHands"
-			navigator_hands.position = Vector3(0.24, 0.9, -0.4)
+			navigator_hands.position = MAP_LAP
 			navigator_hands.rotation.x = -0.5
 			add_child(navigator_hands)
-			Geo.box(navigator_hands, Vector3(0.36, 0.01, 0.24), Vector3.ZERO, Geo.material(Color("d8d2ad")))
+			var paper := Geo.material(Color("dcd8b8"))
+			# Paper stays readable when held up against the light.
+			paper.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			Geo.box(navigator_hands, Vector3(0.36, 0.01, 0.24), Vector3.ZERO, paper)
 			for side in [-1.0, 1.0]:
 				var hand := Geo.sphere(navigator_hands, 0.065, Vector3(side * 0.19, 0.02, 0.06), skin)
 				hand.name = "NavigatorHand"
@@ -320,7 +328,12 @@ func update_cabin(delta: float) -> void:
 			crack_pattern.crack = value
 			crack_view.render_target_update_mode = SubViewport.UPDATE_ONCE
 	if navigator_hands != null:
-		navigator_hands.position.y = 0.9 + sin(cabin_time * 2.3) * 0.012 + clampf(absf(signed_speed) / 40.0, 0, 1) * sin(cabin_time * 11.0) * 0.006
+		# Opening the map lifts it from the lap up in front of the navigator's face.
+		var lift := smoothstep(0.0, 1.0, map_raise)
+		var bob := (sin(cabin_time * 2.3) * 0.012 + clampf(absf(signed_speed) / 40.0, 0, 1) * sin(cabin_time * 11.0) * 0.006) * (1.0 - lift)
+		navigator_hands.position = MAP_LAP.lerp(MAP_FACE, lift) + Vector3.UP * bob
+		navigator_hands.rotation.x = lerpf(-0.5, 1.45, lift)
+		navigator_hands.scale = Vector3.ONE * lerpf(1.0, 1.5, lift)
 
 ## Shared by the driver and the navigator's interpolated copy.
 func update_wheel_visuals() -> void:

@@ -24,10 +24,16 @@ func _run() -> void:
 	var car = game.car
 	var ui = game.ui
 	check(ui.map_panel.position.y == ui.root.size.y - ui.FOOTER_HEIGHT - 64 and ui.map_panel.size.y == ui.root.size.y, "folded map exposes only the top of the full-size sheet")
+	var was_chase: bool = game.chase_camera
+	game.chase_camera = false
 	ui.toggle_map()
-	await frames(12)
+	await frames(16)
+	check(car.map_raise > 0.1 and ui.map_panel.position.y == ui.root.size.y - ui.FOOTER_HEIGHT - 64, "in first person the paper map lifts toward the navigator's face before the sheet covers the view")
+	await frames(20)
 	check(ui.map_panel.position.y > 0 and ui.map_panel.position.y < ui.root.size.y - ui.FOOTER_HEIGHT - 64, "map slides through intermediate positions")
 	await frames(30)
+	check(car.map_raise == 1.0 and car.navigator_hands.position.is_equal_approx(car.MAP_FACE), "the open map is held up in front of the navigator's face")
+	game.chase_camera = was_chase
 	check(ui.map_panel.position == Vector2.ZERO and ui.map_panel.size == ui.root.size, "open navigator map covers the full screen")
 	check_cabin(game)
 	ui.set_mode("split")
@@ -144,3 +150,16 @@ func check_cabin(game) -> void:
 	var hands: Array = car.steering_wheel.find_children("DriverHand*", "", false, false)
 	check(hands.size() == 2 and hands[0].layers & driver_mask and car.navigator_hands.find_children("NavigatorHand*", "", false, false).size() == 2, "the driver's hands ride the steering wheel and the navigator holds the map")
 	check(game.ui.map_hands != null and game.ui.map_hands.get_parent() == game.ui.map_clip, "the navigator's hands grip the paper map")
+	# Seat cameras stay on their seats however fast the car moves, and crashes shake them.
+	game.shake = 0.0
+	game._update_cameras(1.0 / 60.0)
+	car.global_position += -car.global_basis.z * 4.0
+	game._update_cameras(1.0 / 60.0)
+	var seat: Vector3 = car.global_transform * Vector3(-0.43, 1.23, -0.05)
+	check(game.driver_camera.global_position.distance_to(seat) < 0.01 and is_equal_approx(game.navigator_camera.fov, 76.0), "seat cameras never trail behind or zoom out with speed")
+	game._on_car_impact(1.0)
+	game._update_cameras(1.0 / 60.0)
+	var shaken: float = game.driver_camera.global_position.distance_to(car.global_transform * Vector3(-0.43, 1.23, -0.05))
+	for _i in 90: game._update_cameras(1.0 / 60.0)
+	var settled: float = game.driver_camera.global_position.distance_to(car.global_transform * Vector3(-0.43, 1.23, -0.05))
+	check(shaken > 0.005 and settled < 0.001 and game.shake == 0.0, "a crash shakes the camera, then it settles")
