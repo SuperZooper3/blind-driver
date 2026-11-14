@@ -40,7 +40,7 @@ static func jump_height(item: Dictionary, at: Vector3) -> float:
 		return RAMP_HEIGHT * (1.0 - t) + sin(t * PI) * 3.0
 	return 0.0
 
-func setup(item: Dictionary) -> void:
+func setup(item: Dictionary, ai_colors := false) -> void:
 	hazard = item
 	name = "JumpGap" if item.kind == "jump_gap" else "TimedBridge"
 	var yellow := Geo.material(Color("f1bd49"))
@@ -86,6 +86,8 @@ func setup(item: Dictionary) -> void:
 	var sign_at := Vector3(center.x - 6, Hazards.terrain_height(center.x - 6, lip + 34), lip + 34)
 	Geo.box(self, Vector3(0.2, 4.4, 0.2), sign_at + Vector3.UP * 2.2, dark)
 	Geo.box(self, Vector3(4.4, 2.3, 0.2), sign_at + Vector3.UP * 3.8, dark)
+	# Preserve signal/label colors: they communicate open/closed bridge states.
+	if ai_colors: Hazards.highlight_obstacles(self)
 	sign = Label3D.new()
 	sign.position = sign_at + Vector3(0, 3.8, 0.13)
 	sign.font_size = 72

@@ -84,7 +84,7 @@ passed to either agent. The previous visible-instrument snapshot helps distingui
 motion from stalling. Discrete own-seat view labels and audible-event captions
 remain available. The map itself must still be interpreted visually.
 
-The `grounded-copilot-v6` instructions and context:
+The `grounded-copilot-v8` instructions and context:
 
 - Plan with the map before departure, read a later fully opened frame, close it,
   and remember the upcoming bend. A map-check reminder tracks the last offered
@@ -97,8 +97,8 @@ The `grounded-copilot-v6` instructions and context:
 - Reassess after impact/off-road evidence; identify the road side, use chase view
   if obscured, inspect rear clearance before reversing, and verify each recovery
   step. Do not repeat an unresolved “stop and assess” message.
-- Use short explicit steering/pedal pulses when appropriate. These are model-selected
-  keyboard durations, not an automatic lane follower, speed governor, or brake.
+- Use short explicit steering/pedal pulses when appropriate. Continuous holds, short pulses and toggles are all available. These are explicit
+  model-selected gestures, not an automatic lane follower or speed governor.
 
 Each seat keeps its last two short factual notes by default. Requests are fresh
 image tasks rather than a long conversation of repetitive assistant answers.
@@ -175,15 +175,41 @@ it to keep reading older messages; the recap link appears after video rendering 
 
 ## Keyboard contract
 
-Both models return the same shape:
+Models choose named actions. The navigator selects its desired next view; this is
+idempotent, so repeatedly selecting `map` does not accidentally close it, and
+selecting `chase` reliably closes the map and returns to the clear road view:
+
+```json
+{"view":"chase","message":"Ease to 35 km/h; steer left toward the road center.","notes":"Car right of the road; left side is clear."}
+```
+
+The driver can combine **continuous holds**, **timed pulses**, and **taps**:
 
 ```json
 {
-  "hold": ["W", "A"],
-  "tap": [],
-  "message": "Turning left; tell me when to straighten.",
-  "notes": "Road bends left. Need the next view to confirm alignment."
+  "pedal": "accelerate", "pedal_mode": "hold",
+  "steering": "left", "steering_mode": "pulse", "steering_seconds": 0.2,
+  "tap": [], "message": "Holding throttle; short left correction.", "notes": "Speed below target."
 }
+```
+
+`pedal` is accelerate/coast/brake/reverse/park; `steering` is left/straight/right.
+`pedal_mode` and `steering_mode` independently select `hold` or `pulse`. A hold
+persists until that seat's next accepted action changes it, including during both
+agents' inference. Coast releases W/S; straight releases A/D. Pulse defaults are
+1 game second for acceleration, 0.2 for braking, 0.3 for reverse, and 0.15 for
+steering. Optional `pedal_seconds` / `steering_seconds` select 0.05–1 game seconds;
+zero means the gesture default. Park holds SPACE; optional `tap:["H"]` toggles lights.
+Holding throttle accelerates; it does not maintain a specified speed automatically.
+
+The translator chooses no road direction or pedal from telemetry: it implements
+only the model's chosen intent. It saves both the original `decision` and translated
+keyboard `action`. A coast intent can never become W, and a short left intent
+cannot silently become an indefinite turn. The underlying keyboard contract
+remains available to explicit scripted baselines and compatible custom providers:
+
+```json
+{"hold":["W","A"],"tap":[],"steering_pulse_sim":0.2,"message":"Short left correction.","notes":""}
 ```
 
 | Seat | Held keys | Tap keys |
@@ -209,7 +235,7 @@ records both requested `held` keys and actual `pressed_keys`, plus an
 `input_reassertions` counter, so control delivery can be checked separately from
 the model's decisions.
 
-The navigator observes, sends a message and keys, then the driver observes a new
+The navigator observes, selects a view and sends speech, then the driver observes a new
 frame, chooses keys and replies. **Held keys remain pressed until that same agent's
 next accepted instruction replaces them.** Inference, the partner's turn, quota
 waits, and rejected/failed responses do not release keys or apply automatic brakes.
@@ -223,7 +249,7 @@ already accepted hold. Ending the episode (including errors, Ctrl-C, and limits)
 releases every held key. Game menus/network recovery retain their ordinary pause
 behavior. Pause/restart and changes to speed are not model actions.
 
-Schema version 4 adds the shared local engine, working recaps and readable-display settings; new runs record `hold_policy: until_replaced_with_optional_key_pulses`. Older timed-hold runs remain
+Schema version 6 adds semantic decisions, bounded gestures and instrument transcription; new runs record `hold_policy: until_replaced_with_optional_key_pulses`. Older timed-hold runs remain
 readable, with their fallback metrics retained, but should not be pooled with new
 runs. The source/configuration fingerprint keeps those benchmark groups separate.
 
@@ -275,7 +301,11 @@ heading degrees. The map still covers the road but leaves the instruments visibl
 Collision, tire-pop, engine-knock and siren captions appear in the game itself;
 unheard caption events with timestamps also accompany the next model request.
 No map obstacle detector, angle advice, or hidden damage/location values are added
-to model inputs. The five visible instrument strings are also delivered as text. Ordinary human sessions retain their existing UI.
+to model inputs. The five visible instrument strings are also delivered as text. AI sessions also render rocks, trees, thorns, ramps, barriers, cones and dangerous
+course surfaces in bright orange. Road/terrain colors and all collisions/physics
+remain unchanged. Bridge signal and text colors retain their open/closed meanings.
+The `ai_orange_v1` palette is recorded in the benchmark fingerprint. Ordinary human
+sessions retain their existing colors and UI.
 `--course standard` selects the existing human game and all its hazards.
 
 The basic profile's progress measure is the maximum new forward (-Z) displacement

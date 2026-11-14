@@ -24,19 +24,25 @@ def translate_decision(value, role, observation):
         return value
     result = {"hold": [], "tap": [], "message": value.get("message", ""), "notes": value.get("notes", "")}
     if role == "driver":
-        if set(value) - {"pedal", "steering", "pedal_seconds", "steering_seconds", "message", "notes"}:
+        if set(value) - {"pedal", "steering", "pedal_mode", "steering_mode", "pedal_seconds", "steering_seconds", "tap", "message", "notes"}:
             raise ValueError("Unknown driver decision field")
+        pedal_mode, steering_mode = value.get("pedal_mode", "pulse"), value.get("steering_mode", "pulse")
+        if pedal_mode not in {"hold", "pulse"} or steering_mode not in {"hold", "pulse"}:
+            raise ValueError("Control mode must be hold or pulse")
+        result["tap"] = value.get("tap", [])
         pedal, steering = value.get("pedal"), value.get("steering")
         if pedal not in {"accelerate", "coast", "brake", "reverse", "park"} or steering not in {"left", "straight", "right"}:
             raise ValueError("Choose a valid pedal and steering intent")
         if pedal in {"accelerate", "brake", "reverse"}:
             result["hold"].append("W" if pedal == "accelerate" else "S")
-            result["pedal_pulse_sim"] = _seconds(value.get("pedal_seconds"), {"accelerate": 1, "brake": .2, "reverse": .3}[pedal])
+            if pedal_mode == "pulse":
+                result["pedal_pulse_sim"] = _seconds(value.get("pedal_seconds"), {"accelerate": 1, "brake": .2, "reverse": .3}[pedal])
         elif pedal == "park":
             result["hold"].append("SPACE")
         if steering != "straight":
             result["hold"].append("A" if steering == "left" else "D")
-            result["steering_pulse_sim"] = _seconds(value.get("steering_seconds"), .15)
+            if steering_mode == "pulse":
+                result["steering_pulse_sim"] = _seconds(value.get("steering_seconds"), .15)
     else:
         if set(value) - {"view", "message", "notes"} or value.get("view") not in {"map", "chase", "rear", "seat"}:
             raise ValueError("Choose navigator view map/chase/rear/seat")
@@ -59,7 +65,10 @@ def decision_schema(role):
                           steering={"type": "string", "enum": ["left", "straight", "right"]})
         properties["pedal_seconds"] = {"type": "number", "description": "0 uses gesture default; otherwise 0.05–1 game seconds"}
         properties["steering_seconds"] = {"type": "number", "description": "0 uses 0.15s; otherwise 0.05–1 game seconds"}
+        properties["pedal_mode"] = {"type": "string", "enum": ["pulse", "hold"], "description": "pulse releases after duration; hold stays until replaced"}
+        properties["steering_mode"] = {"type": "string", "enum": ["pulse", "hold"], "description": "pulse releases after duration; hold stays until replaced"}
+        properties["tap"] = {"type": "array", "items": {"type": "string", "enum": ["H"]}}
     else:
         properties["view"] = {"type": "string", "enum": ["map", "chase", "rear", "seat"]}
-    required = [k for k in properties if not k.endswith("_seconds")]
+    required = ["notes", "message", "pedal", "steering"] if role == "driver" else ["notes", "message", "view"]
     return {"type": "object", "properties": properties, "required": required, "additionalProperties": False}

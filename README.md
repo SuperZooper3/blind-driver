@@ -152,7 +152,8 @@ Cohere runs default to Command A+ with bounded reasoning in both seats at 5% spe
 give actionable directions, respond to the driver, and reassess after crashes;
 recent dialogue, a transcript of the visible instruments, and accepted-control feedback
 accompany each screenshot. Explicit short steering pulses prevent a small correction
-from staying held through both agents’ model calls.
+from staying held through both agents’ model calls. Continuous holds and toggles
+remain selectable, and AI-mode obstacles use a bright orange palette.
 The [research plan](docs/AI_HARNESS_PLAN.md) describes
 the longer path toward reinforcement learning.
 

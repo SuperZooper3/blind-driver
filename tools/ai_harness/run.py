@@ -95,13 +95,14 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     directory = output_root / run_id
     directory.mkdir(parents=True, mode=0o700)
     (directory / ".gdignore").touch()
-    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 5,
+    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 6,
                 "prompt_revision": PROMPT_REVISION,
                 "prototype": prototype_number(),
-                "communication_policy": "optional speech; last 8 delivered messages with ages; own action acknowledgments",
+                "communication_policy": "optional speech; last 4 delivered messages in provider context, last 8 in audit observation; own control acknowledgments",
                 "hold_policy": "until_replaced_with_optional_key_pulses",
                 "scoring": DEFAULT_SCORING.copy(),
                 "basic_course_version": "roadside_thorns_v2",
+                "obstacle_palette": "ai_orange_v1",
                 "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
                 "godot_version": subprocess.check_output([godot, "--version"], text=True).strip(),

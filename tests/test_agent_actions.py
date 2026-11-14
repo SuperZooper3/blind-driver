@@ -28,6 +28,20 @@ class SemanticActionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.driver(pedal="teleport")
 
+    def test_continuous_holds_pulses_and_taps_can_be_combined_explicitly(self):
+        hold = self.driver(pedal="accelerate", pedal_mode="hold", steering="left", steering_mode="hold", tap=["H"])
+        self.assertEqual(hold["hold"], ["W", "A"])
+        self.assertEqual(hold["tap"], ["H"])
+        self.assertNotIn("pedal_pulse_sim", hold)
+        self.assertNotIn("steering_pulse_sim", hold)
+        mixed = self.driver(pedal="accelerate", pedal_mode="hold", steering="right", steering_seconds=.2)
+        self.assertEqual(mixed["hold"], ["W", "D"])
+        self.assertNotIn("pedal_pulse_sim", mixed)
+        self.assertEqual(mixed["steering_pulse_sim"], .2)
+        self.assertEqual(self.driver(pedal="coast", pedal_mode="hold")["hold"], [])
+        with self.assertRaises(ValueError):
+            self.driver(pedal_mode="automatic")
+
     def test_navigator_view_selection_is_idempotent_and_can_close_map_into_chase(self):
         def select(desired, map_state="closed", camera="seat", facing="forward"):
             return validate_action(translate_decision({"view": desired, "message": "Wait", "notes": "private"}, "navigator",

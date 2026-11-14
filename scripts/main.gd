@@ -53,6 +53,7 @@ func _ready() -> void:
 	_setup_environment()
 	world = World.new()
 	world.basic_course = ai_options.get("course", "standard") == "basic"
+	world.ai_obstacle_colors = not ai_options.is_empty()
 	world.world_seed = int(ai_options.get("seed", world.world_seed))
 	world.name = "World"
 	add_child(world)
