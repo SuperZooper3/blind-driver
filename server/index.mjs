@@ -255,6 +255,12 @@ export function createRelay(options = {}) {
         log('seats_swapped', client);
         return;
       }
+      if (message.type === 'repair') {
+        // The navigator holds the repair key; only the driver's game simulates it.
+        const room = rooms.get(client.room);
+        if (room && client.role === 'navigator' && room.navigator?.client === client) send(room.driver?.client, { type: 'repair' });
+        return;
+      }
       if (client.role !== 'driver') { fail(client, 'not_driver', 'Only the driver can send game state.'); return; }
       const room = rooms.get(client.room);
       if (!room || room.driver.client !== client) return;

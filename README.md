@@ -61,7 +61,7 @@ research harness remains separate.
 | C | Navigator/solo: switch seat and chase cameras |
 | B (hold) | Navigator/solo: look behind and check police distance |
 | H | Headlights |
-| R | Repair (driver, below 15 km/h) |
+| R (hold) | Repair (navigator; the car must be under 15 km/h) |
 | V | Mute/unmute motor, tire, and siren audio |
 | F | Fullscreen/windowed |
 | F8 | Connection check, live network metrics, and logs |
@@ -95,9 +95,9 @@ Hits under about 13 km/h are harmless. Harder hits on rocks, trees, barriers and
 | Rear bumper | Falls off. Rear hits reach the rear wheels at full strength. | |
 | Windshield | Cracks spread across the glass itself, so each seat sees them in perspective (blurred for the driver, like the road) and third person sees them from outside; they then shatter into a hazy web. | |
 
-**Spike strips** lie across one half of the road and pop every tire that rolls over them; steer into the clear half.
+**Spike strips** appear from heat 4. A yellow **SPIKES AHEAD 100 m** sign stands at the start of the road, and the strip is always at least 100 m past it. It lies across one half of the road, striped yellow and black with red spikes, and pops every tire that rolls over it; steer into the clear half.
 
-**R** repairs the car when it is going under 15 km/h. Repairs fix one part at a time, most crucial first: the engine, then the tires (worst first), the windshield, the front bumper and the rear bumper, at 5 seconds for a fully broken part. The car stays parked until every part is whole, then drives normally. Lost wheels and bumpers go back on, and flats are reinflated.
+The **navigator holds R** to repair while the car is under 15 km/h (on one computer, either player can press it). The car stays parked while you hold it; let go to drive on with whatever has been fixed so far. Repairs fix one part at a time, most crucial first: the engine, then the tires (worst first), the windshield, the front bumper and the rear bumper, at 5 seconds for a fully broken part. Lost wheels and bumpers go back on, and flats are reinflated.
 
 Damage lasts until you repair it or start over. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot. Tuning lives at the top of `scripts/car_damage.gd` (`SAFE_SPEED`, `CURVE`, `RATE`, breakdown penalties) and `scripts/car.gd` (`THORN_WEAR`, `FLAT_TIRE_DRAG`, `HUB_SCRAPE`).
 

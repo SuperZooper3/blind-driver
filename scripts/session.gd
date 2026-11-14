@@ -65,6 +65,13 @@ var stale := false
 var snapshots_received := 0
 var graph_received := false
 var relay: Node
+## The navigator repairs: while they hold R their game repeats a short "repair"
+## message, and the driver's game repairs until the messages stop.
+const REPAIR_REPEAT := 0.15
+const REPAIR_HOLD_TIMEOUT := 0.4
+var repair_held_local := false
+var repair_send_timer := 0.0
+var partner_repair_until := 0.0
 var online := false
 var room_code := ""
 var recovering := false
@@ -127,6 +134,7 @@ func _ready() -> void:
 	relay.graph_received.connect(_receive_graph)
 	relay.snapshot_received.connect(_receive_snapshot)
 	relay.pose_received.connect(_receive_pose)
+	relay.repair_received.connect(_partner_repair)
 	direct = DirectLink.new()
 	direct.name = "DirectLink"
 	add_child(direct)
@@ -446,6 +454,7 @@ func _schedule_lan_retry() -> void:
 	connection_lost.emit()
 
 func _process(delta: float) -> void:
+	_send_repair_hold(delta)
 	var time := Time.get_ticks_msec() / 1000.0
 	if not online and role == "join" and recovering:
 		if time - lan_outage_at >= 120.0:
@@ -512,6 +521,29 @@ func _process(delta: float) -> void:
 					_receive_pose.rpc_id(navigator_id, pose)
 	elif role == "join":
 		_interpolate(delta)
+
+func partner_repairing() -> bool:
+	return Time.get_ticks_msec() / 1000.0 < partner_repair_until
+
+func _send_repair_hold(delta: float) -> void:
+	repair_send_timer = maxf(0.0, repair_send_timer - delta)
+	if role != "join" or not repair_held_local or repair_send_timer > 0.0:
+		return
+	repair_send_timer = REPAIR_REPEAT
+	var link := peer_link()
+	if online:
+		if not (link != null and link.send({"type": "repair"})):
+			relay.send_repair()
+	elif peer != null and multiplayer.multiplayer_peer == peer:
+		_receive_repair.rpc_id(1)
+
+@rpc("any_peer", "call_remote", "unreliable_ordered")
+func _receive_repair() -> void:
+	_partner_repair()
+
+func _partner_repair() -> void:
+	if role == "host":
+		partner_repair_until = Time.get_ticks_msec() / 1000.0 + REPAIR_HOLD_TIMEOUT
 
 @rpc("authority", "call_remote", "reliable")
 func _receive_graph(data: Array) -> void:

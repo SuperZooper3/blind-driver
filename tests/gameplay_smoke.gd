@@ -108,7 +108,8 @@ func _run() -> void:
 			world.grow_near(newest.points[-1])
 		await process_frame
 	check(safe_clear, "voids never cut another safe route; jump and bridge gaps stay on their own road")
-	check(kinds.size() == Hazards.KINDS.size(), "long run includes every obstacle, jump gap, timed bridge, cliff, and lake")
+	# Spike strips and their signs only appear from heat 4; repair_smoke covers them.
+	check(kinds.size() == Hazards.KINDS.size() - 2 and not kinds.has("spikes"), "long run includes every obstacle, jump gap, timed bridge, cliff, and lake")
 	check(world.roads.size() <= world.MAX_ROADS, "hazards unload with their bounded road graph")
 	var lake: Dictionary = {}
 	for road: Dictionary in world.roads:

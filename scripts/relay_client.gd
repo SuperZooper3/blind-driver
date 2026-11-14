@@ -13,6 +13,8 @@ signal navigator_joined
 signal navigator_left
 signal graph_received(roads: Array)
 signal snapshot_received(state: Dictionary)
+## The navigator is holding the repair key (navigator to driver).
+signal repair_received
 signal pose_received(pose: Dictionary)
 ## The partner offered (or withdrew) a direct local-network link.
 signal direct_offer(offer: Dictionary)
@@ -28,7 +30,7 @@ signal check_finished(message: String)
 
 const Wire = preload("res://scripts/wire_protocol.gd")
 const Log = preload("res://scripts/network_log.gd")
-const VERSION := 11
+const VERSION := 12
 ## Matches server/protocol.mjs: six characters, no 0/O or 1/I/L lookalikes.
 const SHARE_ALPHABET := "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 const SHARE_LENGTH := 6
@@ -342,6 +344,8 @@ func _handle(message: Dictionary) -> void:
 			Log.event("peer_reconnecting", {"role": message.get("role", "")})
 			peer_waiting.emit()
 		"peer_restored": peer_restored.emit()
+		"repair":
+			handle_game_message(message)
 		"graph", "pose", "snapshot":
 			if not handle_game_message(message):
 				_fail("Invalid game data from relay.")
@@ -381,6 +385,8 @@ func handle_game_message(message: Dictionary) -> bool:
 			if snapshot.is_empty():
 				return false
 			snapshot_received.emit(snapshot)
+		"repair":
+			repair_received.emit()
 		_:
 			return false
 	return true
@@ -408,6 +414,9 @@ func _send(message: Dictionary) -> bool:
 
 func request_swap() -> bool:
 	return is_ready and _send({"type": "swap"})
+
+func send_repair() -> bool:
+	return is_ready and _send({"type": "repair"})
 
 func send_graph(roads: Array) -> bool:
 	return is_ready and _send({"type": "graph", "roads": Wire.graph_to_json(roads)})

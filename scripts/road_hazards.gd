@@ -1,7 +1,7 @@
 extends RefCounted
 ## Immutable obstacle records travel with the road graph. Only the driver simulates hits.
 const Geo = preload("res://scripts/geometry.gd")
-const KINDS := ["rock", "tree", "ramp", "bumps", "construction", "spikes", "cliff", "lake", "jump_gap", "timed_bridge"]
+const KINDS := ["rock", "tree", "ramp", "bumps", "construction", "spikes", "spike_sign", "cliff", "lake", "jump_gap", "timed_bridge"]
 
 static func is_void(hazard: Dictionary) -> bool:
 	return hazard.kind in ["cliff", "lake", "jump_gap", "timed_bridge"]
@@ -64,13 +64,32 @@ static func render(parent: Node3D, hazard: Dictionary, tree_mesh: Mesh) -> void:
 
 		"spikes":
 			# No collider: the car rolls straight over it, and every tire it touches pops.
-			var base := Geo.box(root, Vector3(4.0, 0.06, 0.5), Vector3(0, 0.03, 0), dark)
-			base.name = "SpikeStrip"
-			var steel := Geo.material(Color("c9ccc8"))
+			# Bright yellow-and-black hazard stripes with tall red spikes stand out on gravel.
+			var yellow := Geo.material(Color("f2c318"))
+			yellow.emission_enabled = true
+			yellow.emission = Color("f2c318") * 0.35
+			for i in 8:
+				var stripe := Geo.box(root, Vector3(0.5, 0.1, 0.7), Vector3(-1.75 + i * 0.5, 0.05, 0), yellow if i % 2 == 0 else dark)
+				if i == 0: stripe.name = "SpikeStrip"
+			var red := Geo.material(Color("e0261b"), 0.4)
+			red.emission_enabled = true
+			red.emission = Color("e0261b") * 0.5
 			for i in 16:
-				for row in [-0.12, 0.12]:
-					var spike := Geo.cylinder(root, 0.05, 0.22, Vector3(-1.875 + i * 0.25, 0.12, row), steel, 0.0, 6)
-					spike.rotation.x = 0.35 if row < 0 else -0.35
+				for row in [-0.18, 0.18]:
+					var spike := Geo.cylinder(root, 0.07, 0.38, Vector3(-1.875 + i * 0.25, 0.28, row), red, 0.0, 6)
+					spike.rotation.x = 0.3 if row < 0 else -0.3
+		"spike_sign":
+			# A roadside warning, 100 m before the strip.
+			Geo.cylinder(root, 0.07, 2.4, Vector3(0, 1.2, 0), Geo.material(Color("8a8f8c")), -1.0, 8).create_convex_collision()
+			var board := Geo.box(root, Vector3(1.3, 1.3, 0.06), Vector3(0, 2.3, 0.05), Geo.material(Color("f2c318")))
+			board.rotation.z = PI / 4.0
+			var text := Label3D.new()
+			text.text = "SPIKES\nAHEAD\n100 m"
+			text.font_size = 46
+			text.outline_size = 0
+			text.modulate = Color("1b1b1b")
+			text.position = Vector3(0, 2.3, 0.1)
+			root.add_child(text)
 
 static func _wedge(parent: Node3D, at: Vector3, width: float, length: float, height: float, mat: Material, rounded: bool = false) -> void:
 	var a := at + Vector3(-width / 2, 0, length / 2)

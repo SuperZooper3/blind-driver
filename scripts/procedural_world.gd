@@ -24,6 +24,9 @@ const MIDDLE_HOLE_CHANCE := 0.5
 ## A spike strip covers half the road's width and is half a metre deep.
 const SPIKE_HALF_WIDTH := ROAD_WIDTH * 0.25
 const SPIKE_HALF_DEPTH := 0.25
+## Spikes appear from heat 4 (difficulty 3), at least this far past their warning sign.
+const SPIKE_MIN_DIFFICULTY := 3
+const SPIKE_WARNING := 100.0
 const PROFILES := ["main", "scenic", "rough", "culdesac", "cliff"]
 var difficulty := 0
 ## Opt-in harness curriculum; ordinary play retains the original generator.
@@ -229,7 +232,9 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 			# terrain cut is separate from its narrow crossing surface.
 			hazards.append({"kind": challenge_kind, "position": center, "size": Vector3(64, 18, 16), "yaw": 0.0, "lane_x": points[16].x, "level": difficulty})
 		elif depth > 0 or basic_course:
-			var kinds := ["rock", "tree", "ramp", "bumps", "construction", "spikes"]
+			var kinds := ["rock", "tree", "ramp", "bumps", "construction"]
+			# Spike strips start at heat 4.
+			if difficulty >= SPIKE_MIN_DIFFICULTY: kinds.append("spikes")
 			var count := 2 + difficulty / 2
 			if basic_course:
 				kinds = ["rock"]
@@ -246,12 +251,22 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 				var index := clampi(roundi(rng.randf_range(5.0 + slot * span + 0.8, 5.0 + (slot + 1) * span - 0.8)), 5, 27)
 				var choices: Array = kinds.duplicate()
 				if choices.size() > 1: choices.erase(previous)
+				# Spikes sit at least SPIKE_WARNING metres past the sign at the road's start.
+				if _distance_along(points, 1, index) < SPIKE_WARNING: choices.erase("spikes")
 				# Each tree bends the road around it; keep chicanes apart.
 				for other: Dictionary in plan:
 					if other.kind == "tree" and absi(other.index - index) < 8: choices.erase("tree")
 				var kind: String = choices[rng.randi() % choices.size()]
 				previous = kind
 				plan.append({"kind": kind, "index": index})
+			for item: Dictionary in plan:
+				if item.kind != "spikes": continue
+				# Every route onto this road passes its start, so one sign covers all paths.
+				var ahead := (points[2] - points[1]).normalized()
+				var sign_at := points[1] + ahead.cross(Vector3.UP) * (ROAD_WIDTH * 0.5 + 1.4)
+				sign_at.y = height_at(sign_at.x, sign_at.z)
+				hazards.append({"kind": "spike_sign", "position": sign_at, "size": Vector3.ONE, "yaw": atan2(-ahead.x, -ahead.z)})
+				break
 			for item: Dictionary in plan:
 				if item.kind != "tree": continue
 				var index: int = item.index
@@ -549,6 +564,12 @@ func puncture_mask(car: RigidBody3D) -> int:
 		if absf(contact.y - height_at(contact.x, contact.z)) < 0.8 and thorn_at(contact):
 			result |= 1 << i
 	return result
+
+static func _distance_along(points: PackedVector3Array, from: int, to: int) -> float:
+	var total := 0.0
+	for i in range(from, to):
+		total += points[i].distance_to(points[i + 1])
+	return total
 
 ## Wheels currently rolling over a spike strip, as a bitmask.
 func spike_mask(car: RigidBody3D) -> int:

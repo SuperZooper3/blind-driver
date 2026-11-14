@@ -334,6 +334,11 @@ func _process(delta: float) -> void:
 	motor.roughness = car.damage.engine_roughness()
 
 func _physics_process(delta: float) -> void:
+	# The navigator holds R. On one computer either seat's keyboard can; online,
+	# the navigator's game relays the hold to the driver's.
+	var holding: bool = Input.is_action_pressed("repair") and input_ready and not ui.in_menu
+	session.repair_held_local = holding and mode == "join"
+	car.repair_held = session.partner_repairing() if mode == "host" else (holding and mode != "join")
 	if not car.remote:
 		world.difficulty = 0 if world.basic_course else World.heat_for_distance(car.distance_driven)
 		var running: bool = started and not ui.in_menu and car.run_state == "driving" and not car.reset_pending and car.recovery_grace == 0 and session.can_drive()
@@ -738,9 +743,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		chase_camera = not chase_camera
 	if event.is_action_pressed("lights") and mode != "join":
 		car.toggle_lights()
-	if event.is_action_pressed("repair") and mode != "join":
-		var refusal: String = car.start_repair()
-		var notices := {"too_fast": "SLOW BELOW 15 KM/H TO REPAIR", "nothing": "NOTHING TO REPAIR"}
+	# The navigator repairs. Online, the driver's R does nothing.
+	if event.is_action_pressed("repair") and mode != "host":
+		var refusal: String = car.repair_refusal()
+		var notices := {"too_fast": "DRIVER: SLOW BELOW 15 KM/H TO REPAIR", "nothing": "NOTHING TO REPAIR"}
 		if notices.has(refusal):
 			repair_notice = notices[refusal]
 			repair_notice_time = 2.0

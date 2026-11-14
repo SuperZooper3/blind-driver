@@ -216,7 +216,7 @@ func _build_hud() -> void:
 	heat_label = _label("HEAT 1 / 5", 11, amber)
 	heat_label.position = Vector2(211, 131)
 	footer.add_child(heat_label)
-	footer_label = _label("W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nB / RB  look back    C  camera    ESC  menu", 13, cream)
+	footer_label = _label("W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nB / RB  look back    C  camera    HOLD R  repair (navigator)    ESC  menu", 13, cream)
 	footer_label.position = Vector2(386, 44)
 	footer.add_child(footer_label)
 	pursuit_box = VBoxContainer.new()
@@ -391,7 +391,7 @@ func _build_settings() -> void:
 	blur_slider.step = 0.001
 	blur_slider.value = 0.028
 	box.add_child(blur_slider)
-	box.add_child(_label("WASD  drive   ·   SPACE  handbrake   ·   M  map\nB / RB  look back   ·   C  camera   ·   H  lights   ·   F  fullscreen   ·   V  mute\nGamepad: left stick + triggers, A brake, Y map", 12, muted))
+	box.add_child(_label("WASD  drive   ·   SPACE  handbrake   ·   M  map\nB / RB  look back   ·   C  camera   ·   H  lights   ·   HOLD R  repair (navigator, under 15 km/h)\nF  fullscreen   ·   V  mute\nGamepad: left stick + triggers, A brake, Y map", 12, muted))
 	box.add_child(HSeparator.new())
 	var advanced := VBoxContainer.new()
 	advanced.add_theme_constant_override("separation", 10)
@@ -676,7 +676,7 @@ func set_mode(value: String) -> void:
 	map_panel.visible = mode not in ["host", "ai"] and not in_menu
 	hud.get_node("RouteCard").visible = mode not in ["host", "ai"] and not in_menu
 	driver_tag.visible = driver_tag.visible and mode != "ai"
-	footer_label.text = "W / S  throttle & brake    A / D  steer\nSPACE  handbrake    ESC  menu" if mode == "ai" else "W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nB / RB  look back    C  camera    ESC  menu"
+	footer_label.text = "W / S  throttle & brake    A / D  steer\nSPACE  handbrake    ESC  menu" if mode == "ai" else "W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nB / RB  look back    C  camera    HOLD R  repair (navigator)    ESC  menu"
 	status_label.text = {"split": "LOCAL CO-OP   /   SHARED RIDE", "solo": "SOLO   /   DRIVING TEST", "ai": "SINGLE PLAYER   /   AI NAVIGATOR", "host": "DRIVER   /   WAITING FOR NAVIGATOR", "join": "NAVIGATOR   /   CONNECTING"}.get(mode, "LOCAL")
 	_layout()
 

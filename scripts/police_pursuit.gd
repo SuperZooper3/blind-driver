@@ -251,7 +251,7 @@ func _guidance(direction: int, pace: float = 1.0) -> Dictionary:
 						speed_limit = minf(speed_limit, sqrt(2.0 * braking * maxf(0, edge - 7.0)))
 						stop_distance = minf(stop_distance, maxf(0, edge - 7.0))
 				continue
-			if hazard.kind in ["cliff", "lake"]: continue
+			if hazard.kind in ["cliff", "lake", "spike_sign"]: continue
 			var relative: Vector3 = hazard.position - sample.point
 			var ahead := relative.dot(forward)
 			if ahead < -9 or ahead > braking_lookahead or absf(relative.dot(side)) > 7: continue

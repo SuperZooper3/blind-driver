@@ -1,6 +1,6 @@
 // Explicit JSON protocol, shared conceptually with scripts/wire_protocol.gd.
 // No Godot objects, Variant decoding, executable payloads, or arbitrary RPC calls.
-export const VERSION = 11;
+export const VERSION = 12;
 export const MAX_PAYLOAD = 512 * 1024;
 export const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const number = (value, min = -1e7, max = 1e7) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
@@ -90,7 +90,7 @@ export function graphIssue(roads) {
     if (road.danger !== (road.profile === 'cliff') || (['culdesac', 'cliff', 'rough'].includes(road.profile) && !road.expanded)) return at('route');
     if (!Array.isArray(road.hazards) || road.hazards.length > 8) return at('hazards');
     for (const hazard of road.hazards) {
-      if (!isRecord(hazard) || !['rock', 'tree', 'ramp', 'bumps', 'construction', 'spikes', 'cliff', 'lake', 'jump_gap', 'timed_bridge'].includes(hazard.kind)) return at('hazard_kind');
+      if (!isRecord(hazard) || !['rock', 'tree', 'ramp', 'bumps', 'construction', 'spikes', 'spike_sign', 'cliff', 'lake', 'jump_gap', 'timed_bridge'].includes(hazard.kind)) return at('hazard_kind');
       if (!vector(hazard.position, 3) || !vector(hazard.size, 3) || !number(hazard.yaw, -Math.PI * 2, Math.PI * 2)) return at('hazard_geometry');
       if (hazard.size.some((value, axis) => value <= 0 || value > (axis === 1 ? 48 : 192))) return at('hazard_size');
       if (['jump_gap', 'timed_bridge'].includes(hazard.kind)

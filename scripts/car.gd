@@ -13,6 +13,10 @@ const WHEEL_RADIUS := 0.36
 const SPRING_STRENGTH := 28000.0
 const SPRING_DAMPING := 3800.0
 const ENGINE_FORCE := 11500.0
+## Gentler acceleration: the engine pulls at this share of full force from a
+## standstill, reaching full force at LAUNCH_FULL_SPEED, so top speed is unchanged.
+const LAUNCH_POWER := 0.7
+const LAUNCH_FULL_SPEED := 30.0
 const MAX_SPEED := 44.0
 var suspension_points := [Vector3(-0.88, 0.0, -1.3), Vector3(0.88, 0.0, -1.3), Vector3(-0.88, 0.0, 1.25), Vector3(0.88, 0.0, 1.25)]
 var wheel_pivots: Array[Node3D] = []
@@ -47,8 +51,10 @@ const FLAT_LOOK := 0.55
 const HUB_SCRAPE := 240.0
 var rollover_time := 0.0
 var driving_enabled := false
-## Repairs hold the car still until every part is whole again.
+## While R is held the car stays still and repairs; release to drive on.
 var repairing := false
+## Set each frame by main: the navigator (or the shared keyboard) holds R.
+var repair_held := false
 var repair_part := -1
 ## Repairs only start below this speed: 15 km/h.
 const REPAIR_MAX_SPEED := 15.0 / 3.6
@@ -230,6 +236,11 @@ func _physics_process(delta: float) -> void:
 	handbrake = false
 	if run_state != "driving":
 		driving_enabled = false
+	# Repairs run only while R is held; letting go leaves parts part-repaired.
+	if driving_enabled and repair_held:
+		start_repair()
+	else:
+		repairing = false
 	if repairing:
 		repair_part = damage.repair_step(delta) if run_state == "driving" else -1
 		if repair_part == -1:
@@ -380,7 +391,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		state.apply_force(tire_side * side_force, tire_offset)
 		var speed := velocity.dot(tire_forward)
 		var speed_limit := (MAX_SPEED if throttle >= 0.0 else 9.0) * damage.speed_scale()
-		var drive := throttle * ENGINE_FORCE * damage.power_scale() / 4.0 * clampf(1.0 - absf(speed) / speed_limit, 0.0, 1.0)
+		var drive := throttle * ENGINE_FORCE * lerpf(LAUNCH_POWER, 1.0, clampf(absf(speed) / LAUNCH_FULL_SPEED, 0.0, 1.0)) * damage.power_scale() / 4.0 * clampf(1.0 - absf(speed) / speed_limit, 0.0, 1.0)
 		var brake_force := -speed * (1700.0 * brake_input + (700.0 if handbrake else 0.0))
 		var rolling := -speed * ((16.0 if on_road else 100.0) + (FLAT_TIRE_DRAG if punctured_tires & (1 << i) else 0.0))
 		var traction := clampf(drive + brake_force + rolling, -spring_force * 1.3, spring_force * 1.3)
@@ -464,16 +475,21 @@ func _on_part_broken(part: int) -> void:
 ## Starts repairs when the car is slow enough and something is damaged.
 ## Returns "" on success, otherwise why repairs could not start.
 func start_repair() -> String:
-	if remote or run_state != "driving":
+	var refusal := repair_refusal()
+	if not refusal.is_empty():
+		return refusal
+	repairing = true
+	repair_part = damage.next_repair()
+	return ""
+
+## Why repairs cannot start right now, or "". Works on the navigator's mirror too.
+func repair_refusal() -> String:
+	if run_state != "driving":
 		return "unavailable"
-	if repairing:
-		return "already"
 	if damage.next_repair() == -1:
 		return "nothing"
 	if absf(signed_speed) >= REPAIR_MAX_SPEED:
 		return "too_fast"
-	repairing = true
-	repair_part = damage.next_repair()
 	return ""
 
 func _part_repaired(part: int) -> void:
