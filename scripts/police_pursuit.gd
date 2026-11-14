@@ -21,6 +21,9 @@ const CATCH_SECONDS := 2.0
 const CAPTURE_RADIUS := 24.0
 const CAPTURE_ROUTE_REACH := 14.0
 const CAPTURE_HEIGHT_REACH := 4.0
+const BEACON_GLOW = preload("res://shaders/police_beacon_glow.gdshader")
+const BEACON_ENERGY := 6.0
+const BEACON_RANGE := 20.0
 var world: Node3D
 var car: RigidBody3D
 var phase := "waiting"
@@ -39,6 +42,7 @@ var last_gap := START_GAP
 var wheels: Array[Node3D] = []
 var lamps: Array[MeshInstance3D] = []
 var beacons: Array[OmniLight3D] = []
+var beacon_glows: Array[MeshInstance3D] = []
 var wheel_spin := 0.0
 var junctions: Dictionary = {}
 var goal_routes: Dictionary = {}
@@ -321,8 +325,9 @@ func _process(delta: float) -> void:
 	for wheel in wheels: wheel.rotation.x = -wheel_spin
 	for i in lamps.size():
 		var lit := phase != "escaped" and (fmod(elapsed, 0.8) < 0.4) == (i == 0)
-		lamps[i].material_override.emission_energy_multiplier = 2.0 if lit else 0.05
-		beacons[i].light_energy = 1.5 if lit else 0.0
+		lamps[i].material_override.emission_energy_multiplier = 5.0 if lit else 0.05
+		beacons[i].light_energy = BEACON_ENERGY if lit else 0.0
+		beacon_glows[i].visible = lit
 
 func _build_model() -> void:
 	var white := Geo.material(Color("e5e7da"))
@@ -358,6 +363,15 @@ func _build_model() -> void:
 		var light := OmniLight3D.new()
 		light.position = Vector3(-0.35 if i == 0 else 0.35, 1.75, 0.1)
 		light.light_color = mat.albedo_color
-		light.omni_range = 8
+		light.omni_range = BEACON_RANGE
 		add_child(light)
 		beacons.append(light)
+		var glow_material := ShaderMaterial.new()
+		glow_material.shader = BEACON_GLOW
+		glow_material.set_shader_parameter("light_color", Color("ff2920") if i == 0 else Color("287bff"))
+		var glow := Geo.instance(self, QuadMesh.new(), lamps[i].position, glow_material)
+		glow.name = "RedBeaconGlow" if i == 0 else "BlueBeaconGlow"
+		glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# Shader expansion must remain inside the CPU's culling bounds.
+		glow.extra_cull_margin = 4.0
+		beacon_glows.append(glow)
