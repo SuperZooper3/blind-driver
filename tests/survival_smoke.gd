@@ -18,9 +18,10 @@ func _run() -> void:
 	var car = game.car
 	var world = game.world
 	await frames(90)
-	check(not world.thorn_at(Vector3(12, 0, 12)) and world.thorn_at(Vector3(26, 0, 12)), "road shoulders allow evasive driving before dense thorn forest")
+	# Use the opposite side of the road from the bank's new vegetation clearing.
+	check(not world.thorn_at(Vector3(-12, 0, 12)) and world.thorn_at(Vector3(-26, 0, 12)), "road shoulders allow evasive driving before dense thorn forest")
 	car.distance_driven = 2468.0
-	car.recover(world.ground_point(26, 12, 0.17), Vector3.FORWARD)
+	car.recover(world.ground_point(-26, 12, 0.17), Vector3.FORWARD)
 	# The patrol never enters the forest, so shredded tires there must end the run themselves.
 	for _i in 600:
 		await physics_frame
