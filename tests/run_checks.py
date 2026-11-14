@@ -91,7 +91,8 @@ def run_lag_check(temporary):
             code = wait_output(driver, driver_path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
             navigator = subprocess.run(probe("lag-navigator", "--relay-room=" + code, "--duration=22"), capture_output=True, text=True, timeout=60)
             driver.wait(timeout=20)
-        if "SCRIPT ERROR" in navigator.stderr + driver_path.read_text():
+        print("\n".join(line for line in navigator.stdout.splitlines() if line.startswith(("PASS", "FAIL"))))
+        if navigator.returncode or driver.returncode or "SCRIPT ERROR" in navigator.stderr + driver_path.read_text():
             raise RuntimeError(navigator.stderr + "\nLag probe failed")
         result = lag_report.report(temporary / "lag-driver.txt", temporary / "lag-navigator.txt")
         passed = result["p99_m"] < 3.0 and result["frozen_pct"] < 5.0 and result["samples"] > 600
@@ -217,6 +218,10 @@ if __name__ == "__main__":
         print(prediction.stdout)
         if prediction.returncode or "FAIL:" in prediction.stdout or "SCRIPT ERROR" in prediction.stderr:
             sys.exit(prediction.stderr or "Prediction check failed")
+        camera = subprocess.run(command("tests/navigator_camera_smoke.gd", temporary / "navigator-camera.log"), capture_output=True, text=True, timeout=20)
+        print(camera.stdout)
+        if camera.returncode or "FAIL:" in camera.stdout or "SCRIPT ERROR" in camera.stderr:
+            sys.exit(camera.stderr or "Navigator seat camera check failed")
         lobby_ui = subprocess.run(command("tests/lobby_ui_smoke.gd", temporary / "lobby-ui.log"), capture_output=True, text=True, timeout=15)
         print(lobby_ui.stdout)
         if lobby_ui.returncode or "FAIL:" in lobby_ui.stdout or "SCRIPT ERROR" in lobby_ui.stderr:

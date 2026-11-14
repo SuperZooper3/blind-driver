@@ -11,6 +11,9 @@ var elapsed := 0.0
 var driving_since := -1.0
 var lines := PackedStringArray()
 var finished := false
+var cabin_samples := 0
+var seat_error := 0.0
+var seat_turn := 0.0
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -66,6 +69,13 @@ func _tick() -> void:
 			Input.action_press("steer_left", steer)
 		elif steer < -0.03:
 			Input.action_press("steer_right", -steer)
+	# Observe after the preceding rendered frame, including Session's late pose
+	# update. World-space smoothness alone cannot detect a swimming dashboard.
+	if not creator and session.snapshots_received > 3 and game.car.run_state == "driving" and not game.ui.in_menu and not game.chase_camera and not game.intro_playing():
+		var seat: Transform3D = game.car.global_transform.affine_inverse() * game.navigator_camera.global_transform
+		seat_error = maxf(seat_error, seat.origin.distance_to(Vector3(0.43, 1.23, -0.05)))
+		seat_turn = maxf(seat_turn, seat.basis.get_rotation_quaternion().angle_to(Quaternion.IDENTITY))
+		cabin_samples += 1
 	var p: Vector3 = game.car.global_position
 	if creator == (session.role == "host") and (not creator or session.navigator_id != 0):
 		lines.append("%s %.4f %.3f %.3f %.3f" % ["H" if creator else "N", now, p.x, p.y, p.z])
@@ -76,8 +86,11 @@ func _tick() -> void:
 		file.store_string("\n".join(lines))
 		file.close()
 		print("LAG_PROBE_DONE %d samples" % lines.size())
+		var cabin_ok := creator or (cabin_samples > 300 and seat_error < 0.001 and seat_turn < 0.001)
+		if not creator:
+			print("%s: passenger cabin under relay jitter: %d frames, max drift %.3f mm / %.5f degrees" % ["PASS" if cabin_ok else "FAIL", cabin_samples, seat_error * 1000.0, rad_to_deg(seat_turn)])
 		await create_timer(0.5).timeout
 		session.stop()
 		game.queue_free()
 		await process_frame
-		quit()
+		quit(0 if cabin_ok else 1)

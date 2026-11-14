@@ -28,6 +28,7 @@ var driver_view: SubViewport
 var navigator_view: SubViewport
 var driver_camera: Camera3D
 var navigator_camera: Camera3D
+var navigator_seat: RemoteTransform3D
 var motor: AudioStreamPlayer
 var mode := "split"
 var started := false
@@ -91,6 +92,12 @@ func _ready() -> void:
 	navigator_view = _make_view("NavigatorView")
 	driver_camera = _make_camera(driver_view)
 	navigator_camera = _make_camera(navigator_view)
+	# The camera must remain inside its SubViewport. This car-mounted seat pushes
+	# its exact pose there, even when the network moves the car later in the frame.
+	navigator_seat = RemoteTransform3D.new()
+	navigator_seat.name = "NavigatorSeat"
+	navigator_seat.update_scale = false
+	car.add_child(navigator_seat)
 	# Each seat sees the other occupant in its peripheral view, never its own head.
 	driver_camera.cull_mask = 1 | Car.NAVIGATOR_BODY_LAYER
 	ui = UI.new()
@@ -518,11 +525,11 @@ func _update_cameras(delta: float) -> void:
 	var stable := Basis.looking_at(flat_forward)
 	var seat_basis := stable.slerp(car_basis, 0.35)
 	var driver_target := Transform3D(seat_basis, car.global_transform * Vector3(-0.43, 1.23, -0.05))
-	var nav_target := Transform3D(seat_basis, car.global_transform * Vector3(0.43, 1.23, -0.05))
+	var navigator_local := Transform3D(Basis.IDENTITY, Vector3(0.43, 1.23, -0.05))
 	var chase: bool = ui.in_menu or (chase_camera and not looking_back) or car.run_state != "driving"
 	if looking_back:
-		nav_target.basis = seat_basis * Basis(Vector3.UP, PI)
-		nav_target.origin = car.global_transform * Vector3(0.43, 1.30, 0.9)
+		navigator_local = Transform3D(Basis(Vector3.UP, PI), Vector3(0.43, 1.30, 0.9))
+	var nav_target := car.global_transform * navigator_local
 	navigator_camera.cull_mask = (3 | Car.DRIVER_BODY_LAYER | Car.NAVIGATOR_BODY_LAYER) if chase else (1 | Car.DRIVER_BODY_LAYER)
 	if chase:
 		var offset := Vector3(5.8, 3.8, 7.0) if ui.in_menu else Vector3(0, 3.5, 7.8)
@@ -537,21 +544,28 @@ func _update_cameras(delta: float) -> void:
 		chase_offset = nav_target.origin - car.global_position
 		driver_base = driver_target
 		navigator_base = nav_target
-	# Seat cameras stay fixed to their seats (no trailing behind under
-	# acceleration); only their turning is smoothed. The chase camera eases its
-	# offset from the car, so speed never drags it further back either.
+	# The driver's view retains its head stabilization. The passenger shares the
+	# car's full orientation: separately smoothing it makes the cabin swim around
+	# the camera during turns, bumps, and network corrections. The chase view can
+	# still ease its offset because it is outside the car.
 	driver_base = Transform3D(driver_base.basis.slerp(driver_target.basis, weight).orthonormalized(), driver_target.origin)
 	if chase:
 		chase_offset = chase_offset.lerp(nav_target.origin - car.global_position, weight)
 		navigator_base = Transform3D(navigator_base.basis.slerp(nav_target.basis, weight).orthonormalized(), car.global_position + chase_offset)
 	else:
 		chase_offset = nav_target.origin - car.global_position
-		navigator_base = Transform3D(navigator_base.basis.slerp(nav_target.basis, weight).orthonormalized(), nav_target.origin)
-	# Crashes shake both views, harder for harder hits, settling within a second.
+		navigator_base = nav_target
+	# Keep the seated passenger locked even during an impact. The driver's jolt
+	# and external camera shake still settle within a second.
 	shake = move_toward(shake, 0.0, delta * 1.6)
 	shake_time += delta
 	driver_camera.global_transform = driver_base * _shake_offset(0.0)
-	navigator_camera.global_transform = navigator_base * _shake_offset(7.3)
+	var seated := not chase and not intro_playing()
+	var seat_path := navigator_seat.get_path_to(navigator_camera) if seated else NodePath("")
+	if navigator_seat.remote_path != seat_path:
+		navigator_seat.remote_path = seat_path
+	navigator_seat.transform = navigator_local
+	navigator_camera.global_transform = navigator_base if seated else navigator_base * _shake_offset(7.3)
 	navigator_camera.fov = 60.0 if ai_options.get("readable_ui", false) else 76.0
 	if intro_playing():
 		# Both seats watch the robbery from outside, then fly into their own view.
