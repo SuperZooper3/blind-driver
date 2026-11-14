@@ -18,7 +18,9 @@ const HEAT_DISTANCE := 750.0
 const CLIFF_SIZE := Vector3(160, 36, 112)
 ## A narrower pit fits between the two through routes when it sits in the middle.
 const MIDDLE_HOLE_SIZE := Vector3(64, 36, 64)
-const MIDDLE_HOLE_CHANCE := 0.4
+## Three-way junctions put the dead end in the middle half the time; otherwise
+## it is equally likely on the left or the right (25% each).
+const MIDDLE_HOLE_CHANCE := 0.5
 const PROFILES := ["main", "scenic", "rough", "culdesac", "cliff"]
 var difficulty := 0
 ## Opt-in harness curriculum; ordinary play retains the original generator.
@@ -142,9 +144,10 @@ func grow_near(at: Vector3) -> void:
 					var scenic := PackedVector3Array()
 					var shortcut := PackedVector3Array()
 					var side := -1.0 if left_safe else 1.0
-					# After the first three-way junction teaches the layout, the straight
-					# middle road is sometimes the pit and both through routes swing around it.
-					var middle_hole := fork_index >= 2 and fork_rng.randf() < MIDDLE_HOLE_CHANCE
+					# Half the time the straight middle road is the dead end (a pit or a
+					# cul-de-sac) and both through routes swing around it.
+					var middle_hole := fork_rng.randf() < MIDDLE_HOLE_CHANCE
+					var terminal := "culdesac" if fork_index % 2 == 1 else "cliff"
 					for i in 33:
 						var t := i / 32.0
 						scenic.append(ground_point(end.x + side * 110.0 * pow(sin(t * PI), 2), end.z - t * 240.0, 0.17))
@@ -157,9 +160,8 @@ func grow_near(at: Vector3) -> void:
 						var drop := PackedVector3Array()
 						for i in 33:
 							drop.append(ground_point(end.x, end.z - i / 32.0 * 96.0, 0.17))
-						_add_road(end, 0.0, depth, frontier.id, 96, true, "cliff", drop, MIDDLE_HOLE_SIZE)
+						_add_road(end, 0.0, depth, frontier.id, 96, terminal == "cliff", terminal, drop, MIDDLE_HOLE_SIZE)
 					else:
-						var terminal := "culdesac" if fork_index % 2 == 1 else "cliff"
 						_add_road(end, -0.88 if left_safe else 0.88, depth, frontier.id, 140, terminal == "cliff", terminal)
 				else:
 					_add_road(end, 0.66 if left_safe else -0.66, depth, frontier.id)

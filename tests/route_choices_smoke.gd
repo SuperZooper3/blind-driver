@@ -129,6 +129,7 @@ func check_middle_holes() -> void:
 	var clear := true
 	var kinds_by_depth := {}
 	var sides := {}
+	var side_counts := {}
 	for seed in 3:
 		var w := World.new()
 		w.world_seed = 5000 + seed * 977
@@ -148,27 +149,35 @@ func check_middle_holes() -> void:
 						sides[signf(direction.cross(Vector3.UP).dot(first.position - road.points[0]))] = true
 				if seen.has(road.id) or road.profile != "rough": continue
 				seen[road.id] = true
-				var hole: Dictionary = {}
+				var dead: Dictionary = {}
 				var scenic: Dictionary = {}
 				for other: Dictionary in w.roads:
 					if other.parent != road.parent or other.depth != road.depth: continue
 					if other.profile == "scenic": scenic = other
-					elif other.danger and not other.hazards.is_empty() and other.hazards[0].size == World.MIDDLE_HOLE_SIZE: hole = other
-				if hole.is_empty():
+					elif other.profile in ["cliff", "culdesac"]: dead = other
+				if dead.is_empty(): continue
+				var start: Vector3 = dead.points[0]
+				var offset: float = dead.points[-1].x - start.x
+				if absf(offset) > 0.5:
+					side_counts[signf(offset)] = side_counts.get(signf(offset), 0) + 1
 					straight += 1
 					continue
 				middle += 1
-				var start: Vector3 = hole.points[0]
-				clear = clear and absf(hole.points[-1].x - start.x) < 0.5 and signf(road.points[16].x - start.x) != signf(scenic.points[16].x - start.x)
-				clear = clear and road.points[-1].is_equal_approx(scenic.points[-1]) and Hazards.contains(hole.hazards[0], hole.points[-1] + Vector3(0, 0, -20))
+				clear = clear and signf(road.points[16].x - start.x) != signf(scenic.points[16].x - start.x) and road.points[-1].is_equal_approx(scenic.points[-1])
 				for route: Dictionary in [road, scenic]:
 					for point: Vector3 in route.points:
-						clear = clear and not Hazards.contains(hole.hazards[0], point, 12.0)
+						if dead.danger:
+							clear = clear and not Hazards.contains(dead.hazards[0], point, 12.0)
+						else:
+							clear = clear and point.distance_to(dead.points[-1]) > World.CULDESAC_RADIUS + 12.0
+				if dead.danger:
+					clear = clear and Hazards.contains(dead.hazards[0], dead.points[-1] + Vector3(0, 0, -20))
 		w.free()
-	print("Three-way forks: %d straight middle, %d middle hole" % [straight, middle])
-	check(middle > 0 and straight > middle, "later three-way forks sometimes put the pit in the middle, but not usually")
+	var total := middle + straight
+	print("Three-way forks: %d dead end in the middle, %d on a side %s" % [middle, straight, side_counts])
+	check(total >= 12 and middle >= total * 0.25 and middle <= total * 0.75 and side_counts.size() == 2, "three-way forks put the dead end in the middle about half the time, otherwise on either side")
 	var varied := 0
 	for depth in kinds_by_depth:
 		if kinds_by_depth[depth].size() > 1: varied += 1
 	check(varied >= 2 and sides.size() == 2, "obstacle kinds and shoulder sides vary between worlds instead of following the road depth")
-	check(clear, "a middle pit sits straight ahead while both through routes swing around it and rejoin")
+	check(clear, "a middle dead end sits straight ahead while both through routes swing around it and rejoin")

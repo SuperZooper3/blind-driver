@@ -422,8 +422,6 @@ func _update_cameras(delta: float) -> void:
 	driver_camera.global_transform = driver_base * _shake_offset(0.0)
 	navigator_camera.global_transform = navigator_base * _shake_offset(7.3)
 	navigator_camera.fov = 60.0 if ai_options.get("readable_ui", false) else 76.0
-	# Only the local navigator's own first-person view lifts the map to their face.
-	car.map_raise = ui.raise_progress() if mode != "host" and not chase and not looking_back else 0.0
 
 func _on_car_impact(strength: float) -> void:
 	# A 30 km/h knock gives a clear jolt; a head-on crash about 3 degrees.

@@ -40,6 +40,17 @@ func _run() -> void:
 	check(game.ui.room_code_field.is_visible_in_tree() and game.ui.create_room_button.is_visible_in_tree() and not game.ui.share_box.visible, "start screen offers Create a room and a room-code box")
 	var Relay = preload("res://scripts/relay_client.gd")
 	check(Relay.normalize_share(" k7q-4mz ") == "K7Q4MZ" and Relay.normalize_share("K7Q4M0").is_empty() and Relay.normalize_share("ABC").is_empty(), "typed codes forgive case, spaces and dashes but reject lookalikes and wrong lengths")
+	# Seat swaps race the old driver's in-flight game state; that must not end the session.
+	var relay = Relay.new()
+	root.add_child(relay)
+	var failures := [0]
+	relay.failed.connect(func(_message: String): failures[0] += 1)
+	relay._handle({"type": "error", "code": "not_driver", "message": "Only the driver can send game state."})
+	relay._handle({"type": "error", "code": "swap_unavailable", "message": "Both players need to be connected to swap seats."})
+	check(failures[0] == 0, "state already in flight during a seat swap, or an early swap press, keeps both players in the room")
+	relay._handle({"type": "error", "code": "room_full", "message": "Room is full."})
+	check(failures[0] == 1, "other relay rejections still end the session")
+	relay.queue_free()
 	game.ui.room_code_field.text = "nope"
 	game.ui._join_room()
 	check(not game.ui.connecting and game.ui.online_status.text.contains("6 letters"), "a malformed code is explained instead of contacting the server")

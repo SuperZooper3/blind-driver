@@ -350,7 +350,16 @@ func _handle(message: Dictionary) -> void:
 		"rtc":
 			rtc_signal.emit(message)
 		"error", "room_closed":
-			Log.event("server_rejected", {"code": message.get("code", type)})
+			var code := str(message.get("code", type))
+			Log.event("server_rejected", {"code": code})
+			# Harmless rejections keep both players in the room: game state the old
+			# driver already had in flight when seats swapped, or a swap pressed while
+			# the partner was briefly away.
+			if type == "error" and code == "not_driver":
+				return
+			if type == "error" and code == "swap_unavailable":
+				waiting.emit(str(message.get("message", "Both players need to be connected to swap seats.")))
+				return
 			_fail(str(message.get("message", "Room closed. Create a new room.")))
 
 ## Decode the driver's game data (from the relay or a direct link) and emit it.
