@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync, realpathSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createNavigator } from './ai_navigator.mjs';
@@ -25,11 +25,16 @@ export function createFrontend({ directory = defaultDirectory,
   const navigate = createNavigator(ai);
   const root = resolve(directory);
   const relayUrl = relayAddress(relay);
-  const ready = () => ['game.html', 'game.js', 'game.wasm', 'game.pck', 'launcher.js', 'style.css']
+  const ready = () => ['game.html', 'game.js', 'game.wasm', 'game.pck', 'launcher.js', 'style.css', 'favicon.svg',
+    'media/bank-getaway.png', 'media/two-seats.png', 'media/field-map.png',
+    'media/broken-glasses.png', 'media/police-pursuit.png']
     .every(file => existsSync(resolve(root, file)));
   return http.createServer((request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    response.setHeader('X-Frame-Options', 'DENY');
+    response.setHeader('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
+    response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     response.setHeader('Cache-Control', 'no-cache');
     if (request.url === '/api/ai/navigate') { void navigate(request, response); return; }
     if (!['GET', 'HEAD'].includes(request.method)) {
@@ -55,7 +60,12 @@ export function createFrontend({ directory = defaultDirectory,
     }
     const path = resolve(root, pathname === '/' ? 'game.html' : `.${pathname}`);
     // Serve only public export file types, never source files or directory listings.
-    if (!path.startsWith(`${root}${sep}`) || !types[extname(path)] || !existsSync(path) || !statSync(path).isFile()) {
+    const isPublicFile = candidate => {
+      try { return realpathSync(candidate).startsWith(`${realpathSync(root)}${sep}`) && statSync(candidate).isFile(); }
+      catch { return false; }
+    };
+    if (pathname.split('/').some(part => part.startsWith('.'))
+        || !path.startsWith(`${root}${sep}`) || !types[extname(path)] || !isPublicFile(path)) {
       send(404, 'text/plain', 'Not found'); return;
     }
     const encodings = new Map((request.headers['accept-encoding'] || '').split(',').map(part => {
@@ -64,7 +74,7 @@ export function createFrontend({ directory = defaultDirectory,
     }));
     let servedPath = path;
     for (const [encoding, suffix] of [['br', '.br'], ['gzip', '.gz']]) {
-      if ((encodings.get(encoding) ?? encodings.get('*') ?? 0) > 0 && existsSync(path + suffix)) {
+      if ((encodings.get(encoding) ?? encodings.get('*') ?? 0) > 0 && isPublicFile(path + suffix)) {
         servedPath += suffix;
         response.setHeader('Content-Encoding', encoding);
         break;
@@ -83,7 +93,8 @@ export function createFrontend({ directory = defaultDirectory,
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const server = createFrontend();
   const port = Number(process.env.PORT || 8080);
-  server.listen(port, '0.0.0.0', () => console.log(`Blind Driver frontend listening on http://localhost:${port}`));
+  const host = process.env.HOST || (process.env.BLIND_DRIVER_AI_ENABLED === '1' ? '127.0.0.1' : '0.0.0.0');
+  server.listen(port, host, () => console.log(`Blind Driver frontend listening on http://${host}:${port}`));
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => {
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 5000).unref();

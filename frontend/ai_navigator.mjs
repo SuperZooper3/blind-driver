@@ -29,12 +29,24 @@ function retryDelay(response) {
   return Math.min(3600, Math.max(5, Math.ceil(Number.isFinite(delay) ? delay : 60)));
 }
 
-export function createNavigator({ key = process.env.COHERE_API_KEY || '', fetchImpl = fetch, timeoutMs = 60_000 } = {}) {
+export function createNavigator({ key = process.env.COHERE_API_KEY || '',
+  enabled = process.env.BLIND_DRIVER_AI_ENABLED === '1', fetchImpl = fetch, timeoutMs = 60_000 } = {}) {
   let active = 0;
   let cooldownUntil = 0;
   return async (request, response) => {
+    // A secret in the host environment must not turn the public site into a
+    // billable anonymous gateway. This prototype is an explicit local-only mode.
+    if (!enabled) { reply(response, 503, { error: 'AI navigator is disabled on this host.', permanent: true }); return; }
+    const loopback = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+    let hostname;
+    try { hostname = new URL(`http://${request.headers.host}`).hostname; } catch { /* reject below */ }
+    if (!loopback.includes(request.socket.remoteAddress)
+        || !['localhost', '127.0.0.1', '[::1]'].includes(hostname)
+        || ['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-real-ip'].some(name => request.headers[name])) {
+      reply(response, 403, { error: 'AI navigator is available only on this computer.', permanent: true }); return;
+    }
     if (request.method !== 'POST') { reply(response, 405, { error: 'Use POST.' }); return; }
-    // JSON + no CORS prevents another website from spending this server's key.
+    // Also reject cross-origin browser calls. Origin checks alone are not authentication.
     if (request.headers.origin) {
       let host;
       try { host = new URL(request.headers.origin).host; } catch { /* reject below */ }

@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import http from 'node:http';
 import { createFrontend } from './server.mjs';
 const observation = { view: '/9j/AAAA', map: '/9j/AAAA', speed_kmh: 30, previous_instruction: 'Straight ahead',
   previous_latency_ms: 900, instruction_age_ms: 20, route: 'Fork ahead: 70 m' };
 const answer = instruction => new Response(JSON.stringify({ finish_reason: 'COMPLETE', message: { content: [
   { type: 'thinking', text: 'private reasoning' }, { type: 'text', text: instruction }] } }));
 async function fixture(t, ai) {
-  const server = createFrontend({ ai });
+  const server = createFrontend({ ai: { enabled: true, ...ai } });
   t.after(() => { server.closeAllConnections(); server.close(); });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -98,4 +99,27 @@ test('disconnecting the game cancels its upstream call', async t => {
   controller.abort();
   await Promise.race([aborted, new Promise((_resolve, reject) => { const timer = setTimeout(() => reject(new Error('upstream not cancelled')), 1000); timer.unref(); })]);
   await pending;
+});
+
+test('a configured key does not expose AI without explicit local opt-in', async t => {
+  let calls = 0;
+  const { post } = await fixture(t, { enabled: false, key: 'fixture', fetchImpl: async () => { calls++; return answer('Go'); } });
+  assert.equal((await post()).status, 503);
+  assert.equal(calls, 0);
+});
+
+test('local AI rejects proxy forwarding and non-local Host names before billing', async t => {
+  let calls = 0;
+  const { base, post } = await fixture(t, { key: 'fixture', fetchImpl: async () => { calls++; return answer('Go'); } });
+  const foreignHost = await new Promise((resolve, reject) => {
+    const request = http.request(base + '/api/ai/navigate', { method: 'POST',
+      headers: { Host: 'rebind.example', 'Content-Type': 'application/json' } }, response => { response.resume(); resolve(response.statusCode); });
+    request.on('error', reject); request.end(JSON.stringify(observation));
+  });
+  assert.equal(foreignHost, 403);
+  for (const headers of [{ 'X-Forwarded-For': '198.51.100.1' },
+    { Forwarded: 'for=198.51.100.1' }, { 'X-Forwarded-Host': 'public.example' }, { 'X-Real-IP': '198.51.100.1' }]) {
+    assert.equal((await post(observation, headers)).status, 403);
+  }
+  assert.equal(calls, 0);
 });

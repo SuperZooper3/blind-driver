@@ -77,6 +77,9 @@ def handler_for(root: Path, latest: bool, controller=None):
             pass
 
         def do_GET(self):
+            # Prevent DNS rebinding from reading run data or the control token.
+            if self.headers.get("Host") != f"127.0.0.1:{self.server.server_port}":
+                return self.send_error(403)
             route = urlsplit(self.path).path
             directory = run_directory(root, latest) if latest else (controller.selected or run_directory(root, False))
             if route == "/":
@@ -129,6 +132,7 @@ def handler_for(root: Path, latest: bool, controller=None):
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
             self.end_headers()
             try:
                 self.wfile.write(data)

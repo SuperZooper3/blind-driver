@@ -84,6 +84,11 @@ class DashboardLaunchTests(unittest.TestCase):
             try:
                 with urllib.request.urlopen(base + "/state") as response:
                     state = json.load(response)
+                rebound = urllib.request.Request(base + "/state", headers={"Host": "rebind.example"})
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(rebound)
+                self.assertEqual(error.exception.code, 403)
+                error.exception.close()
                 self.assertTrue(state["waiting"])
                 self.assertTrue(state["controls"]["can_new"])
                 self.assertGreaterEqual(state["dashboard_prototype"], 6)
