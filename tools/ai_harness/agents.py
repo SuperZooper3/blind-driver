@@ -115,6 +115,13 @@ class CohereAgent:
             {"type": "text", "text": context},
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded}},
         ]}
+        if self.model.startswith("c4ai-aya-vision"):
+            # Aya's image replies can ignore instructions supplied only as a
+            # system preamble. Put the same task/contract in the image turn too.
+            current["content"][0]["text"] = self.system_prompt + "\nCurrent situation:\n" + context
+            current["content"].append({"type": "text", "text":
+                "Choose your keyboard action now. Return ONLY the JSON object with hold, tap, "
+                "hold_sim_seconds, and message. Do not describe the image outside that object."})
         body = {"model": self.model, "messages": [
             {"role": "system", "content": self.system_prompt}, *self.history, current
         ], "max_tokens": self.max_tokens, "temperature": 0.2}

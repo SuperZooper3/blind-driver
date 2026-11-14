@@ -75,6 +75,10 @@ Cohere is the first implemented provider. Command A+ uses JSON Schema output and
 disables thinking for the initial latency baseline. Aya Vision and Command A Vision use JSON
 instructions plus the same local validation. A future Google adapter can use the
 same contract; it is not implemented in this sketch.
+Aya also receives the same role/action instructions in each image-bearing user
+turn: the first live trial described images when instructions appeared only in
+the system preamble. This formatting adjustment does not repair or invent actions;
+invalid output still counts as an error.
 [Cohere Chat API](https://docs.cohere.com/v2/reference/chat),
 [structured output](https://docs.cohere.com/docs/structured-outputs),
 [reasoning controls](https://docs.cohere.com/docs/reasoning).

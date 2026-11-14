@@ -66,7 +66,10 @@ class HarnessContractTests(unittest.TestCase):
             self.assertEqual(body["model"], "c4ai-aya-vision-32b")
             self.assertNotIn("thinking", body)
             self.assertNotIn("response_format", body)
-            self.assertEqual(body["messages"][-1]["content"][-1]["type"], "image_url")
+            content = body["messages"][-1]["content"]
+            self.assertEqual(content[1]["type"], "image_url")
+            self.assertIn("Navigate", content[0]["text"])
+            self.assertIn("Return ONLY the JSON", content[-1]["text"])
             return io.BytesIO(json.dumps(response).encode())
         with tempfile.TemporaryDirectory() as tmp, patch("urllib.request.urlopen", fake_open):
             image = Path(tmp)/"view.jpg"
