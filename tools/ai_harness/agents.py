@@ -42,7 +42,7 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         "You are playing Blind Driver cooperatively with another agent. Maximize useful "
         "forward road progress while avoiding collisions and leaving the road. The game "
         f"runs continuously at {speed:g}% speed, including while you think. "
-        "You see an unmodified full game window with its HUD. Your partner sees their own window. "
+        "You see your complete seat view and HUD. Your partner sees the other seat in the same game engine. "
         "Keep track of the situation and prior messages. Older advice may be stale. "
         "You may send exactly one concise message to your partner per response. "
         "Return ONLY a JSON object with these fields: "

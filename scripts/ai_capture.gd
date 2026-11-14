@@ -5,6 +5,8 @@ extends Node
 const KEYS := {"W": KEY_W, "S": KEY_S, "A": KEY_A, "D": KEY_D, "SPACE": KEY_SPACE, "M": KEY_M, "C": KEY_C, "B": KEY_B, "H": KEY_H}
 var game: Node
 var options: Dictionary
+var leader: Node
+var peer: Node
 var active := false
 var sim_time := 0.0
 var directory := ""
@@ -43,19 +45,20 @@ func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(directory.path_join("frames"))
 	frames = FileAccess.open(directory.path_join("frames.jsonl"), FileAccess.WRITE)
 	events = FileAccess.open(directory.path_join("input_events.jsonl"), FileAccess.WRITE)
-	game.session.wall_clock_intervals = true
+	game.session.wall_clock_intervals = not options.get("shared_screens", false)
 	game.audio_muted = true
 	game.car.driving_enabled = false
 	game.car.impacted.connect(func(strength: float):
 		impact_events += 1
 		impact_total += strength)
-	if DisplayServer.get_name() != "headless":
+	if DisplayServer.get_name() != "headless" and leader == null:
 		RenderingServer.viewport_set_update_mode(get_viewport().get_viewport_rid(), RenderingServer.VIEWPORT_UPDATE_ALWAYS)
 		RenderingServer.frame_post_draw.connect(_capture)
 	_event("ready", {"pid": OS.get_process_id(), "speed_percent": options.speed_percent})
 
 func _process(_delta: float) -> void:
 	_read_command()
+	if leader != null: return
 	var now := Time.get_ticks_usec() / 1000000.0
 	if now >= next_capture:
 		next_capture = now + 1.0 / float(options.capture_fps)
@@ -68,6 +71,9 @@ func _process(_delta: float) -> void:
 			RenderingServer.force_draw(false)
 
 func _physics_process(delta: float) -> void:
+	if leader != null:
+		sim_time = leader.sim_time
+		return
 	if active and game.car.run_state != "game_over":
 		sim_time += delta
 		if not game.car.remote:
@@ -89,6 +95,8 @@ func _finish(reason: String) -> void:
 	_set_held([])
 	if not game.car.remote: game.car.freeze = true
 	_event("finished", {"reason": reason})
+	if peer != null and peer.active: peer._finish(reason)
+	if leader != null and leader.active: leader._finish(reason)
 
 func _read_command() -> void:
 	var path := directory.path_join("input.json")
@@ -177,22 +185,46 @@ func _capture() -> void:
 	capture_due = false
 	var started_us := Time.get_ticks_usec()
 	var stamp := Time.get_unix_time_from_system()
-	var name := ""
+	var picture: Image
 	if DisplayServer.get_name() != "headless":
-		name = "frames/%07d.jpg" % frame_index
-		var picture := get_viewport().get_texture().get_image()
-		if picture.is_empty() or picture.save_jpg(directory.path_join(name), 0.88) != OK:
+		picture = get_viewport().get_texture().get_image()
+		if picture.is_empty():
 			push_error("AI screenshot capture failed")
+			_finish("capture_error")
+			return
+	if peer != null:
+		# One GPU readback, one rendered frame, one physics state. Crop only the
+		# two complete seats; both already contain their own game-rendered HUD.
+		if picture != null and picture.get_size() != Vector2i(2560, 800):
+			push_error("Shared capture must render at 2560x800")
+			_finish("capture_error")
+			return
+		peer.sim_time = sim_time
+		peer.progress = progress
+		peer.offroad_seconds = offroad_seconds
+		peer._save_capture(picture.get_region(Rect2i(1280, 0, 1280, 800)) if picture != null else null, started_us, stamp)
+		_save_capture(picture.get_region(Rect2i(0, 0, 1280, 800)) if picture != null else null, started_us, stamp)
+	else:
+		_save_capture(picture, started_us, stamp)
+
+func _save_capture(picture: Image, started_us: int, stamp: float) -> void:
+	var name := ""
+	if picture != null:
+		name = "frames/%07d.jpg" % frame_index
+		if picture.save_jpg(directory.path_join(name), 0.88) != OK:
 			_finish("capture_error")
 			return
 	var car: RigidBody3D = game.car
 	var connected: bool = game.session.navigator_id != 0 if options.role == "driver" else game.session.graph_received and game.session.snapshots_received > 0
+	if options.get("shared_screens", false): connected = game.session.role == "local"
 	var data := {
 		"frame": frame_index, "image": name, "role": options.role, "unix_time": stamp,
+		"image_size": [picture.get_width(), picture.get_height()] if picture != null else [],
 		"monotonic_us": started_us, "sim_time": sim_time, "world_time": game.world.challenge_time,
 		"active": active, "connected": connected, "finished_reason": finished_reason,
 		"sequence": sequence, "applied_sequence": applied_sequence, "input_error": last_error,
 		"held": held, "hold_policy": "until_replaced",
+		"engine_pid": OS.get_process_id(), "session_role": game.session.role,
 		"sound_events": game.ui.readable_hud.sounds.duplicate(true) if game.ui.readable_hud != null else [],
 		"speed_kmh": absf(car.signed_speed) * 3.6, "signed_speed_mps": car.signed_speed,
 		"distance_m": car.distance_driven, "forward_progress_m": maxf(0.0, progress),
@@ -206,8 +238,8 @@ func _capture() -> void:
 		"impact_events": impact_events, "impact_total": impact_total,
 		"part_health": car.damage.health_array(), "punctured_tires": car.punctured_tires,
 		"run_state": car.run_state, "crash_reason": car.crash_reason,
-		"map_open": game.ui.map_open, "map_reveal": game.ui.map_reveal,
-		"camera": "chase" if game.chase_camera else "seat", "look_back": game.looking_back,
+		"map_open": game.ui.map_open if options.role == "navigator" else false, "map_reveal": game.ui.map_reveal if options.role == "navigator" else 0.0,
+		"camera": "chase" if game.chase_camera and options.role == "navigator" else "seat", "look_back": game.looking_back and options.role == "navigator",
 		"police_gap_m": game.police.gap, "heat": game.world.difficulty,
 		"snapshots_received": game.session.snapshots_received, "network_stale": game.session.stale,
 		"fps": Engine.get_frames_per_second(), "capture_ms": (Time.get_ticks_usec() - started_us) / 1000.0

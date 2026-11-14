@@ -11,8 +11,9 @@ func check(condition: bool, label: String) -> void:
 	print(("PASS: " if condition else "FAIL: ") + label)
 	if not condition: failures += 1
 
-func write_command(value: Dictionary) -> void:
-	var file := FileAccess.open(directory.path_join("input.json"), FileAccess.WRITE)
+func write_command(value: Dictionary, navigator := false) -> void:
+	var target := directory.path_join("navigator") if navigator else directory
+	var file := FileAccess.open(target.path_join("input.json"), FileAccess.WRITE)
 	file.store_string(JSON.stringify(value))
 	file.close()
 
@@ -20,8 +21,9 @@ func frames(count: int) -> void:
 	for _i in count: await physics_frame
 
 func _run() -> void:
-	DirAccess.make_dir_recursive_absolute(directory)
+	DirAccess.make_dir_recursive_absolute(directory.path_join("navigator"))
 	var config := {"directory": directory, "role": "driver", "speed_percent": 5, "seed": 123,
+		"shared_screens": true, "navigator_directory": directory.path_join("navigator"),
 		"course": "basic", "readable_ui": true, "capture_fps": 6, "max_sim_seconds": 10, "max_action_age_sim": 1}
 	var file := FileAccess.open(directory.path_join("config.json"), FileAccess.WRITE)
 	file.store_string(JSON.stringify(config))
@@ -34,11 +36,10 @@ func _run() -> void:
 	game._start("split")
 	check(is_equal_approx(Engine.time_scale, 0.05), "configured 5% simulation speed")
 	check(game.world.basic_course, "basic course enabled")
+	check(game.session.role == "local" and not game.car.remote and game.ai_capture.peer != null, "both seats share one car without networking")
 	check(game.world.thorn_at(Vector3(100, 0, 100)), "basic course restores deep roadside thorns")
 	check(not game.world.thorn_at(Vector3(0, 0, 0)), "road center remains clear of thorns")
 	check(game.ui.readable_hud != null and game.ui.map.readable_ui, "readable HUD and larger map enabled")
-	game.session._use_pose({"time": 10.0, "transform": Transform3D.IDENTITY, "velocity": Vector3(0, 0, -20), "angular_velocity": Vector3.ZERO}, true)
-	check(is_equal_approx(game.session.predictor.predict_at(10.4).origin.z, -0.4), "navigator prediction scales real-time motion to 5% simulation speed")
 	# North-up map orientation must not rotate the road when the car turns.
 	var north_before: Vector2 = game.ui.map._project(game.car.global_position + Vector3(0, 0, -10))
 	game.car.rotation.y = 1.0
@@ -49,6 +50,7 @@ func _run() -> void:
 		for hazard in road.hazards:
 			check(hazard.kind == "rock", "only basic static obstacles")
 	write_command({"type": "start", "sequence": 1})
+	write_command({"type": "start", "sequence": 1}, true)
 	await frames(4)
 	game.car.impacted.emit(0.5)
 	check(game.ui.readable_hud.sounds[-1].text.begins_with("CRASH"), "crash sound has a human-visible text caption")
@@ -75,22 +77,24 @@ func _run() -> void:
 	# Isolate key persistence from the newly lethal roadside course.
 	game.car.freeze = true
 	game.car.position = Vector3(0, 5, 0)
-	game.ai_capture.options.role = "navigator"
-	write_command({"type": "keys", "sequence": 6, "hold": [], "tap": ["M", "C"], "observation_sim": game.ai_capture.sim_time})
+	var navigator: Node = game.ai_capture.peer
+	check(is_equal_approx(game.ai_capture.sim_time, navigator.sim_time), "both seats use the same simulation clock")
+	write_command({"type": "keys", "sequence": 6, "hold": [], "tap": ["M", "C"], "observation_sim": game.ai_capture.sim_time}, true)
 	await frames(4)
 	check(game.ui.map_open and game.chase_camera, "navigator M and C keys reach normal UI handlers")
-	write_command({"type": "keys", "sequence": 6, "hold": [], "tap": ["M"], "observation_sim": game.ai_capture.sim_time})
+	write_command({"type": "keys", "sequence": 6, "hold": [], "tap": ["M"], "observation_sim": game.ai_capture.sim_time}, true)
 	await frames(4)
 	check(game.ui.map_open, "duplicate sequence cannot toggle twice")
-	write_command({"type": "keys", "sequence": 7, "hold": ["W"], "tap": [], "observation_sim": game.ai_capture.sim_time})
+	check(game.ui.map_panel.position.x >= game.ui.root.size.x * 0.5, "navigator map cannot cover the driver seat")
+	write_command({"type": "keys", "sequence": 7, "hold": ["W"], "tap": [], "observation_sim": game.ai_capture.sim_time}, true)
 	await frames(4)
-	check(game.ai_capture.last_error == "invalid_held_key", "navigator cannot drive")
-	write_command({"type": "keys", "sequence": 8, "hold": ["B"], "tap": [], "observation_sim": game.ai_capture.sim_time})
+	check(navigator.last_error == "invalid_held_key", "navigator cannot drive")
+	write_command({"type": "keys", "sequence": 8, "hold": ["B"], "tap": [], "observation_sim": game.ai_capture.sim_time}, true)
 	await frames(2700)
 	check(Input.is_action_pressed("look_back"), "navigator look-back also stays held until replaced")
 	write_command({"type": "stop", "sequence": 9, "reason": "operator_stop"})
 	await frames(4)
-	check(not Input.is_action_pressed("look_back") and game.ai_capture.held.is_empty(), "ending the run releases held keys")
+	check(not Input.is_action_pressed("look_back") and game.ai_capture.held.is_empty() and navigator.held.is_empty(), "ending the run releases held keys")
 	game.ai_capture.active = true
 	game.car.recovery_grace = 0
 	game.car.reset_pending = false

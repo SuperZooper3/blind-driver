@@ -132,7 +132,7 @@ Agents should read [AGENTS.md](AGENTS.md) for branch ownership, merge compatibil
 and playtesting from the latest `main`. Upcoming gameplay ideas are recorded in
 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md); they are not implemented yet.
 
-The first [visual-agent harness](docs/AI_HARNESS.md) runs two complete game windows,
+The first [visual-agent harness](docs/AI_HARNESS.md) runs one game engine with two complete seat views,
 accepts keyboard inputs from both agents, and records a recap video with dialogue
 and metrics. It supports scripted/Cohere agents, adjustable simulation speed, and
 model/role/speed comparisons, a live terminal timeline for both agents, and recaps

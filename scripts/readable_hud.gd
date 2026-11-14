@@ -37,15 +37,22 @@ func text(value: String, at: Vector2, pixels: int, color := Color("f1f5e9"), wid
 
 func _draw() -> void:
 	if not is_instance_valid(game): return
-	var width := size.x
+	draw_set_transform(Vector2.ZERO)
+	if game.ui.complete_seats:
+		_draw_seat(size.x * 0.5, "DRIVER")
+		draw_set_transform(Vector2(size.x * 0.5, 0))
+		_draw_seat(size.x * 0.5, "NAVIGATOR")
+	else:
+		_draw_seat(size.x, "DRIVER" if game.mode == "host" else "NAVIGATOR")
+
+func _draw_seat(width: float, seat: String) -> void:
 	var footer := size.y - 170.0
 	var ui: CanvasLayer = game.ui
 	var car: RigidBody3D = game.car
 	var amber := Color("ffd06f")
 	draw_rect(Rect2(0, 0, width, 72), Color("102c2a"))
-	var seat := "DRIVER" if game.mode == "host" else "NAVIGATOR"
 	text(seat, Vector2(24, 43), 34)
-	text(("MAP OPEN · M TO CLOSE" if ui.map_open else "MAP CLOSED · M TO OPEN") if game.mode != "host" else "W/S DRIVE · A/D STEER · SPACE BRAKE", Vector2(300, 43), 26, amber)
+	text(("MAP OPEN · M TO CLOSE" if ui.map_open else "MAP CLOSED · M TO OPEN") if seat == "NAVIGATOR" else "W/S DRIVE · A/D STEER · SPACE BRAKE", Vector2(300, 43), 26, amber)
 	draw_rect(Rect2(0, footer, width, 170), Color("102c2a"))
 	text("SPEED", Vector2(24, footer + 30), 24, amber)
 	text("%d km/h" % roundi(absf(car.signed_speed) * 3.6), Vector2(24, footer + 98), 58)
@@ -64,3 +71,7 @@ func _draw() -> void:
 		draw_rect(Rect2(18, footer - 82, width - 36, 76), Color(0.04, 0.08, 0.08, 0.94))
 		for i in count:
 			text("SOUND: " + str(recent[recent.size() - count + i].text), Vector2(32, footer - 52 + i * 32), 26, amber)
+	if game.ui.complete_seats and car.run_state == "game_over":
+		draw_rect(Rect2(80, 170, width - 160, 210), Color("102c2a"))
+		text("GAME OVER", Vector2(110, 225), 42, amber)
+		draw_multiline_string(ThemeDB.fallback_font, Vector2(110, 277), car.crash_reason + "\nTrip %.0f m" % car.distance_driven, HORIZONTAL_ALIGNMENT_LEFT, width - 220, 30)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 import secrets
 from pathlib import Path
@@ -11,6 +12,7 @@ from .recap import json_lines
 from .run import read_json
 from .scoring import score_frame
 from .controls import RunController
+from PIL import Image
 
 
 def run_directory(root: Path, latest: bool):
@@ -26,7 +28,7 @@ def snapshot(directory):
     manifest = read_json(directory / "manifest.json")
     # Explicit public-view fields. Never serve arbitrary run files/config/env.
     run = {k: manifest.get(k) for k in ("run_id", "provider", "speed", "course", "seed",
-          "driver_model", "navigator_model", "git_commit", "hold_policy")}
+          "driver_model", "navigator_model", "git_commit", "hold_policy", "engine_mode")}
     events = json_lines(directory / "events.jsonl")
     starts = [e["unix_time"] for e in events if e["event"] == "episode_started"]
     seats = {}
@@ -70,6 +72,15 @@ def handler_for(root: Path, latest: bool, controller=None):
                 path = (seat / name).resolve()
                 if path.is_relative_to((seat / "frames").resolve()) and path.suffix == ".jpg" and path.is_file():
                     return self.send_content(path.read_bytes(), "image/jpeg")
+                if (directory / "cleanup.json").exists() and (directory / "recap.jpg").is_file():
+                    # Finished runs use the retained recap still; no raw frame
+                    # copies are kept just to support the spectator preview.
+                    with Image.open(directory / "recap.jpg") as recap:
+                        x = 0 if role == "driver" else 960
+                        preview = recap.crop((x, 60, x + 960, 660))
+                        buffer = io.BytesIO()
+                        preview.save(buffer, format="JPEG")
+                    return self.send_content(buffer.getvalue(), "image/jpeg")
             if directory and route == "/recap.mp4" and snapshot(directory)["recap_ready"]:
                 path = directory / "recap.mp4"
                 if path.is_file():

@@ -85,7 +85,7 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
         "source_sha256", "sim_seconds", "max_requests", "max_tokens", "rpm", "max_output_tokens",
         "history_turns", "timeout", "max_action_age_sim", "capture_fps", "thinking",
         "driver_prompt_sha256", "navigator_prompt_sha256", "hold_policy", "scoring",
-        "basic_course_version", "readable_ui", "memory_every")}
+        "basic_course_version", "readable_ui", "memory_every", "engine_mode")}
     conditions["scoring"] = scoring
     cohort = hashlib.sha256(json.dumps(conditions, sort_keys=True).encode()).hexdigest()[:12]
     fallback_time = 0.0
@@ -171,6 +171,12 @@ def simulation_timeline(rows: list[dict]):
 
 def build_recap(directory: Path, fps: int = 15, review_speed: float | None = None) -> dict:
     directory = Path(directory).resolve()
+    # Validate before opening FFmpeg with overwrite enabled: an attempted rebuild
+    # after cleanup must never truncate the only remaining video.
+    for role in ("driver", "navigator"):
+        for frame in json_lines(directory / role / "frames.jsonl"):
+            if frame.get("image") and not (directory / role / frame["image"]).is_file():
+                raise ValueError("Raw screenshots were cleaned or are missing; the saved recap is unchanged. Use --keep-frames for rebuilds.")
     (directory / "recap_settings.json").write_text(json.dumps({"video_fps": fps,
         "review_speed": review_speed, "playback_mode": "normal_game_speed" if review_speed is None else "wall_clock_multiplier",
         "simulation_replay": "measured driver simulation clock",

@@ -53,6 +53,32 @@ class HarnessContractTests(unittest.TestCase):
             self.assertNotIn("fixture-key", json.dumps(requests))
             self.assertNotIn("image_url", json.dumps(agent.history))
 
+    def test_cleanup_preserves_outputs_and_failed_exports_keep_frames(self):
+        from tools.ai_harness.cleanup import cleanup_frames
+        from tools.ai_harness.recap import build_recap
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)/"recorded-run"
+            root.mkdir()
+            (root/"manifest.json").write_text(json.dumps({"run_id":root.name}))
+            for role in ("driver", "navigator"):
+                (root/role/"frames").mkdir(parents=True)
+                (root/role/"frames/0000000.jpg").write_bytes(b"raw frame")
+                (root/role/"frames.jsonl").write_text(json.dumps({"image":"frames/0000000.jpg"})+"\n")
+            with self.assertRaises(ValueError):
+                cleanup_frames(root)
+            self.assertTrue((root/"driver/frames/0000000.jpg").exists())
+            for name in ("result.json", "summary.json", "recap.jpg", "recap.mp4"):
+                (root/name).write_bytes(b"retained output")
+            with patch("tools.ai_harness.cleanup.subprocess.run", return_value=SimpleNamespace(stdout='{"streams":[{"width":1920,"height":1080}],"format":{"duration":"1.0"}}')):
+                result = cleanup_frames(root)
+            self.assertEqual(result["files_removed"], 2)
+            self.assertFalse((root/"driver/frames").exists())
+            self.assertTrue((root/"driver/frames.jsonl").exists())
+            with self.assertRaisesRegex(ValueError, "saved recap is unchanged"):
+                build_recap(root)
+            self.assertEqual((root/"recap.mp4").read_bytes(), b"retained output")
+
     def test_score_penalties_use_game_seconds_and_separate_failure(self):
         from tools.ai_harness.scoring import score_frame
         row = {"forward_progress_m": 300, "impact_events": 2, "offroad_sim_seconds": 5,

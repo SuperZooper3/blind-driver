@@ -1,9 +1,11 @@
 # Visual-agent harness: first sketch
 
-The primary output is a recap video showing **two complete game windows**, agent
+The primary output is a recap video showing **two complete seat views in one Godot engine**, agent
 dialogue, keyboard inputs, timestamps, and live metrics. Python alternates the
 navigator and driver while Godot keeps running. Both seats use ordinary keyboard
-inputs. No split-screen crops or hidden world-state observations are sent to the models.
+inputs. Each agent receives its full 1280×800 half of a 2560×800 game-rendered canvas.
+The HUD is duplicated per seat; cropping never removes instruments. Hidden world
+state is not sent to the models.
 A game-rendered large-display profile and audible-event captions improve readability.
 
 This is an evaluation prototype, not reinforcement-learning training yet. It can
@@ -33,8 +35,9 @@ variable, with `--env-file` selecting its path. Never place keys in tracked file
 or CLI arguments. The key is removed from the Godot child-process environments
 and is not included in manifests, screenshots, provider error bodies, or logs.
 
-Each command launches and cleans up its own two processes, uses a free localhost
-LAN port, and saves personal-best records within the run. It does not control
+Each command launches and cleans up one Godot process. Both seats share the same
+car, physics clock and world, with no LAN/relay transport or pose prediction.
+Personal-best records are saved within the run. It does not control
 existing game instances. Use Ctrl-C to stop; the captured portion is still compiled
 into a recap. API requests already in flight may take up to `--timeout` to finish.
 Do not operate the game controls during a scored run: this sketch does not block
@@ -65,7 +68,7 @@ one simulated minute takes about twenty real minutes. The recorder also measures
 actual clock advancement, because rendering and host load can change it.
 
 Each seat has its own history, model ID, prompt, and received messages. Only the
-current full-window JPEG is sent on each request. The last 32 role-local text
+current complete-seat JPEG is sent on each request. The last 32 role-local text
 turns are retained by default; previous images are never sent. Each action may also
 contain short `notes` recording observations, its decision, and unresolved questions.
 Notes belong to that seat; only `message` goes to its partner. These are concise
@@ -179,33 +182,39 @@ already accepted hold. Ending the episode (including errors, Ctrl-C, and limits)
 releases every held key. Game menus/network recovery retain their ordinary pause
 behavior. Pause/restart and changes to speed are not model actions.
 
-Schema version 3 adds working recaps and readable-display settings; it still records `hold_policy: until_replaced`. Older timed-hold runs remain
+Schema version 4 adds the shared local engine, working recaps and readable-display settings; it still records `hold_policy: until_replaced`. Older timed-hold runs remain
 readable, with their fallback metrics retained, but should not be pooled with new
 runs. The source/configuration fingerprint keeps those benchmark groups separate.
 
 ## Small game-side adapter
 
 [`ai_capture.gd`](../scripts/ai_capture.gd) is activated only by
-`BLIND_DRIVER_AI_CONFIG`. It saves complete root-window JPEGs, reads atomically
+`BLIND_DRIVER_AI_CONFIG`. It reads one 2560×800 root-viewport image per capture and saves its two complete
+1280×800 seat halves as JPEGs. It reads atomically
 written keyboard commands, dispatches them through `Input.parse_input_event`, and
 records telemetry. It forces a redraw at capture cadence so macOS window occlusion
-does not silently freeze one camera. Captures include the real HUD, driver blur,
+does not silently freeze one camera. Each capture includes that seat’s real HUD, driver blur where appropriate,
 windshield damage, and the navigator's map. Python never assembles observations
 from game internals.
 
 This intentionally uses local files rather than another server/API protocol.
 Each process has its own directory and monotonically increasing command sequence.
 Acknowledgments record what was applied. PNG/JPEG processing and video composition
-stay separate from model inference. The first sketch stores every captured JPEG;
-long runs need a disk-space budget or a streaming-video upgrade.
+stay separate from model inference. Raw frame folders are removed after a successful recap. The harness verifies the
+video before removing frames; failed exports keep them for recovery. All recording
+directories contain `.gdignore`, and the repository’s `runs/.gdignore` prevents
+Godot from scanning/importing recordings. `--keep-frames` opts out for debugging.
+The final video, recap still, metrics and text logs remain. The browser derives
+finished seat previews from the recap still, without retaining raw screenshots.
 
-The existing LAN connection supplies the navigator's world. Only harness instances
-use wall-clock LAN send intervals, so 5% simulation speed does not reduce snapshot
-frequency to 1.5 Hz. Navigator pose prediction converts simulation velocity to
-real-time velocity at the configured speed; damage and other full-snapshot state
-still have their normal network delay.
-The two captured windows are aligned by timestamps rather than claimed to be
-pixel-simultaneous. A capture stall over three seconds invalidates the run.
+Both captures come from the same GPU readback and share frame ID, simulation/real
+timestamp, car state and process ID. Two role-specific command readers dispatch
+normal input events into the same engine. Navigator keys never replace held driver
+keys. Stop from either reader releases both. The visible window can be smaller
+than the render canvas; its recording resolution remains fixed. No game network
+connection, synchronization, interpolation, or prediction is used. The localhost
+browser viewer is only a recorder/control interface. A capture stall over three
+seconds invalidates the run.
 
 ## Courses and measurement
 
@@ -217,8 +226,8 @@ retains its existing crippled-car behavior; flat tires alone do not end that mod
 Vehicle physics, blur, collisions, rollover, and modular damage remain active.
 The full map is accessible but route planning is limited on this first course.
 
-`--readable-ui` is on by default for harness runs; `--no-readable-ui` keeps the
-original display. It uses large digital speed/odometer/surface/movement readouts,
+`--readable-ui` is on by default for harness runs; `--no-readable-ui` keeps the original map orientation/scale and
+camera field of view, while retaining complete duplicated instruments. The default profile uses large digital speed/odometer/surface/movement readouts,
 a narrower 60° camera field of view (objects appear larger), and a map with doubled
 text/line/icon scale, north-up orientation, and a larger rotating car arrow plus
 heading degrees. The map still covers the road but leaves the instruments visible.
@@ -261,14 +270,16 @@ and latency are also exported separately from action latency.
 
 | Artifact | Purpose |
 | --- | --- |
-| `recap.mp4` | Main video at normal game speed, two complete views with conversation/controls/metrics |
+| `recap.mp4` | Main video at normal game speed, two complete synchronized views with conversation/controls/metrics |
 | `recap_simulation.mp4` | Same normal-speed video; retained separately when an explicit review-speed override is used |
 | `recap.jpg` | Final recap still |
 | `recap_settings.json` | Playback/export settings used by the latest recap rebuild |
 | `metrics.png` | Speed, progress, road deviation, distance, score and penalty plots |
 | `metrics.csv`, `summary.json` | Detailed driver telemetry and episode statistics |
 | `transcript.txt`, `events.jsonl` | Delivered dialogue and causal request/action events |
-| `driver/`, `navigator/` | Full screenshots, per-frame telemetry, prompts, input acknowledgments, and game logs |
+| `driver/`, `navigator/` | Per-frame telemetry, prompts and input logs; raw screenshots only during a run or with `--keep-frames` |
+| `cleanup.json` | Removed file count and recovered disk space |
+| `godot.log` | Shared engine log |
 | `manifest.json`, `result.json` | Source hash, models, configuration, budgets, end reason, validity, termination/truncation |
 
 The default recap compensates for game slowdown using the measured simulation
@@ -278,14 +289,18 @@ video, independent of inference/recording wall time. This also removes simulatio
 stalls from the default replay. The live terminal continues at real recording time.
 
 The review has a rolling transcript; accelerated messages can be brief.
-Rebuild at the default normal game speed or explicitly slow it to read dialogue,
-without making any new API calls:
+If the run was made with `--keep-frames`, rebuild at normal game speed or slow it
+to read dialogue without new model calls. After automatic cleanup, use the saved
+video’s playback-speed control instead; raw-frame rebuilds are no longer available:
 
 ```sh
 .venv/bin/python -m tools.ai_harness recap runs/RUN_ID
 # 1× real recording time; overrides speed compensation for recap.mp4 only.
 .venv/bin/python -m tools.ai_harness recap runs/RUN_ID --review-speed 1
 ```
+
+Use `python -m tools.ai_harness cleanup runs/RUN_ID` to clean an older completed
+run after verifying its recap. Failed/unrendered runs are kept.
 
 Videos are silent in this sketch; on-screen sound captions remain visible. Captures are sampled, not a promise of perfect
 frame pacing. The normal-pace video follows the measured simulation clock. Frames
@@ -337,5 +352,5 @@ actions, holds persisting beyond the old timeout, explicit release, stop cleanup
 continued simulation, the readable map/captions, roadside thorns, and terminal
 all-tire punctures in the basic course at 5% speed. Unit tests cover one-image
 requests, text history, concurrent immutable recaps, score terms, and scoped HTTP controls.
-Rendered scripted runs verify the full-window capture/recap path. Live provider
+Rendered scripted runs verify the complete-seat capture/recap path. Live provider
 trials are separate from those deterministic checks.

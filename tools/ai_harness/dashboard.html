@@ -32,7 +32,7 @@ function update(s){
  const r=s.run,d=s.seats.driver,end=s.result.reason;controlToken=s.control_token;
  const c=s.controls||{};$('stop').disabled=sending||!c.can_stop;$('restart').disabled=sending||!c.can_restart;$('control-hint').textContent=c.error||(c.busy?'Stopping and saving the run…':c.hint||'');
  if(lastRun!==r.run_id){lastRun=r.run_id;count=0;frames={};$('timeline').replaceChildren()}
- $('run').textContent=`${r.run_id} · ${r.course} · seed ${r.seed} · source ${(r.git_commit||'').slice(0,7)}`;
+ $('run').textContent=`${r.run_id} · ${r.engine_mode==='shared_local'?'One shared engine':'Legacy two engines'} · ${r.course} · seed ${r.seed} · source ${(r.git_commit||'').slice(0,7)}`;
  $('status').textContent=end?`Finished · ${end}`:'Live';
  const requests=s.events.filter(e=>['request','memory_request'].includes(e.event)),responses=s.events.filter(e=>e.usage);
  const tokens=responses.reduce((v,e)=>v+(e.usage?.input_tokens||0)+(e.usage?.output_tokens||0),0);

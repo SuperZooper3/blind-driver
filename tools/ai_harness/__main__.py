@@ -7,7 +7,7 @@ from .recap import build_recap, summarize_runs
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Two complete Godot windows, visual agents, keyboard controls, and recap videos")
+    parser = argparse.ArgumentParser(description="One Godot engine with two complete seat views, visual agents, keyboard controls, and recap videos")
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="Record one episode")
     batch = sub.add_parser("benchmark", help="Run model-pair × speed × seed comparisons")
@@ -31,6 +31,7 @@ def main():
         p.add_argument("--history-turns", type=int, default=32)
         p.add_argument("--memory-every", type=int, default=3, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
         p.add_argument("--readable-ui", action=argparse.BooleanOptionalAction, default=True)
+        p.add_argument("--keep-frames", action="store_true", help="Keep raw screenshots for debugging/rebuilding; otherwise clean them after the recap")
         p.add_argument("--timeout", type=float, default=30)
         p.add_argument("--max-action-age-sim", type=float, default=5)
         p.add_argument("--scripted-interval", type=float, default=.8)
@@ -56,7 +57,13 @@ def main():
     live.add_argument("--port", type=int, default=8766)
     summarize = sub.add_parser("summarize", help="Export CSV and graphs across recorded runs")
     summarize.add_argument("directory", type=Path)
+    cleanup = sub.add_parser("cleanup", help="Remove raw screenshots from a successfully rendered run")
+    cleanup.add_argument("directory", type=Path)
     args = parser.parse_args()
+    if args.command == "cleanup":
+        from .cleanup import cleanup_frames
+        print(cleanup_frames(args.directory))
+        return
     if args.command == "serve":
         if not 0 <= args.port <= 65535:
             parser.error("Port must be 0–65535 (0 chooses an available port)")

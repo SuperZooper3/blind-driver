@@ -21,6 +21,8 @@ def restart_command(directory):
         if value is not None:
             command.extend(["--" + field.replace("_", "-"), str(value)])
     command.append("--readable-ui" if manifest.get("readable_ui", True) else "--no-readable-ui")
+    if manifest.get("keep_frames"):
+        command.append("--keep-frames")
     return command
 
 

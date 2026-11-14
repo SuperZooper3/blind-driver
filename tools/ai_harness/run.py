@@ -1,4 +1,4 @@
-"""Launch two ordinary Godot windows and alternate visual agent requests."""
+"""One shared Godot simulation, two complete seat views, alternating visual agents."""
 from __future__ import annotations
 
 import concurrent.futures
@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import socket
 import subprocess
 import time
 import uuid
@@ -79,19 +78,26 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         raise RuntimeError("Install FFmpeg before recording a run")
     godot = find_godot(args.godot)
     key = read_key(Path(args.env_file).expanduser()) if args.provider == "cohere" else ""
+    output_root = Path(args.output).expanduser().resolve()
+    if ROOT.is_relative_to(output_root):
+        raise ValueError("The recording directory must not contain the game project")
+    output_root.mkdir(parents=True, exist_ok=True)
+    (output_root / ".gdignore").touch()
     if not prepared:
         prepare(godot)
     run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime()) + "-" + uuid.uuid4().hex[:6]
-    directory = Path(args.output).expanduser().resolve() / run_id
+    directory = output_root / run_id
     directory.mkdir(parents=True, mode=0o700)
-    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 3,
+    (directory / ".gdignore").touch()
+    manifest = {**vars(args), "run_id": run_id, "created_unix": time.time(), "schema_version": 4,
                 "hold_policy": "until_replaced",
                 "scoring": DEFAULT_SCORING.copy(),
                 "basic_course_version": "roadside_thorns_v2",
                 "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
                 "godot_version": subprocess.check_output([godot, "--version"], text=True).strip(),
-                "capture": "two complete game windows; no crops or reconstructed HUD",
+                "capture": "one 2560x800 engine frame, two complete 1280x800 seat crops",
+                "engine_mode": "shared_local",
                 "history_policy": f"last {args.history_turns} own text turns + rolling recap; one current screenshot",
                 "benchmark_label": args.label,
                 "provider": args.provider}
@@ -106,9 +112,6 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     manifest["thinking"] = "disabled for Cohere reasoning models"
     atomic_json(directory / "manifest.json", manifest)
     monitor = ConsoleMonitor(directory, manifest)
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
     processes, logs = {}, []
     sequence = {role: 0 for role in ROLES}
     requests = input_tokens = output_tokens = usage_known_requests = 0
@@ -170,27 +173,25 @@ def run_episode(args, *, prepared: bool = False) -> Path:
 
     status("starting")
     try:
-        for role, flag, position in (("driver", "--host", "10,70"), ("navigator", "--join=127.0.0.1", "660,70")):
+        for role in ROLES:
             seat_dir = directory / role
             seat_dir.mkdir()
             config = {"directory": str(seat_dir), "role": role, "seed": args.seed,
                       "course": args.course, "speed_percent": args.speed, "readable_ui": args.readable_ui,
                       "capture_fps": args.capture_fps, "max_sim_seconds": args.sim_seconds,
-                      "max_action_age_sim": args.max_action_age_sim}
+                      "max_action_age_sim": args.max_action_age_sim, "shared_screens": True,
+                      "navigator_directory": str(directory / "navigator")}
             atomic_json(seat_dir / "config.json", config)
-            env = {k: v for k, v in os.environ.items() if k != "COHERE_API_KEY"}
-            env.update(BLIND_DRIVER_AI_CONFIG=str(seat_dir / "config.json"),
-                       BLIND_DRIVER_RECORDS_PATH=str(seat_dir / "records.cfg"),
-                       BLIND_DRIVER_LAN_PORT=str(port))
-            output = (seat_dir / "godot.log").open("w")
-            logs.append(output)
-            processes[role] = subprocess.Popen([
-                godot, "--path", str(ROOT), "--windowed", "--resolution", "1280x800",
-                "--position", position, "--max-fps", "60", "--audio-driver", "Dummy", "--", flag,
-            ], env=env, stdout=output, stderr=subprocess.STDOUT)
-            log("process_started", role=role, pid=processes[role].pid)
-            if role == "driver":
-                time.sleep(0.5)
+        env = {k: v for k, v in os.environ.items() if k not in {"COHERE_API_KEY", "BLIND_DRIVER_LAN_PORT"}}
+        env.update(BLIND_DRIVER_AI_CONFIG=str(directory / "driver" / "config.json"),
+                   BLIND_DRIVER_RECORDS_PATH=str(directory / "records.cfg"))
+        output = (directory / "godot.log").open("w")
+        logs.append(output)
+        processes["game"] = subprocess.Popen([
+            godot, "--path", str(ROOT), "--windowed", "--resolution", "1600x500",
+            "--position", "10,70", "--max-fps", "60", "--audio-driver", "Dummy", "--", "--split",
+        ], env=env, stdout=output, stderr=subprocess.STDOUT)
+        log("process_started", role="shared_game", pid=processes["game"].pid)
 
         deadline = time.monotonic() + 45
         while True:
@@ -199,11 +200,11 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 raise KeyboardInterrupt
             latest = {role: read_json(directory / role / "latest.json") for role in ROLES}
             if any(p.poll() is not None for p in processes.values()):
-                raise RuntimeError("A Godot process exited; inspect this run's seat godot.log files")
+                raise RuntimeError("A Godot process exited; inspect this run's godot.log")
             if all(v.get("connected") and v.get("image") for v in latest.values()):
                 break
             if time.monotonic() > deadline:
-                raise RuntimeError("Timed out waiting for two connected, rendered game windows")
+                raise RuntimeError("Timed out waiting for two rendered seats in the shared game")
             time.sleep(0.1)
 
         agents = {}
@@ -362,8 +363,9 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         log("infrastructure_error", error=str(exc)[:500])
     finally:
         status("stopping")
-        for role in processes:
-            command(role, "stop", reason=reason)
+        for role in ROLES:
+            if (directory / role).is_dir():
+                command(role, "stop", reason=reason)
         # Let each window record its final control state before shutting it down.
         time.sleep(0.4)
         for process in processes.values():
@@ -407,6 +409,9 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         build_recap(directory, fps=args.video_fps, review_speed=args.review_speed)
         if (directory / "recap.mp4").is_file():
             log("recap_ready", path=str(directory / "recap.mp4"))
+            if not args.keep_frames:
+                from .cleanup import cleanup_frames
+                log("frames_cleaned", **cleanup_frames(directory))
     except Exception as exc:
         log("recap_error", error=str(exc)[:500])
         raise

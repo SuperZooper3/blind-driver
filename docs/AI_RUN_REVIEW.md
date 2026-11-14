@@ -36,6 +36,7 @@ observation. A stronger model comparison remains an experiment, not a result.
 
 ## Harness changes to evaluate next
 
+Run both seats in one engine, with complete duplicated HUDs and no game networking.
 Use one current screenshot only, as requested. Retain 32 recent text turns by
 default and concise own notes. Update a short factual recap of earlier turns in
 the background while the partner chooses its action, preserving timestamps and
