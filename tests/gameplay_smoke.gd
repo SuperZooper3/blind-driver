@@ -63,6 +63,10 @@ func _run() -> void:
 		if car.run_state == "game_over":
 			break
 	Input.action_release("accelerate")
+	# Game Over is announced within 2.5 m of the floor, before impact. Let the
+	# still-physical wreck land instead of depending on the final fall frame's y.
+	await frames(60)
+	lowest = minf(lowest, car.global_position.y)
 	check(saw_fall and lowest < cliff.position.y + 2, "car physically drives off the edge and falls to the pit bottom")
 	check(car.run_state == "game_over" and not car.reset_pending, "fatal fall cannot be recovered and ends the run")
 	await frames(2)

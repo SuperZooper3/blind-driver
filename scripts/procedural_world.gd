@@ -8,6 +8,7 @@ const Challenge = preload("res://scripts/road_challenge.gd")
 const TILE_SIZE := 80.0
 const TILE_RADIUS := 3
 const ROAD_WIDTH := 8.0
+const ROAD_MESH_STEP := 3.0
 const KEEP_DISTANCE := 720.0
 const MAX_ROADS := 100
 const THORN_DISTANCE := 18.0
@@ -348,13 +349,20 @@ func _invalidate_road_tiles(points: PackedVector3Array) -> void:
 			if not pending_tiles.has(key):
 				pending_tiles.append(key)
 
-func _render_road(road: Dictionary) -> void:
+func _render_road(road: Dictionary, graph: Array = []) -> void:
 	_index_road(road)
 	var root := Node3D.new()
 	root.name = "Road_%d" % road.id
 	add_child(root)
 	road.node = root
 	root.set_meta("hazards", road.hazards)
+	# A child owns the outside corner where it meets an existing road. Use the
+	# complete imported graph too, so remote clients build the identical surface.
+	var incoming := PackedVector3Array()
+	for previous: Dictionary in (roads if graph.is_empty() else graph):
+		if previous.id != road.id and previous.points[-1].is_equal_approx(road.points[0]):
+			incoming.append(previous.points[-1] - previous.points[-2])
+	root.set_meta("incoming_directions", incoming)
 	var challenges: Array[Node3D] = []
 	var points: PackedVector3Array = road.points
 	for hazard: Dictionary in road.hazards:
@@ -415,6 +423,20 @@ func _render_culdesac(parent: Node3D, center: Vector3) -> void:
 
 func _make_ribbon(parent: Node3D, points: PackedVector3Array, width: float, lift: float, mat: Material) -> void:
 	var vertices := PackedVector3Array()
+	var left := PackedVector3Array()
+	var right := PackedVector3Array()
+	# Compute each cross-section once. Independent segment normals left triangular
+	# cuts through the road and shoulder on the outside of every bend.
+	for i in points.size():
+		var before := points[i] - points[maxi(0, i - 1)] if i > 0 else points[1] - points[0]
+		var after := points[mini(i + 1, points.size() - 1)] - points[i] if i < points.size() - 1 else before
+		var local_width := width
+		for hazard: Dictionary in parent.get_meta("hazards", []):
+			if hazard.kind == "tree" and points[i].distance_to(hazard.position) < 14.0:
+				local_width += 2.5
+		var side := _ribbon_side(before, after, local_width)
+		left.append(ground_point(points[i].x - side.x, points[i].z - side.z, 0.17 + lift))
+		right.append(ground_point(points[i].x + side.x, points[i].z + side.z, 0.17 + lift))
 	for i in range(points.size() - 1):
 		var a := points[i]
 		var b := points[i + 1]
@@ -423,19 +445,48 @@ func _make_ribbon(parent: Node3D, points: PackedVector3Array, width: float, lift
 			if Challenge.is_challenge(hazard) and minf(a.z, b.z) < hazard.position.z + hazard.size.z * 0.5 and maxf(a.z, b.z) > hazard.position.z - hazard.size.z * 0.5:
 				over_gap = true
 		if over_gap: continue
-		# Widen and wiggle around a tree, leaving a rough shoulder escape on both sides.
-		var local_width := width
-		for hazard: Dictionary in parent.get_meta("hazards", []):
-			if hazard.kind == "tree" and a.distance_to(hazard.position) < 14.0:
-				local_width += 2.5
-		var side := (b - a).normalized().cross(Vector3.UP) * local_width * 0.5
-		var al := ground_point(a.x - side.x, a.z - side.z, 0.17 + lift)
-		var ar := ground_point(a.x + side.x, a.z + side.z, 0.17 + lift)
-		var bl := ground_point(b.x - side.x, b.z - side.z, 0.17 + lift)
-		var br := ground_point(b.x + side.x, b.z + side.z, 0.17 + lift)
-		vertices.append_array(PackedVector3Array([al, ar, bl, ar, br, bl]))
+		# Long chords can dip through the rolling terrain even when both endpoints
+		# are above it. Resample the surface without changing map/route geometry.
+		var steps := maxi(1, ceili(a.distance_to(b) / ROAD_MESH_STEP))
+		var al := left[i]
+		var ar := right[i]
+		for step in range(1, steps + 1):
+			var t := float(step) / steps
+			var bl := left[i + 1] if step == steps else left[i].lerp(left[i + 1], t)
+			var br := right[i + 1] if step == steps else right[i].lerp(right[i + 1], t)
+			bl.y = height_at(bl.x, bl.z) + 0.17 + lift
+			br.y = height_at(br.x, br.z) + 0.17 + lift
+			vertices.append_array(PackedVector3Array([al, ar, bl, ar, br, bl]))
+			al = bl
+			ar = br
+	# Fill only the outside wedge at a section boundary; never extend a terminal
+	# road into a ravine or cover a deliberate jump/bridge cut.
+	var outgoing := points[1] - points[0]
+	outgoing.y = 0.0
+	outgoing = outgoing.normalized()
+	for incoming: Vector3 in parent.get_meta("incoming_directions", PackedVector3Array()):
+		incoming.y = 0.0
+		incoming = incoming.normalized()
+		var turn := incoming.cross(outgoing).y
+		if absf(turn) < 0.00001: continue
+		var offsets := [Vector3.ZERO, incoming.cross(Vector3.UP) * width * 0.5, _ribbon_side(incoming, outgoing, width), outgoing.cross(Vector3.UP) * width * 0.5]
+		var corner := PackedVector3Array()
+		for offset: Vector3 in offsets:
+			var at := points[0] + offset * signf(turn)
+			corner.append(ground_point(at.x, at.z, 0.17 + lift))
+		for triangle: Array in [[0, 1, 2], [0, 2, 3]]:
+			if turn < 0: triangle.reverse()
+			for index: int in triangle: vertices.append(corner[index])
 	var ribbon := Geo.instance(parent, Geo.mesh_from_triangles(vertices), Vector3.ZERO, mat)
 	ribbon.create_trimesh_collision()
+
+static func _ribbon_side(before: Vector3, after: Vector3, width: float) -> Vector3:
+	before.y = 0.0
+	after.y = 0.0
+	var normal := after.normalized().cross(Vector3.UP)
+	var bisector := (before.normalized().cross(Vector3.UP) + normal).normalized()
+	# Miter the join to retain the full width, with a cap for unusually sharp turns.
+	return bisector * width * 0.5 / maxf(0.5, bisector.dot(normal))
 
 func nearest_road(at: Vector3) -> Dictionary:
 	var best := {"distance": INF, "point": Vector3.ZERO, "direction": Vector3.FORWARD, "road_id": 0}
@@ -660,7 +711,7 @@ func import_graph(data: Array) -> void:
 				_invalidate_road_tiles(previous.points)
 				_invalidate_hazard_tiles(previous)
 				previous.node.queue_free()
-			_render_road(record)
+			_render_road(record, data)
 			updated.append(record)
 			_invalidate_road_tiles(record.points)
 			_invalidate_hazard_tiles(record)
