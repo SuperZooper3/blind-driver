@@ -239,7 +239,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         next_request = start
         request_context = {}
         pending_ack = None
-        error_streak = 0
+        error_streak = {role: 0 for role in ROLES}
         while True:
             if stop_requested():
                 reason = "operator_stop"
@@ -307,9 +307,9 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap")},
                                   observation_sim=request_context["observation"]["sim_time"])
                     pending_ack = role, seq, action, latency, request_context
-                    error_streak = 0
+                    error_streak[role] = 0
                 except Exception as exc:
-                    error_streak += 1
+                    error_streak[role] += 1
                     inbox[role][:0] = request_context["delivered"]
                     heard[role] = request_context["heard_before"]
                     details = {}
@@ -325,7 +325,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     inbox[other].append({"role": role, "message": "Partner response unavailable this exchange."})
                     turn += 1
                 future = None
-                if error_streak >= 3:
+                if error_streak[role] >= 3:
                     reason = "provider_errors"
                     break
 

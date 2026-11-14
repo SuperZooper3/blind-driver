@@ -11,7 +11,7 @@ from pathlib import Path
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
 DEFAULT_MODEL = "command-a-plus-05-2026"
-PROMPT_REVISION = "cooperative-navigation-v2"
+PROMPT_REVISION = "cooperative-navigation-v3"
 
 
 class InvalidModelResponse(ValueError):
@@ -180,6 +180,7 @@ class CohereAgent:
         self.timeout, self.max_tokens = timeout, max_tokens
         self.history_turns = history_turns
         self.history: list[dict] = []
+        self.response_feedback = ""
 
     def decide(self, image: Path, observation: dict, messages: list[dict]) -> tuple[dict, dict]:
         # No metric dictionary is accepted here: caller constructs this small view.
@@ -189,13 +190,27 @@ class CohereAgent:
             {"type": "text", "text": context},
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded}},
         ]}
-        if self.model.startswith("c4ai-aya-vision"):
-            # Aya's image replies can ignore instructions supplied only as a
-            # system preamble. Put the same task/contract in the image turn too.
-            current["content"][0]["text"] = self.system_prompt + "\nCurrent situation:\n" + context
-            current["content"].append({"type": "text", "text":
-                "Choose your keyboard action now. Return ONLY the JSON object with hold, tap, "
-                "message, and notes. Do not describe the image outside that object."})
+        # Live Command A+ and Aya image replies can ignore a system-only task,
+        # even with JSON Schema enabled. Ground the role/contract in THIS image
+        # turn as well. Do not parse a plausible action out of prose or reasoning.
+        current["content"][0]["text"] = self.system_prompt + "\nCurrent situation:\n" + context
+        if self.response_feedback:
+            current["content"][0]["text"] += "\nResponse feedback: " + self.response_feedback
+        task = (
+            "You are the NAVIGATOR speaking TO THE DRIVER, not the driver asking for directions. "
+            "This is your clear passenger view. Answer the driver's latest question; do not echo it. "
+            "Tell the driver whether to accelerate, slow, turn, or straighten based on this view. "
+            "If stopped on a visibly clear straight road, tell the driver to start with W. "
+            "Your own hold/tap keys only control the view (B/M/C), never the car. "
+            if self.role == "navigator" else
+            "You are the DRIVER speaking TO THE NAVIGATOR. This is your blurred driver view. "
+            "Follow fresh navigation advice and choose car keys that implement it. "
+        )
+        current["content"].append({"type": "text", "text":
+            task + "Choose your keyboard action and useful partner speech now. "
+            "The keys must implement the action you intend: [] releases all keys; it does NOT accelerate. "
+            "Return ONLY the JSON object with hold, tap, message, and notes. "
+            "Start with { and end with }. No prose or analysis outside the object."})
         body = {"model": self.model, "messages": [
             {"role": "system", "content": self.system_prompt}, *self.history, current
         ], "max_tokens": self.max_tokens, "temperature": 0.2}
@@ -214,9 +229,12 @@ class CohereAgent:
         try:
             action = validate_action(json.loads(content), self.role)
         except (ValueError, TypeError) as exc:
+            self.response_feedback = ("Your previous output was rejected and no action/message was delivered. "
+                f"Validation: {str(exc)[:160]}. Generate one concise valid JSON object, without a preamble.")
             raise InvalidModelResponse(str(exc), usage, {"finish_reason": answer.get("finish_reason"),
                 "content_types": [p.get("type") for p in answer.get("message", {}).get("content", [])],
                 "text_preview": content[:300]}) from None
+        self.response_feedback = ""
         # Only current image is sent. Older conversation is text, including own notes.
         # Keep old observations/notes but do not duplicate rolling recaps and
         # dialogue windows inside every historical turn.

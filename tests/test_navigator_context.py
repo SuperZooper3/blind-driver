@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tools.ai_harness.agents import CohereAgent, DEFAULT_MODEL, prompt
+from tools.ai_harness.agents import CohereAgent, DEFAULT_MODEL, InvalidModelResponse, prompt
 from tools.ai_harness.context import TeamContext
 from tools.ai_harness.memory import WorkingMemory
 
@@ -121,6 +121,8 @@ class NavigatorContextTests(unittest.TestCase):
         self.assertEqual(body["response_format"]["type"], "json_object")
         self.assertEqual(body["response_format"]["schema"]["properties"]["hold"]["items"]["enum"], ["B"])
         content = body["messages"][-1]["content"]
+        self.assertIn("You are NAVIGATOR", content[0]["text"])
+        self.assertIn("Return ONLY the JSON object", content[-1]["text"])
         self.assertIn("Hit something; now stopped.", content[0]["text"])
         self.assertIn("CRASH", content[0]["text"])
         self.assertEqual(sum(p.get("type") == "image_url" for m in body["messages"]
@@ -128,6 +130,24 @@ class NavigatorContextTests(unittest.TestCase):
         self.assertNotIn("working_memory", json.dumps(agent.history))
         self.assertNotIn("coordination", json.dumps(agent.history))
         self.assertIn("Impact audible", json.dumps(agent.history))
+
+    def test_invalid_image_reply_is_reported_next_turn_without_fabricating_an_action(self):
+        action = {"hold": [], "tap": [], "message": "", "notes": "Road view; awaiting driver question"}
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "view.jpg"
+            image.write_bytes(b"fixture")
+            agent = CohereAgent("navigator", DEFAULT_MODEL, "unused", "Navigator prompt", 10, 512, 2)
+            requests = []
+            def chat(body):
+                requests.append(body)
+                return (("={}" if len(requests) == 1 else json.dumps(action)), {}, {})
+            with patch.object(agent, "_chat", side_effect=chat):
+                with self.assertRaises(InvalidModelResponse):
+                    agent.decide(image, {}, [])
+                self.assertEqual(agent.history, [])
+                self.assertEqual(agent.decide(image, {}, [])[0], action)
+            self.assertIn("no action/message was delivered", requests[1]["messages"][-1]["content"][0]["text"])
+            self.assertEqual(agent.response_feedback, "")
 
 
 if __name__ == "__main__":

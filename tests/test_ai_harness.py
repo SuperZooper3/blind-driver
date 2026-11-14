@@ -48,7 +48,7 @@ class HarnessContractTests(unittest.TestCase):
             self.assertEqual(usage["input_tokens"], 30)
             self.assertEqual(len(agent.history), 4)
             self.assertEqual(requests[-1]["thinking"], {"type": "disabled"})
-            image_part = requests[0]["messages"][-1]["content"][-1]
+            image_part = next(p for p in requests[0]["messages"][-1]["content"] if p["type"] == "image_url")
             self.assertTrue(image_part["image_url"]["url"].startswith("data:image/jpeg;base64,"))
             self.assertNotIn("fixture-key", json.dumps(requests))
             self.assertNotIn("image_url", json.dumps(agent.history))

@@ -89,7 +89,7 @@ recap/dialogue windows. This keeps the context from growing with duplicate summa
 Optional `--driver-instructions file.txt` and `--navigator-instructions file.txt`
 append coaching instructions; use `--label coached-v1` to identify the experiment.
 
-The `cooperative-navigation-v2` prompt makes the navigator an active copilot:
+The `cooperative-navigation-v3` prompt makes the navigator an active copilot:
 
 - Give immediate steering/braking directions, timing, and when to straighten.
   Distinguish a straight road from a car that is actually aligned with it.
@@ -116,10 +116,12 @@ Cohere is the first implemented provider. Command A+ uses JSON Schema output and
 disables thinking for the initial latency baseline. Aya Vision and Command A Vision use JSON
 instructions plus the same local validation. A future Google adapter can use the
 same contract; it is not implemented in this sketch.
-Aya also receives the same role/action instructions in each image-bearing user
-turn: the first live trial described images when instructions appeared only in
-the system preamble. This formatting adjustment does not repair or invent actions;
-invalid output still counts as an error.
+Every Cohere model receives the role/action instructions in the image-bearing user
+turn as well as the system preamble, with a final JSON-only instruction after the
+image. Live Aya and Command A+ trials produced prose when the task appeared only
+in the system preamble, even with a response schema. Invalid output is rejected,
+not scraped for a plausible action; the next request includes concise validation
+feedback and states that no action or speech was delivered.
 [Cohere Chat API](https://docs.cohere.com/v2/reference/chat),
 [structured output](https://docs.cohere.com/docs/structured-outputs),
 [reasoning controls](https://docs.cohere.com/docs/reasoning).
@@ -132,7 +134,8 @@ benchmark condition. Defaults allow 60 simulation seconds (about four real minut
 at 25% speed), 200,000 combined input/output tokens, and 100 requests including recaps.
 Bound runs with `--sim-seconds`, `--max-requests`, `--max-tokens`, and
 `--timeout`; the token cap is checked between requests and can overshoot by an
-in-flight group (up to three calls). Three consecutive provider/format errors stop the trial. No hidden
+in-flight group (up to three calls). Three consecutive provider/format errors from
+either seat stop the trial; a valid driver reply cannot reset navigator failures. No hidden
 provider/model fallback occurs. Dollar cost is recorded as unknown, not zero;
 token usage is retained for calculating it using the account's actual pricing.
 
