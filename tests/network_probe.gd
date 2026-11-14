@@ -128,7 +128,7 @@ func _tick() -> void:
 					if visual.hazard.kind == "timed_bridge":
 						var state = preload("res://scripts/road_challenge.gd").bridge_state(visual.hazard, game.world.challenge_time)
 						bridge_matches = visual.hazard.level == 1 and visual.deck.position.is_equal_approx(visual.deck_origin + Vector3.RIGHT * state.shift * 17.0)
-			var passed: bool = clock_matches and bridge_matches and patrol_matches and session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and game.car.headlights[0].visible
+			var passed: bool = clock_matches and bridge_matches and patrol_matches and session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and not latest.is_empty() and game.car.headlights[0].visible == bool(latest.lights) and (game.car.headlights[0].visible or not game.car.damage.headlights_ok())
 			var heat: int = preload("res://scripts/procedural_world.gd").heat_for_distance(game.car.distance_driven) + 1
 			passed = passed and route_choices_match and culdesac_matches and game.ui.heat_label.text == "HEAT %d / 5" % heat
 			if cut_before_driver:

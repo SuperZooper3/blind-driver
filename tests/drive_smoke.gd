@@ -131,10 +131,9 @@ func _check_damage(game, car) -> void:
 	check(car.run_state == "driving" and car.signed_speed > 6.0, "a damaged engine still pulls normally")
 	damage.reset()
 	# Hard hits to the front: the bumper takes them, then falls off.
-	for _i in 3:
-		damage.apply_impact(Vector3(0, 0, -1.9), 14.0)
+	damage.apply_impact(Vector3(0, 0, -1.9), 14.0)
 	await process_frame
-	check(not damage.alive(damage.FRONT_BUMPER) and car.run_state == "driving", "hard hits knock the front bumper off")
+	check(not damage.alive(damage.FRONT_BUMPER) and car.run_state == "driving", "a 50 km/h hit knocks the front bumper off")
 	check(damage.health[damage.ENGINE] < 1.0 and damage.alive(damage.ENGINE), "front hits spill into the engine")
 	car.toggle_lights()
 	check(not car.headlights[0].visible, "headlights are broken with the front bumper")

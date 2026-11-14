@@ -50,11 +50,11 @@ A small live rear-view mirror stays visible during the ride: blurred for the dri
 
 Crashes and thorns break the car, but **breaking never ends the run by itself**. A wrecked car limps on, slower and slower, until the police catch it.
 
-Hits under about 16 km/h are harmless. Harder hits on rocks, trees, barriers and walls dent parts and play a crash sound on both seats. Damage grows faster than speed (like crash energy), and the bumpers soak up most of a hit while they last. The front bumper and hood are the soft parts: a 50 km/h hit visibly crumples the bumper, and an 80 km/h hit tears it off. A damaged part only looks and sounds worse. It costs nothing until it **breaks**:
+Hits under about 13 km/h are harmless. Harder hits on rocks, trees, barriers and walls dent parts and play a crash sound on both seats. Damage grows faster than speed (like crash energy), and the bumpers soak up most of a hit while they last. The car is fragile: a 30 km/h hit dents the bumper, a 50 km/h hit tears it off, an 80 km/h corner hit knocks that wheel off, and one head-on hit at top speed wrecks the engine. A damaged part only looks and sounds worse. It costs nothing until it **breaks**:
 
 | Part | When it breaks | Top speed afterwards (healthy: ~106 km/h) |
 | --- | --- | --- |
-| Tires (4) | **Thorns** tear any tire touching them; a tire pops flat (with a bang) after about 1¼ s in the brambles. A flat stays on the car but slides and pulls toward its side. A hard crash can knock a wheel right off instead, leaving the hub dragging and halving steering for a front wheel. Each broken tire also costs 15% of power and 12% of top speed. | 1 flat ~82 km/h, 2 flats ~62, 1 wheel lost ~64 |
+| Tires (4) | **Thorns** tear any tire touching them; a tire pops flat (with a bang) after about 1 s in the brambles. A flat stays on the car but slides and pulls toward its side. A hard crash can knock a wheel right off instead, leaving the hub dragging and halving steering for a front wheel. Each broken tire also costs 15% of power and 12% of top speed. | 1 flat ~82 km/h, 2 flats ~62, 1 wheel lost ~64 |
 | Engine (under the hood) | The hood flies off, the engine smokes and knocks, and power drops to 45%. | ~56 km/h; with 2 flats ~32; everything broken ~18 |
 | Front bumper | Falls off. Front hits reach the engine, windshield and front wheels at full strength, and the headlights break. | |
 | Rear bumper | Falls off. Rear hits reach the rear wheels at full strength. | |

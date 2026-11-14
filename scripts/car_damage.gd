@@ -8,17 +8,18 @@ extends RefCounted
 enum { WHEEL_FL, WHEEL_FR, WHEEL_RL, WHEEL_RR, ENGINE, FRONT_BUMPER, REAR_BUMPER, WINDSHIELD }
 const PART_COUNT := 8
 const NAMES := ["FL TIRE", "FR TIRE", "RL TIRE", "RR TIRE", "ENGINE", "FRONT BUMPER", "REAR BUMPER", "WINDSHIELD"]
-## Closing speed (m/s) below which a hit does no harm: 4.5 m/s is about 16 km/h.
-const SAFE_SPEED := 4.5
+## Closing speed (m/s) below which a hit does no harm: 3.5 m/s is about 13 km/h.
+const SAFE_SPEED := 3.5
 ## Hit severity grows faster than speed, like crash energy: (speed - SAFE_SPEED) ^ CURVE.
 const CURVE := 1.3
-## Health lost per unit of severity. Severity is about 18 at 50 km/h, 42 at 80 km/h,
-## 70 at 110 km/h and 120 at the 158 km/h top speed. The front bumper and hood
-## are the soft parts: a 50 km/h hit visibly crumples the bumper, an 80 km/h hit
-## tears it off, and one head-on hit at top speed costs most of the engine.
-const RATE := [0.021, 0.021, 0.021, 0.021, 0.022, 0.026, 0.026, 0.014]
-## Frontal hits only reach the windshield above this closing speed (about 40 km/h).
-const WINDSHIELD_SPEED := 11.0
+## Health lost per unit of severity. Severity is about 8 at 30 km/h, 21 at 50 km/h,
+## 45 at 80 km/h, 73 at 110 km/h and 122 at the 158 km/h top speed. The car is
+## fragile: a 30 km/h hit dents the bumper, a 50 km/h hit tears it off, an
+## 80 km/h corner hit knocks that wheel off, and one head-on hit at top speed
+## wrecks the engine.
+const RATE := [0.055, 0.055, 0.055, 0.055, 0.03, 0.05, 0.05, 0.025]
+## Frontal hits only reach the windshield above this closing speed (about 32 km/h).
+const WINDSHIELD_SPEED := 9.0
 ## How much of a hit gets past a bumper that is still on.
 const BUMPER_SPILL := 0.3
 ## Penalties for broken parts. Each broken tire costs this share of power and top speed.

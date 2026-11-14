@@ -33,7 +33,7 @@ var last_impact_sound := -1.0
 signal impacted(strength: float)
 signal tire_popped
 ## Tire health lost per second while a tire sits in thorns.
-const THORN_WEAR := 0.8
+const THORN_WEAR := 1.0
 ## Extra rolling resistance of a flat tire, and drag of a bare hub on the ground.
 const FLAT_TIRE_DRAG := 45.0
 ## A flat rides a little lower: more than the suspension can soak up lifts the
