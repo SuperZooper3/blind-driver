@@ -158,7 +158,9 @@ controls. The basic AI course restores roadside thorns and ends on four puncture
 Cohere runs default to Command A Vision in both seats at 25% speed, with up to 60 seconds
 of game time, 200,000 tokens and 100 requests per run. The navigator is coached to
 give actionable directions, respond to the driver, and reassess after crashes;
-recent dialogue and accepted-control feedback accompany each screenshot.
+recent dialogue and accepted-control feedback accompany each screenshot. Both seats
+run independently, with overlapping model calls and no default pause between
+decisions; each request includes the latest available chat and screenshot.
 The web dashboard separates **Keys held now** from **Last accepted turn**, which
 retains each seat's holds, taps and pulse durations after keys have been released.
 The [research plan](docs/AI_HARNESS_PLAN.md) describes

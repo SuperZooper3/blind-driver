@@ -1,8 +1,10 @@
 # Visual-agent harness: first sketch
 
 The primary output is a recap video showing **two complete seat views in one Godot engine**, agent
-dialogue, keyboard inputs, timestamps, and live metrics. Python alternates the
-navigator and driver while Godot keeps running. Both seats use ordinary keyboard
+dialogue, keyboard inputs, timestamps, and live metrics. Python runs the
+navigator and driver independently while Godot keeps running. Each seat can make
+its next decision as soon as its own previous action is acknowledged, without
+waiting for its partner. Both model requests can be in flight together. Both seats use ordinary keyboard
 inputs. Each agent receives its full 1280×800 half of a 2560×800 game-rendered canvas.
 The HUD is duplicated per seat; cropping never removes instruments. Hidden world
 state is not sent to the models.
@@ -79,7 +81,7 @@ contain short `notes` recording observations, its decision, and unresolved quest
 Notes belong to that seat; only `message` goes to its partner. These are concise
 working records, not private chain-of-thought transcripts.
 Every eight own accepted actions (`--memory-every 8`), that seat updates a rolling
-recap while the other seat makes its next action request. Recap calls are text-only,
+recap on a separate worker while both seats continue making decisions. Recap calls are text-only,
 use the same model, and receive immutable snapshots of conversation/notes. They do
 not select controls, pause play, or overwrite live history. The latest completed
 recap, with a `through_turn` watermark, accompanies later current-image requests.
@@ -129,9 +131,15 @@ feedback and states that no action or speech was delivered.
 [reasoning controls](https://docs.cohere.com/docs/reasoning).
 
 The shared limiter defaults to 18 requests/minute across both seats, including
-background recap calls, with a two-call burst for concurrent action/recap requests.
-A due action/recap pair uses two rate slots when available. If only one is available,
-the action proceeds and the recap waits. Recapping still uses quota; it is an explicit
+background recap calls, with a two-call burst so both seats can start together.
+Ready seats share slots fairly; one slow model or game acknowledgment cannot block
+the other. Actions have priority over recaps, which leave a rate slot available.
+The default `--decision-interval-sim 0` adds no pause: a fresh frame or new chat
+triggers the next eligible request. An optional positive interval applies per seat;
+new chat can wake it sooner. Every request uses the latest available snapshot.
+An in-flight API request cannot accept new input; messages arriving during inference
+are retained in order for that seat's next request. Message IDs and `in_reply_to`
+identify which dialogue a reply had actually seen. Recapping still uses quota; it is an explicit
 benchmark condition. Defaults allow 60 simulation seconds (about four real minutes
 at 25% speed), 200,000 combined input/output tokens, and 100 requests including recaps.
 Bound runs with `--sim-seconds`, `--max-requests`, `--max-tokens`, and
@@ -236,7 +244,7 @@ the model's decisions.
 
 The navigator observes, sends a message and keys, then the driver observes a new
 frame, chooses keys and replies. **Held keys remain pressed until that same agent's
-next accepted instruction replaces them.** Inference, the partner's turn, quota
+next accepted instruction replaces them.** Concurrent inference, quota
 waits, and rejected/failed responses do not release keys or apply automatic brakes.
 For example, `hold: ["W", "A"]` keeps accelerating left; a later `hold: ["W"]`
 straightens while continuing to accelerate; `hold: []` releases everything.
@@ -247,6 +255,7 @@ already accepted hold. Ending the episode (including errors, Ctrl-C, and limits)
 releases every held key. Game menus/network recovery retain their ordinary pause
 behavior. Pause/restart and changes to speed are not model actions.
 
+Schema version 8 adds `scheduling_policy: independent_seats_v1` and message/reply IDs.
 Schema version 4 adds the shared local engine, working recaps and readable-display settings; it still records `hold_policy: until_replaced`. Older timed-hold runs remain
 readable, with their fallback metrics retained, but should not be pooled with new
 runs. The source/configuration fingerprint keeps those benchmark groups separate.

@@ -12,7 +12,7 @@ from .driving_guidance import DRIVING_MECHANICS
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
 DEFAULT_MODEL = "command-a-vision-07-2025"
-PROMPT_REVISION = "cooperative-navigation-v4-steering"
+PROMPT_REVISION = "cooperative-navigation-v5-concurrent"
 
 
 class InvalidModelResponse(ValueError):
@@ -46,6 +46,10 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         "forward road progress while avoiding collisions and leaving the road. The game "
         f"runs continuously at {speed:g}% speed, including while you think. "
         "You see your complete seat view and HUD. Your partner sees the other seat in the same game engine. "
+        "You and your partner run independently and may think at the same time; do not wait for a partner turn. "
+        "Each request includes the latest available image and chat; messages arriving while you think "
+        "will appear in your next request. Message in_reply_to identifies the latest dialogue the speaker had seen. "
+        "A reply may predate your newest instruction; verify it was understood before assuming it was acted on. "
         "Keep track of the situation and prior messages. Older advice may be stale. "
         "Act like an attentive teammate: read the latest partner message, respond to requests, "
         "and check whether your last instruction actually helped. You may send one concise "
@@ -75,7 +79,7 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         "your own map checks, and repeated 'no obstacles' claims. Repeat an urgent warning if "
         "it is still needed or unacknowledged; otherwise send a correction, answer, or silence. "
         "hold is the complete set of keys to hold, replacing all previous held keys; [] releases them. "
-        "Held keys stay pressed throughout inference and your partner's turn until YOUR next valid "
+        "Held keys stay pressed throughout both agents' independent inference until YOUR next valid "
         "response replaces them. There is no duration or automatic release/braking between responses. "
         "To keep a key held, include it again; to release it, omit it from hold. "
         "tap presses and releases each listed key once. Your message is at most 240 characters. "
@@ -101,6 +105,7 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
             "Allowed hold keys: W accelerate, S brake then reverse after stopping, A left, D right, "
             "SPACE handbrake. Allowed tap key: H headlights. Do not press opposite directions "
             "together. You cannot open the map; the navigator must interpret it for you. "
+            "At the start, wait for the first concrete navigation advice before accelerating; ask for it if missing. "
             "Follow fresh, concrete navigator directions and briefly acknowledge changed "
             "maneuvers (e.g. 'Braking and turning left; tell me when to straighten.'). "
             "If advice is vague or stale, ask a specific question and ease off while uncertain. "

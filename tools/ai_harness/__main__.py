@@ -31,6 +31,7 @@ def main():
         p.add_argument("--max-output-tokens", type=int, default=512)
         p.add_argument("--history-turns", type=int, default=32)
         p.add_argument("--memory-every", type=int, default=8, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
+        p.add_argument("--decision-interval-sim", type=float, default=0, help="Optional minimum game seconds between observations per seat; new chat wakes it sooner (default: no delay)")
         p.add_argument("--readable-ui", action=argparse.BooleanOptionalAction, default=True)
         p.add_argument("--keep-frames", action="store_true", help="Keep raw screenshots for debugging/rebuilding; otherwise clean them after the recap")
         p.add_argument("--timeout", type=float, default=30)
@@ -92,6 +93,8 @@ def main():
             parser.error(f"--{field.replace('_','-')} must be positive and finite")
     if not 1 <= args.speed <= 100 or not 1 <= args.capture_fps <= 30 or not 1 <= args.video_fps <= 60:
         parser.error("Speed must be 1–100%; capture FPS 1–30; video FPS 1–60")
+    if not 0 <= args.decision_interval_sim <= 5:
+        parser.error("Decision interval must be between 0 and 5 game seconds")
     if args.memory_every < 0:
         parser.error("Memory interval must be zero or positive")
     if args.command == "run":
