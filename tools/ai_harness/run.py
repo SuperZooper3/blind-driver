@@ -159,8 +159,14 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 latency_seconds=time.monotonic() - pending["started"], usage=usage,
                 sim_time=latest.get(role, {}).get("sim_time", 0))
         except Exception as exc:
+            detail = {}
+            if isinstance(exc, InvalidModelResponse):
+                input_tokens += int(exc.usage.get("input_tokens", 0))
+                output_tokens += int(exc.usage.get("output_tokens", 0))
+                usage_known_requests += 1
+                detail["usage"] = exc.usage
             log("memory_error", role=role, request_id=pending["request_id"],
-                error=str(exc)[:250] if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__)
+                error=str(exc)[:250] if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__, **detail)
 
     status("starting")
     try:
@@ -202,7 +208,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
 
         agents = {}
         for role in ROLES:
-            system = prompt(role, args.speed, args.course)
+            system = prompt(role, args.speed, args.course, args.readable_ui)
             extra_path = getattr(args, role + "_instructions", None)
             if extra_path:
                 system += "\nAdditional experiment instructions:\n" + Path(extra_path).read_text(encoding="utf-8")
@@ -290,6 +296,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     error_streak = 0
                 except Exception as exc:
                     error_streak += 1
+                    inbox[role][:0] = request_context["delivered"]
+                    heard[role] = request_context["heard_before"]
                     details = {}
                     if isinstance(exc, InvalidModelResponse):
                         input_tokens += int(exc.usage.get("input_tokens", 0))
@@ -327,11 +335,12 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                                "own_turn": memories[role].turn + 1, "working_memory": memories[role].recap.copy(),
                                "sound_captions": [{k: e[k] for k in ("id", "sim_time", "text")}
                                    for e in state.get("sound_events", []) if e["id"] > heard[role]]}
+                heard_before = heard[role]
                 heard[role] = max([heard[role]] + [e["id"] for e in observation["sound_captions"]])
                 delivered = inbox[role][:]
                 inbox[role].clear()
                 requests += 1
-                request_context = {"role": role, "request_id": requests, "observation": observation, "delivered": delivered, "started_monotonic": time.monotonic()}
+                request_context = {"role": role, "request_id": requests, "observation": observation, "delivered": delivered, "heard_before": heard_before, "started_monotonic": time.monotonic()}
                 log("request", role=role, request_id=requests, observation=observation,
                     image=f"{role}/{state['image']}", partner_messages=delivered)
                 future = executor.submit(agents[role].decide, directory / role / state["image"], observation, delivered)

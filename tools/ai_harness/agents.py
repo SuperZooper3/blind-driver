@@ -37,7 +37,7 @@ def validate_action(value: object, role: str) -> dict:
     return value
 
 
-def prompt(role: str, speed: float, course: str) -> str:
+def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
     common = (
         "You are playing Blind Driver cooperatively with another agent. Maximize useful "
         "forward road progress while avoiding collisions and leaving the road. The game "
@@ -53,8 +53,7 @@ def prompt(role: str, speed: float, course: str) -> str:
         "You receive recent conversation verbatim and a rolling recap of earlier turns. "
         "The recap may lag; its through_turn says how far it covers. Current evidence takes precedence. "
         "Each request contains ONLY the current screenshot. Sound captions are text equivalents "
-        "of audible game events, with game timestamps. In the enlarged display, the map is NORTH UP; "
-        "the orange arrow and heading degrees show car orientation (0 north, 90 east). "
+        "of audible game events, with game timestamps. "
         "hold is the complete set of keys to hold, replacing all previous held keys; [] releases them. "
         "Held keys stay pressed throughout inference and your partner's turn until YOUR next valid "
         "response replaces them. There is no duration or automatic release/braking between responses. "
@@ -62,6 +61,9 @@ def prompt(role: str, speed: float, course: str) -> str:
         "tap presses and releases each listed key once. Your message is at most 240 characters. "
         "Do not repeat toggle keys unless you intend another toggle. No pause or restart is available. "
     )
+    common += ("The enlarged map is NORTH UP; its orange arrow and heading degrees show car "
+               "orientation (0 north, 90 east). " if readable else
+               "This is the original display: the map rotates with the car, with forward pointing up. ")
     common += (
         "This is the basic course: gentle bends and static rocks, no police, jumps, bridges, "
         "cliffs, or lakes. Roadside thorns start roughly 18 metres from the road center; "
@@ -175,6 +177,8 @@ class CohereAgent:
         if self.model.startswith(("command-a-plus", "command-a-reasoning")):
             body["thinking"] = {"type": "disabled"}
         content, usage, _ = self._chat(body)
+        if not content.strip():
+            raise InvalidModelResponse("Empty working recap", usage, {})
         return content[:900], usage
 
     def _chat(self, body: dict) -> tuple[str, dict, dict]:
