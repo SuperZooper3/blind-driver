@@ -8,6 +8,8 @@ signal room_created(code: String)
 signal online_joined
 signal online_error(message: String)
 signal ride_restored
+## "host" (this game drives) or "join" (this game navigates), as the relay assigns seats.
+signal seat_changed(role: String)
 
 const Log = preload("res://scripts/network_log.gd")
 const PORT := 18765
@@ -57,9 +59,10 @@ func _ready() -> void:
 	relay = Relay.new()
 	relay.name = "Relay"
 	add_child(relay)
+	relay.seat_assigned.connect(func(seat: String): _take_seat("host" if seat == "driver" else "join"))
 	relay.room_created.connect(func(code: String):
 		room_code = code
-		status_changed.emit("Lobby ready. Waiting for your navigator…")
+		status_changed.emit("Room %s ready. Waiting for your friend…" % code)
 		room_created.emit(code))
 	relay.joined.connect(func(): online_joined.emit())
 	relay.waiting.connect(func(message: String): status_changed.emit(message))
@@ -95,25 +98,44 @@ func _ready() -> void:
 		connection_lost.emit()
 		online_error.emit(message))
 
-func host_online(address: String, lobby: String = "") -> Error:
+## Create a room. `seat` is "driver" or "navigator"; the friend who joins gets the other one.
+func host_online(address: String, lobby: String = "", seat: String = "driver") -> Error:
 	stop()
 	online = true
-	role = "host"
-	car.driving_enabled = false
-	status_changed.emit("Connecting to your lobby…")
-	return relay.start(address, "create", "", lobby)
+	_take_seat("join" if seat == "navigator" and lobby.is_empty() else "host")
+	status_changed.emit("Creating your room…")
+	return relay.start(address, "create", "", lobby, seat)
 
+## Join by room code (or legacy lobby name). The relay assigns whichever seat is free.
 func join_online(address: String, code: String = "", lobby: String = "") -> Error:
 	stop()
 	online = true
-	role = "join"
-	car.remote = true
-	car.freeze = true
-	car.collision_layer = 0
-	car.collision_mask = 0
-	world.allow_generation = false
-	status_changed.emit("Joining your lobby…")
+	_take_seat("join")
+	status_changed.emit("Joining your friend's room…")
 	return relay.start(address, "join", code, lobby)
+
+## Switch this game between owning the car (host/driver) and mirroring it (join/navigator).
+func _take_seat(value: String) -> void:
+	if value == role:
+		return
+	role = value
+	navigator_id = 0
+	snapshots.clear()
+	last_sequence = -1
+	received_reset = -1
+	last_graph_revision = -1
+	graph_received = false
+	stale = false
+	var driving := value == "host"
+	car.remote = not driving
+	car.freeze = not driving
+	car.collision_layer = 1 if driving else 0
+	car.collision_mask = 1 if driving else 0
+	car.linear_velocity = Vector3.ZERO
+	car.angular_velocity = Vector3.ZERO
+	car.driving_enabled = false
+	world.allow_generation = driving
+	seat_changed.emit(value)
 
 func _online_restored(peer_connected: bool) -> void:
 	recovering = false

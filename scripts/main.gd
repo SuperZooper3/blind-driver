@@ -80,8 +80,8 @@ func _ready() -> void:
 		_resume())
 	ui.host_requested.connect(_host)
 	ui.connect_requested.connect(_join)
-	ui.online_create_requested.connect(_host_online)
-	ui.online_join_requested.connect(func(address: String, lobby: String): _join_online(address, "", lobby))
+	ui.online_create_requested.connect(func(address: String, seat: String): _host_online(address, "", seat))
+	ui.online_join_requested.connect(func(address: String, code: String): _join_online(address, code))
 	ui.online_cancel_requested.connect(_leave_online)
 	ui.show_menu(true, false)
 	motor = Audio.new()
@@ -111,6 +111,7 @@ func _ready() -> void:
 			_online_ready()
 		car.driving_enabled = not ui.in_menu and session.can_drive())
 	session.room_created.connect(ui.display_lobby_ready)
+	session.seat_changed.connect(_apply_seat)
 	session.online_joined.connect(_online_ready)
 	session.ride_restored.connect(func(): car.driving_enabled = not ui.in_menu and session.can_drive())
 	ui.network_session = session
@@ -135,6 +136,13 @@ func _ready() -> void:
 			_start("solo")
 		elif argument == "--split":
 			_start("split")
+		elif argument.begins_with("--room="):
+			_join_from_invite(argument.trim_prefix("--room="))
+	# Browser invite links: https://…/?room=K7Q4MZ joins that room straight away.
+	if OS.has_feature("web"):
+		var invited: Variant = JavaScriptBridge.eval("new URLSearchParams(window.location.search).get('room') || ''")
+		if invited is String and not invited.is_empty():
+			_join_from_invite(invited)
 
 func _setup_environment() -> void:
 	var env := Environment.new()
@@ -489,22 +497,39 @@ func _exit_tree() -> void:
 	_close_local_navigator()
 	preload("res://scripts/network_log.gd").close()
 
-func _host_online(address: String, lobby: String = "") -> void:
+func _host_online(address: String, lobby: String = "", seat: String = "driver") -> void:
 	_close_local_navigator()
-	mode = "host"
-	ui.set_mode(mode)
 	car.driving_enabled = false
 	chase_camera = false
-	session.host_online(address, lobby)
+	session.host_online(address, lobby, seat)
 	_resize_views()
 
 func _join_online(address: String, code: String = "", lobby: String = "") -> void:
 	_close_local_navigator()
-	mode = "join"
-	ui.set_mode(mode)
 	car.driving_enabled = false
 	chase_camera = false
 	session.join_online(address, code, lobby)
+	_resize_views()
+
+func _join_from_invite(code: String) -> void:
+	var short: String = session.relay.normalize_share(code)
+	if short.is_empty():
+		ui.online_status.text = "That invite code doesn't look right. Ask your friend for the 6-character code."
+		return
+	ui.room_code_field.text = short
+	ui.connecting = true
+	ui.set_online_busy(true)
+	ui.online_status.text = "Joining room %s…" % short
+	_join_online(ui.relay_address.text, short)
+
+## The relay decides who drives: follow it whenever our seat changes.
+func _apply_seat(value: String) -> void:
+	mode = value
+	ui.set_mode(mode)
+	chase_camera = false
+	car.driving_enabled = false
+	if session.online:
+		get_window().title = "Blind Driver — " + ("Driver" if value == "host" else "Navigator")
 	_resize_views()
 
 func _online_ready() -> void:
@@ -522,7 +547,7 @@ func _leave_online() -> void:
 		started = false
 		mode = "split"
 		ui.set_mode(mode)
-		ui.online_status.text = "Your lobby name is saved. Choose a seat when you’re ready."
+		ui.online_status.text = "Create a room, or join a friend's with their code."
 	ui.set_online_busy(false)
 	ui.show_menu(true, started)
 	car.driving_enabled = false

@@ -48,10 +48,10 @@ for this implementation. You do not need to install Docker or Godot locally.
    form). The first build downloads the Godot toolchain and can take several
    minutes. Render supplies the frontend's public `https://…onrender.com` URL
    after deployment; use the actual URL displayed on the service page.
-5. Open the frontend URL. Players click **Get in the car**, enter the same lobby
-   name, and choose **Drive** or **Navigate**. Share this frontend URL with
-   friends. Its `/healthz` verifies the exported files; the relay's `/healthz`
-   must separately report **protocol 8** for online play.
+5. Open the frontend URL. Players click **Get in the car**; one creates a room
+   and shares its code or invite link (`…/?room=K7Q4MZ`), the other joins with
+   it. Its `/healthz` verifies the exported files; the relay's `/healthz`
+   must separately report **protocol 9** for online play.
 
 Before online play, upgrade the existing relay using the next section. If you
 already created a Static Site, create the Web Service above as a separate
@@ -70,13 +70,13 @@ References: [Render Web Services](https://render.com/docs/web-services),
 
 ## Upgrade the existing service first
 
-This revision uses **protocol 8** for route choices, cul-de-sacs, rejoining connections, and heat levels, including ramp gaps, timed bridges, and the shared crossing clock, alongside police pursuit, punctured tires, ravines, named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
+This revision uses **protocol 9**: short room codes, seat choice when creating a room, and seat assignment on join, on top of route choices, cul-de-sacs, rejoining connections, and heat levels, including ramp gaps, timed bridges, and the shared crossing clock, alongside police pursuit, punctured tires, ravines, named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
 
 1. Push these commits to the branch linked to your existing Render service (`git push origin main` if it uses main).
 2. Open **blind-driver-relay** in Render, then **Manual Deploy → Deploy latest commit**. Auto-deploy is off in the supplied configuration.
-3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":8`.
+3. Wait for Live. Open [health](https://blind-driver-relay.onrender.com/healthz) and confirm `"ok":true` and `"protocol":9`.
 4. Update/restart **both games** from this same revision. Old clients and old servers cannot use the new protocol together.
-5. Both players enter the same **lobby name** on the start screen, then choose **Drive** or **Navigate**. The online server is already configured. The name is saved locally for next time.
+5. One player presses **Create a room** and shares the 6-character code; the other types it and presses **Join**. The online server is already configured.
 
 Upgrading the relay alone needs no new service, database, router settings, or environment variables. Deployment ends existing rooms, so do it between rides. The initial-service instructions below are retained for setting up another relay.
 
@@ -101,9 +101,9 @@ The networking modes are:
 | --- | --- | --- | --- |
 | Automatic local pair | Play on this computer → Two players / two windows | Automatic `127.0.0.1` connection | Two independent game processes on this computer |
 | Direct local connection | Settings → Advanced connection settings → Direct LAN | `127.0.0.1` or a local network IP | Same computer or same network |
-| Online lobby | Saved lobby name → Drive / Navigate | Your Render service URL | Different computers, including different networks |
+| Online room | Create a room → share code → Join | Your Render service URL | Different computers, including different networks |
 
-`127.0.0.1` always means **the computer you are using**. The automatic local pair uses the same networking path as the LAN mode, but traffic stays inside your computer instead of passing through the router. Giving that address to a friend does not connect them to your computer. For internet play, both of you use the configured online server and the same saved lobby name.
+`127.0.0.1` always means **the computer you are using**. The automatic local pair uses the same networking path as the LAN mode, but traffic stays inside your computer instead of passing through the router. Giving that address to a friend does not connect them to your computer. For internet play, both of you use the configured online server and the same room code.
 
 ## 2. Get the code onto GitHub
 
@@ -168,7 +168,7 @@ https://blind-driver-relay.onrender.com/healthz
 Open that address in your browser. A ready relay returns:
 
 ```json
-{"ok":true,"protocol":8,"instance":"example-instance","uptime_seconds":123}
+{"ok":true,"protocol":9,"instance":"example-instance","uptime_seconds":123}
 ```
 
 Or check from Terminal:
@@ -195,16 +195,16 @@ You can later distribute exported desktop builds instead of the source project: 
 
 ## 6. Connect the two players
 
-1. Agree on a lobby name, such as `forest-friends`. Use 3–40 letters, numbers, spaces, or hyphens. Names ignore case and treat spaces as hyphens.
-2. Enter that name on both start screens. One player chooses **Drive**, the other **Navigate**.
-3. Either player can arrive first. The lobby waits for the other seat, then opens the ride automatically.
-4. Next time, the lobby name, preferred seat, and server address are already remembered locally. Choose your seat again; no code or link needs pasting.
+1. One player chooses **Drive** or **Navigate**, then presses **Create a room**.
+2. A 6-character code appears, such as `K7Q4MZ`. Read it out, or press **Copy code**. In the browser, **Copy invite link** gives a link that joins directly.
+3. The friend types the code into **Room code** and presses **Join** (case, spaces and dashes don't matter). They get whichever seat is left, and the ride opens automatically.
+4. The preferred seat and server address are remembered locally. Each ride uses a fresh room and code.
 
 The server URL is under **Settings → Advanced connection settings**. Leave it at the default unless you run another relay. Both computers must use the same server. The game accepts HTTPS/WSS URLs for public play and HTTP/WS for localhost, adding `/ws` automatically.
 
-The name identifies a meeting place, not a saved world or permanent account. Leaving as the driver closes the active ride; a later visit creates a fresh room using the same name. A relay restart also ends the run, but both clients retain their name. A crashed client’s seat stays reserved during the existing two-minute recovery window. Another player who knows the name can join a vacant seat.
+The code identifies a meeting place, not a saved world or permanent account. Leaving as the driver closes the room and its code. A relay restart also ends the run; create a new room. A crashed client’s seat stays reserved during the existing two-minute recovery window. Anyone who has the code can take a vacant seat, so share it only with your co-player.
 
-Preferences are stored in Godot’s `user://network.cfg` on each computer. Resume credentials remain in memory and are not written there. Cancel or leave keeps the saved name. Clear or change the name on the start screen to choose another lobby.
+Preferences are stored in Godot’s `user://network.cfg` on each computer. Resume credentials remain in memory and are not written there.
 
 Use a voice call or talk in person; voice chat is not built into the game.
 
@@ -223,7 +223,7 @@ Use two computers, ideally on different networks, and check:
 - Drive over a marked cliff: both players see the fall, Game Over, and the same distance. Reconnect a navigator during Game Over and check that the result remains. Choose Drive again on the driver and confirm both return to the start in the same room.
 - Temporarily interrupt either computer's network. The driver brakes once the outage is detected; the navigator holds the last received view. The same running games reconnect automatically and resync the road/car state.
 - A silent connection is detected after 15 seconds without application heartbeat replies. A clean socket failure is detected sooner. Let the connection return within the two-minute recovery window.
-- **Cancel / leave lobby** is intentional: the driver ends the room; the navigator releases their seat. Closing/crashing the game loses its in-memory resume credential. A reserved navigator seat expires after two minutes; a closed driver cannot recover the ride after restarting the application.
+- **Cancel / leave room** is intentional: the driver ends the room; the navigator releases their seat. Closing/crashing the game loses its in-memory resume credential. A reserved navigator seat expires after two minutes; a closed driver cannot recover the ride after restarting the application.
 
 The driver's physics stays local and responsive. The navigator sees an interpolated view with network delay; testing from separate networks is still necessary to judge how well spoken directions work.
 
@@ -234,7 +234,7 @@ Auto-deploy is initially off so every code push does not interrupt an active dri
 1. Run the checks below.
 2. Commit and push the change to the linked branch.
 3. In the Render service, choose **Manual Deploy → Deploy latest commit**.
-4. Wait for Live, check `/healthz`, and join your saved lobby again.
+4. Wait for Live, check `/healthz`, and create a new room.
 
 Keep this service at **one instance**. Rooms live in that process's memory. Multiple instances would need shared room coordination, because two clients can otherwise reach different instances. A restart or deployment ends active rooms; temporary connection recovery works only while the same server process and game processes remain alive. Render can also replace instances during platform maintenance. [Render WebSocket lifecycle and scaling behavior](https://render.com/docs/websocket)
 
@@ -252,7 +252,7 @@ npm ci
 npm start
 ```
 
-It normally listens at `http://localhost:10000`; the game accepts `http://127.0.0.1:10000` or `ws://127.0.0.1:10000/ws`. Open two game instances, set the local URL in advanced settings, and use the same lobby name with Drive / Navigate. Stop the relay with Ctrl+C.
+It normally listens at `http://localhost:10000`; the game accepts `http://127.0.0.1:10000` or `ws://127.0.0.1:10000/ws`. Open two game instances, set the local URL in advanced settings, then create a room in one and join it by code in the other. Stop the relay with Ctrl+C.
 
 From the repository root:
 
@@ -317,7 +317,7 @@ Open the Render service's **Logs** view. The relay writes JSON events to standar
 | `seat_resumed` / `ride_restored` | The original seat was restored and the game requests a fresh road graph and snapshots. |
 | `backpressure_close` | A receiver is too slow. New snapshots are dropped before the queue grows; sustained congestion triggers recovery. |
 | `event_loop_delay` / `client_poll_stall` | Server/game processing paused, which can resemble a bad network. |
-| `shutdown`, changed instance ID, or `resume_expired` | Deployment, process restart, expired reservation, or invalid resume credential. A restarted server has lost its rooms; join the saved lobby again. |
+| `shutdown`, changed instance ID, or `resume_expired` | Deployment, process restart, expired reservation, or invalid resume credential. A restarted server has lost its rooms; create a new room. |
 
 For another unexplained drop, retain **both clients' logs** plus the Render logs from the same UTC minute. Note who was driving and whether either window froze. This distinguishes transport failures from a server rejection or a stalled game. The initial 75-second idle check against the public protocol-1 service survived; the reported active-driving drop was not conclusively reproduced, so these events are designed to capture its actual cause.
 
@@ -331,7 +331,7 @@ Recovery uses application heartbeats every two seconds, a 15-second client reply
 | Render says no open port | Start command is `npm start`; don't override `HOST` to localhost. Inspect service logs. |
 | `/healthz` is loading or unavailable | Give a free instance time to wake; inspect the latest deploy and runtime logs if it stays unavailable. |
 | Game immediately disconnects from the public relay | Use the public HTTPS or WSS URL, not HTTP/WS. Don't append `:10000` or `:18765`. |
-| Health check works, but joining fails | Use the lobby name and Drive / Navigate on the start screen, not direct LAN. Both players need the updated game. |
+| Health check works, but joining fails | Use **Create a room** and **Room code / Join** on the start screen, not direct LAN. Check the code with your friend. Both players need the updated game. |
 | Room not found | Both players must use the same service URL. Check the copied code. A restart or departed driver invalidates the room. |
 | Both seats are taken | Use Back / leave online room in the old navigator; otherwise its seat remains reserved for two minutes after a drop. |
 | Navigator lost connection | Leave the running game open for automatic retry. For an expired room or a restarted game, join your saved lobby again. |

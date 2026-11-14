@@ -6,6 +6,12 @@
   const canvas = document.getElementById('canvas');
   const launch = document.getElementById('launch');
   let started = false;
+  // Invite links (…/?room=K7Q4MZ): the game joins that room once it has loaded.
+  const invited = (new URLSearchParams(location.search).get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (/^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{6}$/.test(invited)) {
+    button.firstChild.textContent = `Join room ${invited} `;
+    status.textContent = 'Your friend invited you. Loading the game joins their room automatically.';
+  }
   button.addEventListener('click', async () => {
     if (started) { location.reload(); return; }
     started = true;

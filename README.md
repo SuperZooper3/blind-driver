@@ -6,8 +6,10 @@ The driver has extremely blurred vision. The navigator sits beside them, sees th
 
 ## Play it
 
-**Browser:** open the deployed frontend URL, click **Get in the car**, and enter
-the same lobby name as your friend. Choose **Drive** or **Navigate**. No Godot
+**Browser:** open the deployed frontend URL and click **Get in the car**. One
+player picks **Drive** or **Navigate** and presses **Create a room**, then shares
+the 6-character code (or the invite link). The friend types the code and presses
+**Join**, or just opens the link, and gets the other seat. No Godot
 installation is needed. Solo and shared-screen play are also available; automatic
 two-window and direct-LAN modes are desktop-only. See [Render browser deployment](deployment.md#add-the-playable-frontend-in-the-render-dashboard)
 to add the frontend as a **Web Service / Docker** alongside your relay. The
@@ -18,7 +20,7 @@ to add the frontend as a **Web Service / Docker** alongside your relay. The
 1. Open **Godot 4.7** (developed and tested with 4.7.2).
 2. Import this folder's `project.godot`, or open the project if it is already in your project list.
 3. Press **F6** with `scenes/main.tscn` open, or **F5** from anywhere in the project.
-4. For online play, agree on a **lobby name**, enter it on both computers, then choose **Drive** or **Navigate**. The name, last seat, and server address are saved on each computer. Either player can arrive first; the ride starts when both are there.
+4. For online play, one player chooses **Drive** or **Navigate** and presses **Create a room**. Send the 6-character code that appears (for example `K7Q4MZ`; **Copy code** puts it on the clipboard). The friend types it into **Room code** and presses **Join**, and gets whichever seat is left. The ride starts when both are in. The preferred seat and server address are saved on each computer.
 5. For offline play, choose **Play on this computer**, then **Two players / two windows**, **Two players / shared screen**, or **Solo practice**.
 
 Local play needs no additional packages or accounts. Models, forest, terrain, map, UI, and engine audio are generated in GDScript. The Compatibility renderer is enabled. Internet rooms use the small Node relay in `server/`.
@@ -81,9 +83,9 @@ The host listens on TCP port **18765**. A second host on the same port will show
 
 The driver owns physics. The navigator receives 30 snapshots per second, renders with a 100 ms interpolation buffer, receives road graph changes, and snaps to the start when a new ride begins. Connection failures/stalls are shown on screen. A disconnected LAN navigator automatically retries its host for up to two minutes; restarting the host creates a new world. This is a local development connection, not a deployed public service.
 
-For **different networks**, use the lobby name and **Drive / Navigate** buttons on the start screen. The online server is already configured as **https://blind-driver-relay.onrender.com** and is hidden under advanced settings. Names ignore case and treat spaces like hyphens: `Forest Friends` and `forest-friends` enter the same lobby. Use 3–40 letters, numbers, spaces, or hyphens. No code or link needs to be copied between rides. Follow [deployment.md](deployment.md) to update or deploy the backend. Both clients connect outward to the relay; no router port forwarding is needed. This path uses an explicit JSON protocol, while the direct LAN mode retains native Godot RPC.
+For **different networks**, use **Create a room** and **Room code / Join** on the start screen. The online server is already configured as **https://blind-driver-relay.onrender.com** and is hidden under advanced settings. Codes are 6 characters from an alphabet without lookalikes (no 0/O or 1/I/L). Typing ignores case, spaces and dashes. In the browser, **Copy invite link** gives `https://…/?room=K7Q4MZ`; opening it loads the game and joins that room. Desktop builds accept `-- --room=K7Q4MZ` on the command line. Follow [deployment.md](deployment.md) to update or deploy the backend. Both clients connect outward to the relay; no router port forwarding is needed. This path uses an explicit JSON protocol, while the direct LAN mode retains native Godot RPC.
 
-**This revision requires protocol 8 on Render and both clients.** Deploy the updated backend before online play; protocol 8 adds route profiles, rejoining connections, and per-road heat levels alongside the shared crossing clock and patrol. Existing named lobbies, hazards, and tire damage are preserved. This change does not deploy Render. The backend retains both seats through temporary disconnects and the games automatically reconnect and resync. A server or game-process restart ends the current run, but the same locally saved name works for the next ride. Lobby names are rendezvous points, not saved games or permanent reservations. A seat from a crashed client can remain reserved for up to two minutes.
+**This revision requires protocol 9 on Render and both clients.** Deploy the updated backend before online play; protocol 9 adds short room codes, choosing your seat when creating a room, and seat assignment on join. Route profiles, rejoining connections, heat levels, the shared crossing clock, patrol, hazards and car damage are unchanged. The relay still accepts the older lobby-name messages, but the game no longer shows them. This change does not deploy Render. The backend retains both seats through temporary disconnects and the games automatically reconnect and resync. A server or game-process restart ends the current run; create a new room for the next ride. Room codes are rendezvous points, not saved games or permanent reservations; a code stops working when its room closes. A seat from a crashed client can remain reserved for up to two minutes.
 
 Press **F8** for a 75-second connection test, live latency/retry metrics, and **Open network logs folder** (**Download network logs** in the browser). The deployed server also provides `/diagnostics` for a browser-based check. Client JSONL logs and the relay's structured logs record timeouts, close codes, retries, validation failures, and stalls. See [connection checks and logs](deployment.md#connection-checks-and-logs) for instructions. Browser export and Railway hosting are configured in [docs/RAILWAY.md](docs/RAILWAY.md); room invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
 
@@ -140,8 +142,8 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `scripts/procedural_world.gd` | Road graph, terrain, forest streaming, collision, world seed |
 | `scripts/road_hazards.gd`, `scripts/road_challenge.gd` | Physical obstacles, pits, ramp jumps, sliding bridge geometry and timing |
 | `scripts/geometry.gd` | Shared low-poly mesh/material helpers |
-| `scripts/game_ui.gd` | Remembered lobby menu, settings, and split-screen interface |
-| `scripts/dashboard.gd`, `scripts/lobby_settings.gd`, `scripts/run_records.gd` | Speed gauge, trip odometer, local lobby preferences, and persistent personal best |
+| `scripts/game_ui.gd` | Room code menu, settings, and split-screen interface |
+| `scripts/dashboard.gd`, `scripts/lobby_settings.gd`, `scripts/run_records.gd` | Speed gauge, trip odometer, local seat/server preferences, and persistent personal best |
 | `scripts/route_map.gd` | Navigator's map |
 | `scripts/session.gd` | Direct/relayed sessions and shared snapshot interpolation |
 | `scripts/relay_client.gd`, `scripts/wire_protocol.gd` | Resumable internet rooms, diagnostics, and explicit JSON state protocol |
@@ -179,7 +181,7 @@ GODOT=/path/to/godot python3 tests/run_checks.py
 godot --headless --path . --fixed-fps 60 --script tests/drive_smoke.gd
 ```
 
-The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved lobby settings, name-based joining in either order, removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn tire wear and flats, crash damage, debris, crash/pop sounds and crippled-car speed, roof clearance, rollover failure, PB persistence, a single growth frontier with rejoining route choices, solid cul-de-sacs, heat progression, patrol navigation/avoidance/capture, rear-view controls, ramp overturns, successful and failed gap jumps, timed bridge crossings and falls, shared bridge motion after reconnect, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
+The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved seat settings, room codes (creating as either seat, joining by code, typos and full rooms), removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn tire wear and flats, crash damage, debris, crash/pop sounds and crippled-car speed, roof clearance, rollover failure, PB persistence, a single growth frontier with rejoining route choices, solid cul-de-sacs, heat progression, patrol navigation/avoidance/capture, rear-view controls, ramp overturns, successful and failed gap jumps, timed bridge crossings and falls, shared bridge motion after reconnect, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
 
 ## Prototype boundaries
 

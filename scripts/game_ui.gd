@@ -6,8 +6,8 @@ signal restart_requested
 signal connect_requested(address: String)
 signal host_requested
 signal leave_requested
-signal online_create_requested(address: String, lobby: String)
-signal online_join_requested(address: String, lobby: String)
+signal online_create_requested(address: String, seat: String)
+signal online_join_requested(address: String, code: String)
 signal online_cancel_requested
 
 const Settings = preload("res://scripts/lobby_settings.gd")
@@ -66,9 +66,16 @@ var leave_lobby_button: Button
 var connecting := false
 var preferred_seat := "driver"
 var relay_address: LineEdit
-var lobby_name: LineEdit
+var room_code_field: LineEdit
+var room_code_label: Label
+var share_box: HBoxContainer
+var copy_code_button: Button
+var copy_link_button: Button
+var join_code_button: Button
+var shared_code := ""
 var online_status: Label
 var create_online_button: Button
+var create_room_button: Button
 var join_online_button: Button
 var network_session: Node
 var diagnostic_client: Node
@@ -277,30 +284,54 @@ func _build_menu() -> void:
 	resume_button.hide()
 	box.add_child(resume_button)
 	box.add_child(HSeparator.new())
-	box.add_child(_label("YOUR ONLINE LOBBY", 12, amber))
-	lobby_name = LineEdit.new()
-	lobby_name.placeholder_text = "Choose a name, e.g. forest-friends"
-	lobby_name.max_length = 40
-	lobby_name.custom_minimum_size.y = 46
-	lobby_name.add_theme_font_size_override("font_size", 19)
-	box.add_child(lobby_name)
-	var explanation := _label("Use the same name on both computers.\nIt’s remembered here for your next ride.", 13, muted)
-	explanation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(explanation)
-	var seats := HBoxContainer.new()
-	seats.add_theme_constant_override("separation", 10)
-	box.add_child(seats)
-	create_online_button = _button("Drive", func(): _enter_lobby("driver"))
-	join_online_button = _button("Navigate", func(): _enter_lobby("navigator"))
+	box.add_child(_label("PLAY ONLINE", 12, amber))
+	var seat_row := HBoxContainer.new()
+	seat_row.add_theme_constant_override("separation", 10)
+	box.add_child(seat_row)
+	var seat_label := _label("I want to", 14, muted)
+	seat_label.custom_minimum_size.x = 86
+	seat_row.add_child(seat_label)
+	create_online_button = _button("Drive", func(): _choose_seat("driver"))
+	join_online_button = _button("Navigate", func(): _choose_seat("navigator"))
 	for button in [create_online_button, join_online_button]:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size.y = 50
-		seats.add_child(button)
-	online_status = _label("Choose your seat. The ride starts when you’re both here.", 13, amber)
+		seat_row.add_child(button)
+	create_room_button = _button("Create a room   →", _create_room)
+	create_room_button.custom_minimum_size.y = 50
+	box.add_child(create_room_button)
+	# Shown once a room exists: the code to read out or paste to a friend.
+	share_box = HBoxContainer.new()
+	share_box.add_theme_constant_override("separation", 10)
+	share_box.hide()
+	box.add_child(share_box)
+	room_code_label = _label("", 34)
+	room_code_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	share_box.add_child(room_code_label)
+	copy_code_button = _button("Copy code", func(): _copy(shared_code, "Code copied. Send it to your friend."))
+	share_box.add_child(copy_code_button)
+	copy_link_button = _button("Copy invite link", func(): _copy(invite_link(shared_code), "Invite link copied. Opening it joins this room."))
+	copy_link_button.visible = OS.has_feature("web")
+	share_box.add_child(copy_link_button)
+	box.add_child(_label("or join a friend's room", 12, muted))
+	var join_row := HBoxContainer.new()
+	join_row.add_theme_constant_override("separation", 10)
+	box.add_child(join_row)
+	room_code_field = LineEdit.new()
+	room_code_field.placeholder_text = "Room code, e.g. K7Q4MZ"
+	room_code_field.max_length = 12
+	room_code_field.custom_minimum_size.y = 46
+	room_code_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	room_code_field.add_theme_font_size_override("font_size", 19)
+	room_code_field.text_submitted.connect(func(_text: String): _join_room())
+	join_row.add_child(room_code_field)
+	join_code_button = _button("Join", _join_room)
+	join_code_button.custom_minimum_size.x = 110
+	join_row.add_child(join_code_button)
+	online_status = _label("Create a room, or join a friend's with their code. The ride starts when you're both in.", 13, amber)
 	online_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	online_status.custom_minimum_size.y = 42
 	box.add_child(online_status)
-	leave_lobby_button = _button("Cancel / leave lobby", func(): online_cancel_requested.emit())
+	leave_lobby_button = _button("Cancel / leave room", func(): online_cancel_requested.emit())
 	leave_lobby_button.hide()
 	box.add_child(leave_lobby_button)
 	new_ride_button = _button("Start a new ride", func(): restart_requested.emit())
@@ -379,7 +410,6 @@ func _show_secondary(panel: PanelContainer) -> void:
 
 func _load_preferences(path: String = Settings.PATH) -> void:
 	var saved := Settings.read(path)
-	lobby_name.text = saved.name
 	preferred_seat = saved.seat
 	relay_address.text = OS.get_environment("BLIND_DRIVER_RELAY_URL")
 	if relay_address.text.is_empty():
@@ -398,28 +428,47 @@ func _highlight_seat() -> void:
 	join_online_button.add_theme_stylebox_override("normal", _style(Color("52715c") if preferred_seat == "navigator" else Color("29483f"), 8))
 
 func _save_preferences() -> Error:
-	var result := Settings.write(relay_address.text, lobby_name.text, preferred_seat)
+	var result := Settings.write(relay_address.text, "", preferred_seat)
 	if result != OK:
 		online_status.text = "Couldn’t save preferences on this computer. You can still join."
 	return result
 
-func _enter_lobby(seat: String) -> void:
-	var name := Settings.normalize_name(lobby_name.text)
-	if name.is_empty():
-		online_status.text = "Choose a name with 3–40 letters, numbers, spaces, or hyphens."
-		lobby_name.grab_focus()
-		return
-	lobby_name.text = name
+func _choose_seat(seat: String) -> void:
 	preferred_seat = seat
 	_highlight_seat()
 	_save_preferences()
+
+func _create_room() -> void:
+	_save_preferences()
 	connecting = true
 	set_online_busy(true)
-	online_status.text = "Joining your lobby… The server may take a moment to wake up."
-	if seat == "driver":
-		online_create_requested.emit(relay_address.text, name)
-	else:
-		online_join_requested.emit(relay_address.text, name)
+	online_status.text = "Creating your room… The server may take a moment to wake up."
+	online_create_requested.emit(relay_address.text, preferred_seat)
+
+func _join_room() -> void:
+	var code := preload("res://scripts/relay_client.gd").normalize_share(room_code_field.text)
+	if code.is_empty():
+		online_status.text = "Room codes are 6 letters and numbers, like K7Q4MZ."
+		room_code_field.grab_focus()
+		return
+	room_code_field.text = code
+	connecting = true
+	set_online_busy(true)
+	online_status.text = "Joining room %s… The server may take a moment to wake up." % code
+	online_join_requested.emit(relay_address.text, code)
+
+func _copy(text: String, done: String) -> void:
+	if text.is_empty():
+		return
+	DisplayServer.clipboard_set(text)
+	online_status.text = done
+
+## Browser link that opens the game and joins this room; empty outside the browser.
+func invite_link(code: String) -> String:
+	if not OS.has_feature("web") or code.is_empty():
+		return ""
+	var base: Variant = JavaScriptBridge.eval("window.location.origin + window.location.pathname")
+	return "%s?room=%s" % [base, code] if base is String else ""
 
 func _build_diagnostics() -> void:
 	diagnostic_client = preload("res://scripts/relay_client.gd").new()
@@ -484,18 +533,25 @@ func _process(delta: float) -> void:
 		live_network.text = "DIRECT LAN · %s\nReceived snapshots: %d · %s" % [network_session.role.to_upper(), network_session.snapshots_received, "reconnecting" if network_session.recovering else "connected / waiting for partner"]
 
 func set_online_busy(busy: bool) -> void:
+	create_room_button.disabled = busy
+	join_code_button.disabled = busy
 	create_online_button.disabled = busy
 	join_online_button.disabled = busy
-	lobby_name.editable = not busy
+	room_code_field.editable = not busy
 	leave_lobby_button.visible = busy
 	if not busy:
 		connecting = false
+		shared_code = ""
+		share_box.hide()
 
 func show_online() -> void:
 	show_menu(true)
 
-func display_lobby_ready(_code: String) -> void:
-	online_status.text = "Lobby ready. Your navigator can join using the same saved name."
+func display_lobby_ready(code: String) -> void:
+	shared_code = code
+	room_code_label.text = code
+	share_box.show()
+	online_status.text = "Room ready. Tell your friend this code%s — they'll %s." % [" or send the invite link" if OS.has_feature("web") else "", "navigate" if preferred_seat == "driver" else "drive"]
 
 func _button(text: String, action: Callable) -> Button:
 	var button := Button.new()

@@ -41,9 +41,17 @@ func _run() -> void:
 		elif argument.begins_with("--relay-room="):
 			room = argument.trim_prefix("--relay-room=")
 	if not relay_url.is_empty():
-		if is_host:
+		var create_as_navigator := OS.get_cmdline_user_args().has("--create-as-navigator")
+		if is_host and room.is_empty():
 			game.session.room_created.connect(func(code: String): print("ROOM_READY=", code))
 			game._host_online(relay_url, lobby)
+		elif is_host:
+			# Join a room the navigator created: the relay hands us the free driver seat.
+			game._join_online(relay_url, room, lobby)
+		elif create_as_navigator:
+			game.session.room_created.connect(func(code: String): print("ROOM_READY=", code))
+			game.session.relay.waiting.connect(func(_message: String): print("WAITING_FOR_DRIVER"))
+			game._host_online(relay_url, "", "navigator")
 		else:
 			game.session.relay.waiting.connect(func(_message: String): print("WAITING_FOR_DRIVER"))
 			game._join_online(relay_url, room, lobby)

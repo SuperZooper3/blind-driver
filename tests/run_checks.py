@@ -58,7 +58,7 @@ def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False, haza
         with path.open("w+") as output:
             host = subprocess.Popen(command(probe, temporary / (tag + "-host.log"), "--", "--probe-host", *extra), stdout=output, stderr=subprocess.STDOUT)
             if relay_url:
-                code = wait_output(host, path, r"ROOM_READY=([A-F0-9]{18})").group(1)
+                code = wait_output(host, path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
                 extra.append("--relay-room=" + code)
             else:
                 wait_output(host, path, "HOST_READY")
@@ -66,30 +66,31 @@ def run_pair(temporary, relay_url="", resilience=False, lan_recovery=False, haza
             print(f"[{tag}]", client.stdout)
             host.wait(timeout=15)
             host_output = path.read_text()
-            print(re.sub(r"ROOM_READY=[A-F0-9]+", "ROOM_READY=(test room)", host_output))
+            print(re.sub(r"ROOM_READY=[A-Z0-9]+", "ROOM_READY=(test room)", host_output))
             if client.returncode or host.returncode or "FAIL:" in client.stdout or "SCRIPT ERROR" in client.stderr or "SCRIPT ERROR" in host_output:
                 raise RuntimeError(client.stderr + "\nNetwork integration check failed")
     finally:
         stop(host)
 
 
-def run_named_pair(temporary, relay_url):
-    """Navigator arrives first, then both enter only an agreed name (no exchanged code)."""
+def run_code_pair(temporary, relay_url):
+    """The navigator creates the room; the driver joins with only the short code and is given the driver seat."""
     host = client = None
-    extra = ["--relay-url=" + relay_url, "--lobby-name=integration-friends", "--probe-duration=14"]
-    client_path = temporary / "named-client-output.txt"
-    host_path = temporary / "named-host-output.txt"
+    extra = ["--relay-url=" + relay_url, "--probe-duration=14"]
+    client_path = temporary / "code-client-output.txt"
+    host_path = temporary / "code-host-output.txt"
     try:
         with client_path.open("w+") as client_output, host_path.open("w+") as host_output:
-            client = subprocess.Popen(command("tests/network_probe.gd", temporary / "named-client.log", "--", "--probe-join", "--cut-before-driver", *extra), stdout=client_output, stderr=subprocess.STDOUT)
+            client = subprocess.Popen(command("tests/network_probe.gd", temporary / "code-client.log", "--", "--probe-join", "--create-as-navigator", "--cut-before-driver", *extra), stdout=client_output, stderr=subprocess.STDOUT)
+            code = wait_output(client, client_path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
             wait_output(client, client_path, "WAITING_RECONNECT")
-            host = subprocess.Popen(command("tests/network_probe.gd", temporary / "named-host.log", "--", "--probe-host", *extra), stdout=host_output, stderr=subprocess.STDOUT)
+            host = subprocess.Popen(command("tests/network_probe.gd", temporary / "code-host.log", "--", "--probe-host", "--relay-room=" + code, *extra), stdout=host_output, stderr=subprocess.STDOUT)
             client.wait(timeout=25)
             host.wait(timeout=20)
         outputs = client_path.read_text() + host_path.read_text()
-        print("[named lobby]", re.sub(r"ROOM_READY=[A-F0-9]+", "ROOM_READY=(test room)", outputs))
+        print("[room code]", re.sub(r"ROOM_READY=[A-Z0-9]+", "ROOM_READY=(test room)", outputs))
         if client.returncode or host.returncode or "FAIL:" in outputs or "SCRIPT ERROR" in outputs:
-            raise RuntimeError("Named lobby integration failed")
+            raise RuntimeError("Room code integration failed")
     finally:
         stop(client)
         stop(host)
@@ -149,7 +150,7 @@ if __name__ == "__main__":
                     port = wait_output(relay, relay_output, r"listening on 127\.0\.0\.1:(\d+)").group(1)
                     run_pair(temporary, f"ws://127.0.0.1:{port}/ws", "--resilience" in sys.argv)
                     if "--resilience" not in sys.argv:
-                        run_named_pair(temporary, f"ws://127.0.0.1:{port}/ws")
+                        run_code_pair(temporary, f"ws://127.0.0.1:{port}/ws")
                         run_pair(temporary, f"ws://127.0.0.1:{port}/ws", hazards=True)
                     if "--resilience" in sys.argv:
                         print("[faults]", "\n".join(line for line in relay_output.read_text().splitlines() if "FAULT:" in line))
