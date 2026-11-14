@@ -24,7 +24,7 @@ python3 -m venv .venv
 
 # With COHERE_API_KEY already exported in this terminal:
 .venv/bin/python -m tools.ai_harness run \
-  --provider cohere --speed 5 --sim-seconds 10 --max-requests 60
+  --provider cohere --speed 25 --sim-seconds 30 --max-requests 36
 ```
 
 Set `GODOT` or pass `--godot /path/to/Godot` if the executable is not detected.
@@ -47,10 +47,15 @@ scripted result is prominently labeled and is not a model-performance claim.
 
 ## Model choices, prompts, and speeds
 
+Both seats default to `c4ai-aya-vision-32b`, our initial smaller-model baseline.
+The stronger-model candidate is `command-a-plus-05-2026`; these are experiment
+choices, not an established performance ranking. Both support image input.
+[Aya Vision documentation](https://docs.cohere.com/docs/aya-vision).
+
 ```sh
 .venv/bin/python -m tools.ai_harness run --provider cohere \
   --driver-model command-a-plus-05-2026 \
-  --navigator-model command-a-vision-07-2025 \
+  --navigator-model c4ai-aya-vision-32b \
   --speed 10 --sim-seconds 20 --max-requests 60
 ```
 
@@ -67,7 +72,7 @@ Optional `--driver-instructions file.txt` and `--navigator-instructions file.txt
 append coaching instructions; use `--label coached-v1` to identify the experiment.
 
 Cohere is the first implemented provider. Command A+ uses JSON Schema output and
-disables thinking for the initial latency baseline. Command A Vision uses JSON
+disables thinking for the initial latency baseline. Aya Vision and Command A Vision use JSON
 instructions plus the same local validation. A future Google adapter can use the
 same contract; it is not implemented in this sketch.
 [Cohere Chat API](https://docs.cohere.com/v2/reference/chat),
@@ -80,6 +85,29 @@ make the actual rate lower. Bound runs with `--max-requests`, `--max-tokens`, an
 response. Three consecutive provider/format errors stop the trial. No hidden
 provider/model fallback occurs. Dollar cost is recorded as unknown, not zero;
 token usage is retained for calculating it using the account's actual pricing.
+
+## Live terminal
+
+`run` now prints a single chronological stream for both agents: requests, inference
+latency, proposed keys, accepted messages, errors, token usage, and periodic game
+status (simulation/real time, speed, progress, hits, held keys, and fallback).
+These are completed responses, not token-by-token generation or private reasoning.
+Messages are shown as delivered only after the game acknowledges their action.
+
+To open the same live timeline in a separate terminal, without an API key:
+
+```sh
+# Start before or during the run; follows new runs until you close the viewer.
+.venv/bin/python -m tools.ai_harness watch runs --latest
+
+# Follow/replay one run's event log; exits after its recap is ready.
+.venv/bin/python -m tools.ai_harness watch runs/RUN_ID
+```
+
+Closing this read-only viewer does not stop the run. Ctrl-C in the terminal
+running the `run` command does stop it and compiles the captured portion.
+The viewer retains scrollback, while `events.jsonl` and `transcript.txt` preserve
+the timeline on disk. It does not expose API keys or image payloads.
 
 ## Keyboard contract
 
@@ -162,8 +190,8 @@ included in model inputs.
 
 | Artifact | Purpose |
 | --- | --- |
-| `recap.mp4` | Main review video, default 4× real capture speed, two complete views with conversation/controls/metrics |
-| `recap_simulation.mp4` | Normal simulation pace, approximately 20× recording speed for a 5% run |
+| `recap.mp4` | Main video at normal game speed, two complete views with conversation/controls/metrics |
+| `recap_simulation.mp4` | Same normal-speed video; retained separately when an explicit review-speed override is used |
 | `recap.jpg` | Final recap still |
 | `recap_settings.json` | Playback/export settings used by the latest recap rebuild |
 | `metrics.png` | Speed, progress, road deviation, and distance plots |
@@ -172,11 +200,20 @@ included in model inputs.
 | `driver/`, `navigator/` | Full screenshots, per-frame telemetry, prompts, input acknowledgments, and game logs |
 | `manifest.json`, `result.json` | Source hash, models, configuration, budgets, end reason, validity, termination/truncation |
 
-The review has a rolling transcript; accelerated messages can still be brief.
-Use slower playback or rebuild without any new API calls:
+The default recap compensates for game slowdown using the measured simulation
+clock: a 25% run plays approximately 4× faster than its recording, and a 5% run
+approximately 20×. Thirty simulation seconds produce a roughly thirty-second
+video, independent of inference/recording wall time. This also removes simulation
+stalls from the default replay. The live terminal continues at real recording time.
+
+The review has a rolling transcript; accelerated messages can be brief.
+Rebuild at the default normal game speed or explicitly slow it to read dialogue,
+without making any new API calls:
 
 ```sh
-.venv/bin/python -m tools.ai_harness recap runs/RUN_ID --review-speed 2
+.venv/bin/python -m tools.ai_harness recap runs/RUN_ID
+# 1× real recording time; overrides speed compensation for recap.mp4 only.
+.venv/bin/python -m tools.ai_harness recap runs/RUN_ID --review-speed 1
 ```
 
 Videos are silent in this sketch. Captures are sampled, not a promise of perfect
@@ -193,7 +230,7 @@ physics. Seeds reproduce course configuration in fresh processes, not model outp
 
 # Cross both role assignments and repeat across seeds. Budget applies to the batch.
 .venv/bin/python -m tools.ai_harness benchmark --provider cohere \
-  --models command-a-plus-05-2026,command-a-vision-07-2025 \
+  --models command-a-plus-05-2026,c4ai-aya-vision-32b \
   --speeds 5,10 --seeds 72419,72420 --repeats 2 \
   --sim-seconds 10 --total-request-budget 120
 

@@ -139,10 +139,24 @@ def export_metrics(directory: Path, frames: list[dict], events: list[dict]) -> d
     return summary
 
 
-def build_recap(directory: Path, fps: int = 15, review_speed: float = 4) -> dict:
+def simulation_timeline(rows: list[dict]):
+    """Map a normal-speed video second to the recorded simulation's wall time."""
+    sim_times = [r["sim_time"] for r in rows]
+    def wall_for_sim(target: float):
+        index = max(0, bisect_right(sim_times, target)-1)
+        a = rows[index]
+        b = rows[min(index+1, len(rows)-1)]
+        span = b["sim_time"] - a["sim_time"]
+        weight = max(0, min(1, (target-a["sim_time"])/span)) if span > 0 else 0
+        return a["unix_time"] + weight*(b["unix_time"]-a["unix_time"])
+    return max(sim_times, default=0), wall_for_sim
+
+
+def build_recap(directory: Path, fps: int = 15, review_speed: float | None = None) -> dict:
     directory = Path(directory).resolve()
     (directory / "recap_settings.json").write_text(json.dumps({"video_fps": fps,
-        "review_speed": review_speed, "simulation_replay": "measured driver simulation clock",
+        "review_speed": review_speed, "playback_mode": "normal_game_speed" if review_speed is None else "wall_clock_multiplier",
+        "simulation_replay": "measured driver simulation clock",
         "resolution": [WIDTH, HEIGHT]}, indent=2))
     manifest = json.loads((directory / "manifest.json").read_text())
     events = json_lines(directory / "events.jsonl")
@@ -213,24 +227,17 @@ def build_recap(directory: Path, fps: int = 15, review_speed: float = 4) -> dict
                   + (" · SCRIPTED, NOT MODEL PERFORMANCE" if manifest["provider"] == "scripted" else ""), font=font(18), fill=MUTED)
         return canvas
 
-    # Review keeps conversation readable. Simulation replay follows the measured
-    # driver clock, so machine stalls are not mistaken for simulation progress.
+    # The primary video restores normal game speed using measured clock progress.
+    # An explicit review-speed override remains useful for reading the dialogue.
     sim_rows = [r for r in seats["driver"] if r["unix_time"] >= started]
-    sim_times = [r["sim_time"] for r in sim_rows]
-    sim_end = max(sim_times, default=0)
-
-    def wall_for_sim(target: float):
-        index = max(0, bisect_right(sim_times, target)-1)
-        a = sim_rows[index]
-        b = sim_rows[min(index+1, len(sim_rows)-1)]
-        span = b["sim_time"] - a["sim_time"]
-        weight = max(0, min(1, (target-a["sim_time"])/span)) if span > 0 else 0
-        return a["unix_time"] + weight*(b["unix_time"]-a["unix_time"])
-
-    for name, duration, mapping, label in (
-        ("recap.mp4", (ended-started)/review_speed, lambda t: started+t*review_speed, f"REVIEW {review_speed:g}× REAL"),
-        ("recap_simulation.mp4", sim_end, wall_for_sim, "REPLAY 1× SIMULATION"),
-    ):
+    sim_end, wall_for_sim = simulation_timeline(sim_rows)
+    videos = [("recap.mp4", sim_end, wall_for_sim, "NORMAL GAME SPEED")]
+    if review_speed is not None:
+        videos = [
+            ("recap.mp4", (ended-started)/review_speed, lambda t: started+t*review_speed, f"REVIEW {review_speed:g}× REAL"),
+            ("recap_simulation.mp4", sim_end, wall_for_sim, "NORMAL GAME SPEED"),
+        ]
+    for name, duration, mapping, label in videos:
         if duration <= 0:
             continue
         cmd = [ffmpeg, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
@@ -249,6 +256,8 @@ def build_recap(directory: Path, fps: int = 15, review_speed: float = 4) -> dict
                 if encoder.poll() is None:
                     encoder.kill()
                     encoder.wait()
+    if review_speed is None and (directory / "recap.mp4").is_file():
+        shutil.copyfile(directory / "recap.mp4", directory / "recap_simulation.mp4")
     render(ended, "FINAL RECAP").save(directory / "recap.jpg", quality=92)
     print(f"Recap: {directory / 'recap.mp4'}", flush=True)
     return summary

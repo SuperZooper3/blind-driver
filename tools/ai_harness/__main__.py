@@ -13,17 +13,17 @@ def main():
     batch = sub.add_parser("benchmark", help="Run model-pair × speed × seed comparisons")
     for p in (run, batch):
         p.add_argument("--provider", choices=["scripted", "cohere"], default="scripted")
-        p.add_argument("--driver-model", default="command-a-plus-05-2026")
-        p.add_argument("--navigator-model", default="command-a-plus-05-2026")
+        p.add_argument("--driver-model", default="c4ai-aya-vision-32b")
+        p.add_argument("--navigator-model", default="c4ai-aya-vision-32b")
         p.add_argument("--driver-instructions", help="Optional coaching text appended to the driver's prompt")
         p.add_argument("--navigator-instructions", help="Optional coaching text appended to the navigator's prompt")
-        p.add_argument("--speed", type=float, default=5, help="Simulation speed percentage (1–100)")
+        p.add_argument("--speed", type=float, default=25, help="Simulation speed percentage (1–100)")
         p.add_argument("--seed", type=int, default=72419)
         p.add_argument("--course", choices=["basic", "standard"], default="basic")
         p.add_argument("--sim-seconds", type=float, default=10)
         p.add_argument("--capture-fps", type=int, default=6)
         p.add_argument("--video-fps", type=int, default=15)
-        p.add_argument("--review-speed", type=float, default=4, help="Recap speed relative to real capture time")
+        p.add_argument("--review-speed", type=float, help="Override normal-game-speed recap with this multiplier of real capture time")
         p.add_argument("--rpm", type=float, default=18, help="Combined API requests/minute across both seats")
         p.add_argument("--max-requests", type=int, default=60)
         p.add_argument("--max-tokens", type=int, default=100000)
@@ -44,19 +44,29 @@ def main():
     recap = sub.add_parser("recap", help="Rebuild videos from captured frames without making model calls")
     recap.add_argument("directory", type=Path)
     recap.add_argument("--video-fps", type=int, default=15)
-    recap.add_argument("--review-speed", type=float, default=4)
+    recap.add_argument("--review-speed", type=float, help="Override normal game speed; 1 preserves real recording time")
+    watch = sub.add_parser("watch", help="Follow both agents and game status in one read-only terminal")
+    watch.add_argument("directory", type=Path)
+    watch.add_argument("--latest", action="store_true", help="Follow the newest run under this output directory, including future runs")
     summarize = sub.add_parser("summarize", help="Export CSV and graphs across recorded runs")
     summarize.add_argument("directory", type=Path)
     args = parser.parse_args()
+    if args.command == "watch":
+        from .monitor import watch
+        watch(args.directory, args.latest)
+        return
+    if args.command in {"run", "benchmark", "recap"} and args.review_speed is not None:
+        if not 0 < args.review_speed < float("inf"):
+            parser.error("Review speed must be positive and finite")
     if args.command == "recap":
-        if args.video_fps < 1 or args.review_speed <= 0:
-            parser.error("Video FPS and review speed must be positive")
+        if not 1 <= args.video_fps <= 60:
+            parser.error("Video FPS must be 1–60")
         build_recap(args.directory, args.video_fps, args.review_speed)
         return
     if args.command == "summarize":
         print(summarize_runs(args.directory))
         return
-    for field in ("speed", "sim_seconds", "review_speed", "rpm", "max_requests", "max_tokens", "max_output_tokens", "history_turns", "timeout", "max_action_age_sim", "scripted_interval"):
+    for field in ("speed", "sim_seconds", "rpm", "max_requests", "max_tokens", "max_output_tokens", "history_turns", "timeout", "max_action_age_sim", "scripted_interval"):
         if not 0 < getattr(args, field) < float("inf"):
             parser.error(f"--{field.replace('_','-')} must be positive and finite")
     if not 1 <= args.speed <= 100 or not 1 <= args.capture_fps <= 30 or not 1 <= args.video_fps <= 60:

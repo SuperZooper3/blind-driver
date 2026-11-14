@@ -13,6 +13,7 @@ import time
 import uuid
 
 from .agents import CohereAgent, InvalidModelResponse, ScriptedAgent, prompt, validate_action
+from .monitor import ConsoleMonitor
 
 ROOT = Path(__file__).resolve().parents[2]
 ROLES = ("navigator", "driver")
@@ -99,6 +100,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
     manifest["source_sha256"] = source_hash.hexdigest()
     manifest["thinking"] = "disabled for Cohere reasoning models"
     atomic_json(directory / "manifest.json", manifest)
+    monitor = ConsoleMonitor(directory, manifest)
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -116,6 +118,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         item = {"event": event, "unix_time": time.time(), **fields}
         events_file.write(json.dumps(item, ensure_ascii=False) + "\n")
         events_file.flush()
+        monitor.event(item)
         return item
 
     def command(role: str, kind: str, **fields) -> int:
@@ -179,13 +182,12 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         request_context = {}
         pending_ack = None
         error_streak = 0
-        print(f"Run: {directory}\nTwo windows | {args.speed:g}% | {args.provider} | {args.sim_seconds:g} sim seconds", flush=True)
-
         while True:
             latest = {role: read_json(directory / role / "latest.json") for role in ROLES}
             if any(p.poll() is not None for p in processes.values()):
                 raise RuntimeError("Game exited during episode")
             driver = latest["driver"]
+            monitor.status(latest)
             if driver.get("finished_reason"):
                 reason = driver["finished_reason"]
                 break
@@ -301,7 +303,16 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     "terminated": reason == "game_over", "truncated": reason != "game_over",
                     "valid_run": reason not in {"infrastructure_error", "provider_errors", "wall_time_limit", "capture_error", "capture_stalled"}})
     from .recap import build_recap
-    build_recap(directory, fps=args.video_fps, review_speed=args.review_speed)
+    events_file = (directory / "events.jsonl").open("a", encoding="utf-8")
+    try:
+        build_recap(directory, fps=args.video_fps, review_speed=args.review_speed)
+        if (directory / "recap.mp4").is_file():
+            log("recap_ready", path=str(directory / "recap.mp4"))
+    except Exception as exc:
+        log("recap_error", error=str(exc)[:500])
+        raise
+    finally:
+        events_file.close()
     if reason in {"infrastructure_error", "provider_errors", "capture_error", "capture_stalled"}:
         raise RuntimeError(f"Run ended with {reason}; diagnostic artifacts: {directory}")
     return directory

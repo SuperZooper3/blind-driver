@@ -129,7 +129,9 @@ and playtesting from the latest `main`. Upcoming gameplay ideas are recorded in
 The first [visual-agent harness](docs/AI_HARNESS.md) runs two complete game windows,
 accepts keyboard inputs from both agents, and records a recap video with dialogue
 and metrics. It supports scripted/Cohere agents, adjustable simulation speed, and
-model/role/speed comparisons. The [research plan](docs/AI_HARNESS_PLAN.md) describes
+model/role/speed comparisons, a live terminal timeline for both agents, and recaps
+that restore normal game speed. Cohere runs default to Aya Vision 32B in both seats
+at 25% speed. The [research plan](docs/AI_HARNESS_PLAN.md) describes
 the longer path toward reinforcement learning.
 
 The project intentionally builds almost everything in code. The editor's main scene is a small entry point, so an empty-looking 3D editor is expected: **run the project to see the world**.

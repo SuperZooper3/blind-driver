@@ -7,8 +7,9 @@ import unittest
 from unittest.mock import patch
 
 from tools.ai_harness.agents import CohereAgent, validate_action
-from tools.ai_harness.recap import export_metrics, summarize_runs
+from tools.ai_harness.recap import export_metrics, summarize_runs, simulation_timeline
 from tools.ai_harness.run import atomic_json, read_key
+from tools.ai_harness.monitor import ConsoleMonitor, EventTail
 
 
 class HarnessContractTests(unittest.TestCase):
@@ -56,6 +57,71 @@ class HarnessContractTests(unittest.TestCase):
                 self.assertEqual(read_key(path), "fixture-only")
             atomic_json(Path(tmp)/"input.json", {"hold": ["W"]})
             self.assertEqual(json.loads((Path(tmp)/"input.json").read_text()), {"hold": ["W"]})
+
+    def test_aya_uses_image_api_without_command_only_options(self):
+        action = {"hold": [], "tap": ["M"], "hold_sim_seconds": 1, "message": "Checking map"}
+        response = {"message": {"content": [{"type": "text", "text": json.dumps(action)}]}}
+        def fake_open(request, timeout):
+            body = json.loads(request.data)
+            self.assertEqual(body["model"], "c4ai-aya-vision-32b")
+            self.assertNotIn("thinking", body)
+            self.assertNotIn("response_format", body)
+            self.assertEqual(body["messages"][-1]["content"][-1]["type"], "image_url")
+            return io.BytesIO(json.dumps(response).encode())
+        with tempfile.TemporaryDirectory() as tmp, patch("urllib.request.urlopen", fake_open):
+            image = Path(tmp)/"view.jpg"
+            image.write_bytes(b"image")
+            agent = CohereAgent("navigator", "c4ai-aya-vision-32b", "fixture-key", "Navigate", 10, 512, 2)
+            self.assertEqual(agent.decide(image, {}, [])[0], action)
+
+    def test_normal_video_uses_simulation_clock_including_stalls(self):
+        for speed in (5, 25, 100):
+            rows = [{"sim_time": t, "unix_time": 100 + t/(speed/100)} for t in (0, 1, 2)]
+            duration, mapping = simulation_timeline(rows)
+            self.assertEqual(duration, 2)
+            self.assertAlmostEqual(mapping(.5), 100 + .5/(speed/100))
+        duration, mapping = simulation_timeline([
+            {"sim_time": 0, "unix_time": 100}, {"sim_time": 1, "unix_time": 104},
+            {"sim_time": 1, "unix_time": 109}, {"sim_time": 2, "unix_time": 113}])
+        self.assertEqual(duration, 2)
+        self.assertEqual(mapping(1.5), 111)
+
+    def test_live_terminal_tails_partial_writes_and_separates_response_from_delivery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/"events.jsonl"
+            tail = EventTail(path)
+            self.assertEqual(tail.read(), [])
+            path.write_bytes(b'{"event":"message"')
+            self.assertEqual(tail.read(), [])
+            with path.open("ab") as stream:
+                stream.write(b'}\n{"event":"request"}\n')
+            self.assertEqual([e["event"] for e in tail.read()], ["message", "request"])
+            self.assertEqual(tail.read(), [])
+        output = io.StringIO()
+        monitor = ConsoleMonitor(Path("fixture"), {"created_unix": 100, "speed": 25, "sim_seconds": 30,
+            "provider": "cohere", "driver_model": "Aya", "navigator_model": "Aya"}, output)
+        monitor.event({"event": "request", "role": "navigator", "unix_time": 101, "request_id": 1,
+            "observation": {"frame": 2, "sim_time": .25}})
+        monitor.event({"event": "response", "role": "navigator", "unix_time": 103, "latency_seconds": 2,
+            "action": {"hold": [], "tap": ["M"], "hold_sim_seconds": 1, "message": "Turn left"}})
+        self.assertNotIn("Turn left", output.getvalue())
+        monitor.event({"event": "message", "role": "navigator", "to": "driver", "unix_time": 103.1,
+            "sim_time": .775, "message": "Turn left\x1b[2J\nnow"})
+        text = output.getvalue()
+        self.assertIn("NAVIGATOR → DRIVER: Turn left", text)
+        self.assertIn("awaiting game acknowledgment", text)
+        self.assertNotIn("\x1b", text)
+
+    def test_cli_defaults_to_aya_and_normal_motion(self):
+        from tools.ai_harness.__main__ import main
+        with patch("sys.argv", ["ai_harness", "run", "--provider", "cohere"]), \
+             patch("tools.ai_harness.__main__.run_episode") as run:
+            main()
+            args = run.call_args.args[0]
+            self.assertEqual(args.driver_model, "c4ai-aya-vision-32b")
+            self.assertEqual(args.navigator_model, "c4ai-aya-vision-32b")
+            self.assertEqual(args.speed, 25)
+            self.assertIsNone(args.review_speed)
 
     def test_metrics_do_not_call_time_limit_a_failure_and_keep_speeds_separate(self):
         with tempfile.TemporaryDirectory() as tmp:
