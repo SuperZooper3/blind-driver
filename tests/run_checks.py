@@ -173,6 +173,10 @@ if __name__ == "__main__":
             reservation.bind(("127.0.0.1", 0))
             os.environ["BLIND_DRIVER_LAN_PORT"] = str(reservation.getsockname()[1])
         os.environ["BLIND_DRIVER_RECORDS_PATH"] = str(temporary / "records.cfg")
+        surface = subprocess.run(command("tests/road_surface_smoke.gd", temporary / "road-surface.log"), capture_output=True, text=True, timeout=20)
+        print(surface.stdout)
+        if surface.returncode or "FAIL:" in surface.stdout or "SCRIPT ERROR" in surface.stderr:
+            sys.exit(surface.stderr or "Road surface continuity check failed")
         direction = subprocess.run(command("tests/direction_warning_smoke.gd", temporary / "direction.log"), capture_output=True, text=True, timeout=20)
         print(direction.stdout)
         if direction.returncode or "FAIL:" in direction.stdout or "SCRIPT ERROR" in direction.stderr:

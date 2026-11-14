@@ -8,6 +8,7 @@ const Challenge = preload("res://scripts/road_challenge.gd")
 const TILE_SIZE := 80.0
 const TILE_RADIUS := 3
 const ROAD_WIDTH := 8.0
+const ROAD_MESH_STEP := 3.0
 const KEEP_DISTANCE := 720.0
 const MAX_ROADS := 100
 const THORN_DISTANCE := 18.0
@@ -465,7 +466,20 @@ func _make_ribbon(parent: Node3D, points: PackedVector3Array, width: float, lift
 			if Challenge.is_challenge(hazard) and minf(a.z, b.z) < hazard.position.z + hazard.size.z * 0.5 and maxf(a.z, b.z) > hazard.position.z - hazard.size.z * 0.5:
 				over_gap = true
 		if over_gap: continue
-		vertices.append_array(PackedVector3Array([lefts[i], rights[i], lefts[i + 1], rights[i], rights[i + 1], lefts[i + 1]]))
+		# Long chords can dip through the rolling terrain even when both endpoints
+		# are above it. Resample the surface without changing map/route geometry.
+		var steps := maxi(1, ceili(a.distance_to(b) / ROAD_MESH_STEP))
+		var al := lefts[i]
+		var ar := rights[i]
+		for step in range(1, steps + 1):
+			var t := float(step) / steps
+			var bl := lefts[i + 1] if step == steps else lefts[i].lerp(lefts[i + 1], t)
+			var br := rights[i + 1] if step == steps else rights[i].lerp(rights[i + 1], t)
+			bl.y = height_at(bl.x, bl.z) + 0.17 + lift
+			br.y = height_at(br.x, br.z) + 0.17 + lift
+			vertices.append_array(PackedVector3Array([al, ar, bl, ar, br, bl]))
+			al = bl
+			ar = br
 	var ribbon := Geo.instance(parent, Geo.mesh_from_triangles(vertices), Vector3.ZERO, mat)
 	ribbon.create_trimesh_collision()
 
