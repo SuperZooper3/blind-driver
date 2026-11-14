@@ -263,17 +263,16 @@ func _setup_environment() -> void:
 	seasonal_sun = sun
 	_apply_season_environment(0)
 
-func _apply_season_environment(stage: int) -> void:
-	if environment_season == stage:
-		return
+func _apply_season_environment(stage: int, delta: float = 0.0) -> void:
+	var weight := 1.0 if environment_season < 0 or delta <= 0.0 else 1.0 - exp(-delta * 0.35)
 	environment_season = stage
 	var palette: Dictionary = World.Seasons.PALETTES[stage]
-	seasonal_sky.sky_top_color = Color(palette.sky)
-	seasonal_sky.sky_horizon_color = Color(palette.horizon)
-	seasonal_sky.ground_horizon_color = Color(palette.horizon)
-	seasonal_sky.ground_bottom_color = Color(palette.ground_low)
-	seasonal_environment.fog_light_color = Color(palette.fog)
-	seasonal_sun.light_color = Color(palette.sun)
+	seasonal_sky.sky_top_color = seasonal_sky.sky_top_color.lerp(Color(palette.sky), weight)
+	seasonal_sky.sky_horizon_color = seasonal_sky.sky_horizon_color.lerp(Color(palette.horizon), weight)
+	seasonal_sky.ground_horizon_color = seasonal_sky.ground_horizon_color.lerp(Color(palette.horizon), weight)
+	seasonal_sky.ground_bottom_color = seasonal_sky.ground_bottom_color.lerp(Color(palette.ground_low), weight)
+	seasonal_environment.fog_light_color = seasonal_environment.fog_light_color.lerp(Color(palette.fog), weight)
+	seasonal_sun.light_color = seasonal_sun.light_color.lerp(Color(palette.sun), weight)
 
 func _make_view(view_name: String) -> SubViewport:
 	var view := SubViewport.new()
@@ -312,11 +311,14 @@ func _process(delta: float) -> void:
 	# Distance is already replicated to both seats, including reconnects and resets.
 	var season := 0 if world.basic_course else World.heat_for_distance(car.distance_driven)
 	world.set_season(season)
-	_apply_season_environment(season)
+	var region: int = world.season_at(car.global_position)
+	_apply_season_environment(region, delta)
 	looking_back = mode not in ["host", "ai"] and not ui.in_menu and car.run_state == "driving" and (Input.is_action_pressed("look_back") or ui.rear_button_held)
 	if looking_back and ui.map_open:
 		ui.close_map()
 	_update_intro()
+	var heat_active: bool = started and not ui.in_menu and not intro_playing() and not session.recovering and not session.stale and not car.reset_pending and car.recovery_grace == 0 and car.run_state == "driving"
+	ui.update_heat(season, region, car.run_id, heat_active, world.basic_course, delta)
 	_update_cameras(delta)
 	ui.update_pursuit(police, looking_back, car.run_state == "driving")
 	if world.basic_course:
@@ -355,8 +357,6 @@ func _process(delta: float) -> void:
 	ui.dashboard.speed_kmh = absf(car.signed_speed) * 3.6
 	ui.dashboard.distance_km = car.distance_driven / 1000.0
 	ui.surface_label.text = "GRAVEL" if car.on_road else "OFF ROAD"
-	ui.heat_label.text = "HEAT OFF" if world.basic_course else "HEAT %d / 5" % (World.heat_for_distance(car.distance_driven) + 1)
-	ui.heat_label.modulate = Color("ef9364").lerp(Color("ef554a"), World.heat_for_distance(car.distance_driven) / 4.0)
 	if car.grounded_wheels == 0 and started:
 		ui.surface_label.text = "AIRBORNE"
 	route_timer += delta

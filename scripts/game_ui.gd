@@ -22,8 +22,16 @@ const SHOW_P2P_UI := false
 const Map = preload("res://scripts/route_map.gd")
 const ReadableHUD = preload("res://scripts/readable_hud.gd")
 const DirectionWarning = preload("res://scripts/direction_warning.gd")
+const Seasons = preload("res://scripts/season_style.gd")
+const HeatWelcome = preload("res://scripts/heat_welcome.gd")
 const RepairOverlay = preload("res://scripts/repair_overlay.gd")
 var repair_overlays: Array[Control] = []
+var heat_welcomes: Array[Control] = []
+var welcome_run := -1
+var welcomed_regions: Dictionary = {}
+var welcome_region := 0
+var welcome_elapsed := HeatWelcome.DURATION
+var welcome_active := false
 var direction_warning: Control
 var readable_ui := false
 var complete_seats := false
@@ -181,14 +189,37 @@ func _build_views() -> void:
 		var overlay := RepairOverlay.new()
 		screen.add_child(overlay)
 		repair_overlays.append(overlay)
+		var welcome := HeatWelcome.new()
+		screen.add_child(welcome)
+		heat_welcomes.append(welcome)
+
+func update_heat(heat: int, region: int, run_id: int, active: bool, basic: bool, delta: float) -> void:
+	heat_label.text = "HEAT OFF / SPRING" if basic else "HEAT %d / 5  ·  %s" % [heat + 1, Seasons.NAMES[heat]]
+	heat_label.modulate = Color("ef9364").lerp(Color("ef554a"), heat / 4.0)
+	if welcome_run != run_id:
+		welcome_run = run_id
+		welcomed_regions.clear()
+		welcome_elapsed = HeatWelcome.DURATION
+	if active and not welcomed_regions.has(region):
+		welcomed_regions[region] = true
+		welcome_region = region
+		welcome_elapsed = 0.0
+	var before := welcome_active
+	welcome_active = active and welcome_elapsed < HeatWelcome.DURATION
+	for welcome: Control in heat_welcomes:
+		welcome.update_welcome(welcome_region, welcome_elapsed, welcome_active)
+	if active:
+		welcome_elapsed = minf(HeatWelcome.DURATION, welcome_elapsed + delta)
+	if before != welcome_active:
+		_layout()
 
 func update_repairs(car: Node, started: bool) -> void:
 	var active: bool = started and not in_menu and car.repairing and car.run_state == "driving"
 	for i in repair_overlays.size():
 		repair_overlays[i].update_repair(car, active, i == 1 and mode not in ["host", "ai"], mode == "host")
 	# The repair heading replaces the usual seat/route labels until work stops.
-	driver_tag.visible = not in_menu and not active and mode in ["split", "host"]
-	navigator_tag.visible = not in_menu and not active and mode not in ["host", "ai"]
+	driver_tag.visible = not in_menu and not active and not welcome_active and mode in ["split", "host"]
+	navigator_tag.visible = not in_menu and not active and not welcome_active and mode not in ["host", "ai"]
 	hud.get_node("RouteCard").visible = not in_menu and not active and mode not in ["host", "ai"]
 	damage_label.visible = not active
 
@@ -232,7 +263,7 @@ func _build_hud() -> void:
 	surface_label = _label("GRAVEL", 10, amber)
 	surface_label.position = Vector2(211, 117)
 	footer.add_child(surface_label)
-	heat_label = _label("HEAT 1 / 5", 11, amber)
+	heat_label = _label("HEAT 1 / 5  ·  SPRING", 11, amber)
 	heat_label.position = Vector2(211, 131)
 	footer.add_child(heat_label)
 	footer_label = _label("W / S  throttle & brake    A / D  steer\nSPACE  handbrake    M / TAB  map\nB / RB  look back    C  camera    HOLD R  repair (navigator)    ESC  menu", 13, cream)
@@ -634,7 +665,7 @@ func _layout() -> void:
 		views.offset_bottom = -170
 	navigator_tag.position = Vector2(width * 0.5 + 28 if mode == "split" else 28, 100)
 	var route_panel := hud.get_node("RouteCard") as PanelContainer
-	route_panel.position = Vector2(width - 340, 190 if mode == "split" else 98)
+	route_panel.position = Vector2(width - 340, 190 if mode == "split" or welcome_active else 98)
 	route_panel.size = Vector2(312, 98)
 	_place_map(map_reveal)
 	if result_panel != null:

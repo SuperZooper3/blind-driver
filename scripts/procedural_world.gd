@@ -32,6 +32,11 @@ const SPIKE_WARNING := 100.0
 const PROFILES := ["main", "scenic", "rough", "culdesac", "cliff"]
 var difficulty := 0
 var seasons := Seasons.new()
+var season_styles: Array[RefCounted] = []
+## Northward boundaries are authoritative, compact, and survive road streaming.
+## They are chosen beyond ALL existing scenery, so a heat change cannot repaint it.
+var season_edges: Array[float] = []
+var generated_front_z := 0.0
 ## Opt-in harness curriculum; ordinary play retains the original generator.
 var basic_course := false
 var world_seed := 72419
@@ -47,8 +52,6 @@ var focus := Vector3.ZERO
 var road_material: StandardMaterial3D
 var shoulder_material: StandardMaterial3D
 var stripe_material: StandardMaterial3D
-var terrain_material: ShaderMaterial
-var trunk_material: StandardMaterial3D
 var rock_material: StandardMaterial3D
 var timer := 0.0
 var last_tile := Vector2i(99999, 99999)
@@ -63,8 +66,9 @@ func _ready() -> void:
 	road_material = Geo.material(Color("726b57"))
 	shoulder_material = Geo.material(Color("9b9271"))
 	stripe_material = Geo.material(Color("dbcb91"))
-	terrain_material = seasons.terrain_material
-	trunk_material = seasons.bark_material
+	season_styles.append(seasons)
+	for stage in range(1, 5):
+		season_styles.append(Seasons.new(stage))
 	rock_material = Geo.material(Color("838a7e"))
 	_build_tree_mesh()
 	if allow_generation:
@@ -85,10 +89,43 @@ func set_season(value: int) -> bool:
 	value = clampi(value, 0, 4)
 	if seasons.stage == value:
 		return false
-	seasons.set_stage(value)
-	for trees: Node3D in find_children("SeasonalTrees", "Node3D", true, false):
-		seasons.apply_to_trees(trees)
+	seasons = season_styles[value]
+	if allow_generation and value > season_edges.size():
+		var edge := minf(generated_front_z, floorf(focus.z / TILE_SIZE) * TILE_SIZE)
+		for key: Vector2i in tiles:
+			edge = minf(edge, key.y * TILE_SIZE)
+		for key: Vector2i in pending_tiles:
+			edge = minf(edge, key.y * TILE_SIZE)
+		for road: Dictionary in roads:
+			for point: Vector3 in road.points:
+				edge = minf(edge, point.z - 8.0)
+			for hazard: Dictionary in road.hazards:
+				edge = minf(edge, hazard.position.z - hazard.size.z * 0.5 - 8.0)
+		edge = floorf(edge / TILE_SIZE) * TILE_SIZE
+		if not season_edges.is_empty(): edge = minf(edge, season_edges[-1])
+		while season_edges.size() < value:
+			season_edges.append(edge)
+		_configure_season_edges()
+		graph_revision += 1
 	return true
+
+func season_at(at: Vector3) -> int:
+	var stage := 0
+	for i in season_edges.size():
+		if at.z < season_edges[i]: stage = i + 1
+	return stage
+
+func style_at(at: Vector3) -> RefCounted:
+	return season_styles[season_at(at)]
+
+func _configure_season_edges() -> void:
+	for i in 5:
+		var material: ShaderMaterial = season_styles[i].terrain_material
+		material.set_shader_parameter("transition_distance", TILE_SIZE if i > 0 and i <= season_edges.size() else 0.0)
+		if i > 0 and i <= season_edges.size():
+			material.set_shader_parameter("transition_start", season_edges[i - 1])
+			material.set_shader_parameter("previous_low", Color(Seasons.PALETTES[i - 1].ground_low))
+			material.set_shader_parameter("previous_high", Color(Seasons.PALETTES[i - 1].ground_high))
 
 func _process(delta: float) -> void:
 	timer += delta
@@ -318,6 +355,9 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 
 func reset_world() -> void:
 	difficulty = 0
+	season_edges.clear()
+	generated_front_z = 0.0
+	_configure_season_edges()
 	set_season(0)
 	set_challenge_time(0.0)
 	jumped_gaps.clear()
@@ -406,8 +446,11 @@ func _render_road(road: Dictionary) -> void:
 	root.set_meta("hazards", road.hazards)
 	var challenges: Array[Node3D] = []
 	var points: PackedVector3Array = road.points
+	for point: Vector3 in points:
+		generated_front_z = minf(generated_front_z, floorf((point.z - 16.0) / TILE_SIZE) * TILE_SIZE)
 	for hazard: Dictionary in road.hazards:
-		Hazards.render(root, hazard, tree_mesh, seasons)
+		generated_front_z = minf(generated_front_z, floorf((hazard.position.z - hazard.size.z * 0.5 - 16.0) / TILE_SIZE) * TILE_SIZE)
+		Hazards.render(root, hazard, tree_mesh, style_at(hazard.position))
 		if Challenge.is_challenge(hazard):
 			var challenge := Challenge.new()
 			root.add_child(challenge)
@@ -435,7 +478,7 @@ func _render_road(road: Dictionary) -> void:
 		var end := points[-1]
 		var post := end + Vector3(6.6, 0.0, 6.0)
 		post.y = height_at(post.x, post.z)
-		Geo.cylinder(root, 0.13, 2.8, post + Vector3.UP * 1.4, trunk_material)
+		Geo.cylinder(root, 0.13, 2.8, post + Vector3.UP * 1.4, style_at(post).bark_material)
 		var sign_mesh := Geo.box(root, Vector3(1.25, 1.25, 0.12), post + Vector3.UP * 2.7, stripe_material)
 		sign_mesh.rotation.z = PI / 4.0
 		var label := Label3D.new()
@@ -456,7 +499,7 @@ func _render_culdesac(parent: Node3D, center: Vector3) -> void:
 			vertices.append_array(PackedVector3Array([ground_point(center.x, center.z, lift), ground_point(b.x, b.z, lift), ground_point(a.x, a.z, lift)]))
 		Geo.instance(parent, Geo.mesh_from_triangles(vertices), Vector3.ZERO, road_material if radius == CULDESAC_RADIUS else shoulder_material).create_trimesh_collision()
 	var at := ground_point(center.x + 7, center.z + 8)
-	Geo.cylinder(parent, 0.12, 2.6, at + Vector3.UP * 1.3, trunk_material)
+	Geo.cylinder(parent, 0.12, 2.6, at + Vector3.UP * 1.3, style_at(at).bark_material)
 	Geo.box(parent, Vector3(3.4, 1.1, 0.15), at + Vector3.UP * 2.5, road_material)
 	var sign := Label3D.new()
 	sign.text = "NO THROUGH ROAD\nTURN AROUND"
@@ -634,6 +677,9 @@ func _build_tile(key: Vector2i) -> void:
 		return
 	var root := Node3D.new()
 	root.name = "Forest_%d_%d" % [key.x, key.y]
+	generated_front_z = minf(generated_front_z, key.y * TILE_SIZE)
+	var style := style_at(Vector3((key.x + 0.5) * TILE_SIZE, 0, (key.y + 0.5) * TILE_SIZE))
+	root.set_meta("season", style.stage)
 	add_child(root)
 	tiles[key] = root
 	var rng := RandomNumberGenerator.new()
@@ -658,7 +704,7 @@ func _build_tile(key: Vector2i) -> void:
 				colors.append(color)
 	# A broad ravine can consume an entire tile; its floor/walls already provide collision.
 	if not vertices.is_empty():
-		var terrain := Geo.instance(root, Geo.mesh_from_triangles(vertices, colors), Vector3.ZERO, terrain_material)
+		var terrain := Geo.instance(root, Geo.mesh_from_triangles(vertices, colors), Vector3.ZERO, style.terrain_material)
 		terrain.create_trimesh_collision()
 	var trees: Array[Transform3D] = []
 	var trunks: Array[Transform3D] = []
@@ -710,9 +756,9 @@ func _build_tile(key: Vector2i) -> void:
 				continue
 			var rotation := fposmod(p.x * 7.13 + p.z * 3.71, TAU)
 			thorns.append(Transform3D(Basis(Vector3.UP, rotation), p))
-	_multimesh(root, thorn_mesh, seasons.undergrowth_material, thorns)
-	seasons.add_trees(root, trees)
-	_multimesh(root, trunk_mesh, trunk_material, trunks)
+	_multimesh(root, thorn_mesh, style.undergrowth_material, thorns)
+	style.add_trees(root, trees)
+	_multimesh(root, trunk_mesh, style.bark_material, trunks)
 	_multimesh(root, rock_mesh, rock_material, rocks)
 
 func _build_tree_mesh() -> void:
@@ -744,10 +790,22 @@ func _multimesh(root: Node3D, mesh: Mesh, mat: Material, transforms: Array[Trans
 func export_graph() -> Array:
 	var result: Array = []
 	for road: Dictionary in roads:
-		result.append({"id": road.id, "parent": road.parent, "depth": road.depth, "heading": road.heading, "points": road.points, "expanded": road.expanded, "danger": road.danger, "hazards": road.hazards.duplicate(true), "profile": road.profile, "level": road.level, "next": road.next, "merge_with": road.merge_with})
+		result.append({"id": road.id, "parent": road.parent, "depth": road.depth, "heading": road.heading, "points": road.points, "expanded": road.expanded, "danger": road.danger, "hazards": road.hazards.duplicate(true), "profile": road.profile, "level": road.level, "next": road.next, "merge_with": road.merge_with, "season_edges": season_edges.duplicate()})
 	return result
 
 func import_graph(data: Array) -> void:
+	var incoming: Array = data[0].get("season_edges", []) if not data.is_empty() else []
+	if incoming != season_edges:
+		season_edges.assign(incoming)
+		_configure_season_edges()
+		# A joining client may have drawn speculative forest before the graph
+		# arrived. Reconcile those tiles with the driver's permanent region map.
+		for key: Vector2i in tiles.keys():
+			var center := Vector3((key.x + 0.5) * TILE_SIZE, 0, (key.y + 0.5) * TILE_SIZE)
+			if tiles[key].get_meta("season") != season_at(center):
+				tiles[key].queue_free()
+				tiles.erase(key)
+				if not pending_tiles.has(key): pending_tiles.append(key)
 	var existing: Dictionary = {}
 	for road: Dictionary in roads:
 		existing[road.id] = road

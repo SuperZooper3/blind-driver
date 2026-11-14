@@ -190,6 +190,10 @@ if __name__ == "__main__":
         print(seasons.stdout)
         if seasons.returncode or "FAIL:" in seasons.stdout or "SCRIPT ERROR" in seasons.stderr:
             sys.exit(seasons.stderr or "Season visual/mechanics check failed")
+        welcome = subprocess.run(command("tests/heat_welcome_smoke.gd", temporary / "heat-welcome.log"), capture_output=True, text=True, timeout=20)
+        print(welcome.stdout)
+        if welcome.returncode or "FAIL:" in welcome.stdout or "SCRIPT ERROR" in welcome.stderr:
+            sys.exit(welcome.stderr or "Heat welcome UI check failed")
         direction = subprocess.run(command("tests/direction_warning_smoke.gd", temporary / "direction.log"), capture_output=True, text=True, timeout=20)
         print(direction.stdout)
         if direction.returncode or "FAIL:" in direction.stdout or "SCRIPT ERROR" in direction.stderr:

@@ -96,7 +96,7 @@ func run() -> void:
 	game.ui.in_menu = true
 	game._physics_process(0)
 	game._process(0)
-	check(world.difficulty == 4 and game.ui.heat_label.text == "HEAT 5 / 5", "authoritative distance drives generation difficulty and the dashboard heat display")
+	check(world.difficulty == 4 and game.ui.heat_label.text == "HEAT 5 / 5  ·  HELL", "authoritative distance drives generation difficulty and the dashboard heat display")
 	world.grow_near(continuation.points[-1])
 	var later_rough := profile(world, "rough", 5)
 	var later_scenic := profile(world, "scenic", 5)

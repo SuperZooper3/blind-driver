@@ -1,5 +1,5 @@
 extends RefCounted
-## Shared visual resources. Seasons never rebuild terrain, roads, or collision bodies.
+## One immutable set of visuals per region; old scenery keeps its original resources.
 const Geo = preload("res://scripts/geometry.gd")
 const NAMES := ["SPRING", "SUMMER", "FALL", "WINTER", "HELL"]
 const PALETTES := [
@@ -26,7 +26,7 @@ var canopies: Array[ArrayMesh] = []
 var branches: ArrayMesh
 var flames: ArrayMesh
 
-func _init() -> void:
+func _init(value: int = 0) -> void:
 	terrain_material.shader = preload("res://shaders/season_ground.gdshader")
 	undergrowth_material.shader = preload("res://shaders/season_undergrowth.gdshader")
 	foliage_material.vertex_color_use_as_albedo = true
@@ -36,7 +36,7 @@ func _init() -> void:
 		canopies.append(_canopy(Color(PALETTES[i].leaf_low), Color(PALETTES[i].leaf_high)))
 	branches = _branches()
 	flames = _flames()
-	set_stage(0)
+	set_stage(value)
 
 func set_stage(value: int) -> void:
 	stage = clampi(value, 0, 4)
@@ -50,6 +50,7 @@ func set_stage(value: int) -> void:
 func add_trees(parent: Node3D, transforms: Array[Transform3D]) -> void:
 	var root := Node3D.new()
 	root.name = "SeasonalTrees"
+	root.set_meta("season", stage)
 	parent.add_child(root)
 	var late: Array[Transform3D] = []
 	var early: Array[Transform3D] = []

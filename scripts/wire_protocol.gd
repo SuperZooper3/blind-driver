@@ -107,10 +107,17 @@ static func graph_from_json(data: Array) -> Array:
 		return []
 	var result: Array = []
 	var ids: Dictionary = {}
+	var season_edges: Array = []
 	for value: Variant in data:
 		if not value is Dictionary:
 			return []
 		var road: Dictionary = value
+		var edges: Variant = road.get("season_edges", [])
+		if not edges is Array or edges.size() > 4: return []
+		for i in edges.size():
+			if not _number(edges[i]) or absf(edges[i]) > 1.0e7 or (i > 0 and edges[i] > edges[i - 1]): return []
+		if result.is_empty(): season_edges = edges.duplicate()
+		elif edges != season_edges: return []
 		for key in ["id", "parent", "depth", "heading"]:
 			if not _number(road.get(key)):
 				return []
@@ -146,7 +153,7 @@ static func graph_from_json(data: Array) -> Array:
 			if not points.is_empty() and points[-1].distance_squared_to(decoded) < 0.0001:
 				return []
 			points.append(decoded)
-		result.append({"id": int(road.id), "parent": int(road.parent), "depth": int(road.depth), "heading": float(road.heading), "expanded": road.expanded, "points": points, "danger": road.danger, "hazards": hazards, "profile": road.profile, "level": int(road.level), "next": int(road.next), "merge_with": int(road.merge_with)})
+		result.append({"id": int(road.id), "parent": int(road.parent), "depth": int(road.depth), "heading": float(road.heading), "expanded": road.expanded, "points": points, "danger": road.danger, "hazards": hazards, "profile": road.profile, "level": int(road.level), "next": int(road.next), "merge_with": int(road.merge_with), "season_edges": season_edges.duplicate()})
 	return result
 
 static func _damage(value: Variant) -> bool:

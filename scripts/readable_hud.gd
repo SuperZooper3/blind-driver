@@ -59,6 +59,7 @@ func _draw_seat(width: float, seat: String) -> void:
 	text("%d km/h" % roundi(absf(car.signed_speed) * 3.6), Vector2(24, footer + 98), 58)
 	text("TRIP", Vector2(340, footer + 30), 24, amber)
 	text("%.0f m" % car.distance_driven, Vector2(340, footer + 98), 52)
+	text(ui.heat_label.text, Vector2(340, footer + 125), 18, amber)
 	text("ROAD SURFACE", Vector2(620, footer + 30), 24, amber)
 	text("GRAVEL" if car.on_road else "OFF ROAD", Vector2(620, footer + 78), 36)
 	text("STATIONARY" if absf(car.signed_speed) < 0.14 else ("REVERSING" if car.signed_speed < 0 else "MOVING"), Vector2(620, footer + 112), 26, amber)
