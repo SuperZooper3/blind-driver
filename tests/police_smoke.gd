@@ -120,8 +120,6 @@ func _run() -> void:
 	game._process(1.0 / 60.0)
 	check(game.looking_back and not game.ui.map_open and (-game.navigator_camera.global_basis.z).dot(car.global_basis.z) > 0.9, "holding look-back folds the map and turns the passenger's view behind")
 	check((-game.driver_camera.global_basis.z).dot(-car.global_basis.z) > 0.9, "navigator look-back leaves the driver's camera facing forward")
-	check(game.ui.driver_mirror_frame.visible and game.ui.navigator_mirror_frame.visible and game.ui.driver_mirror.material == game.blur_material and game.ui.navigator_mirror.material == null, "both seats retain a small live mirror with driver blur and a clear navigator view")
-	check((-game.mirror_camera.global_basis.z).dot(car.global_basis.z) > 0.9 and game.ui.navigator_mirror.flip_h, "live mirror camera faces backward and reflects horizontally")
 	Input.action_release("look_back")
 	game.camera_initialized = false
 	game._process(1.0 / 60.0)

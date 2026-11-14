@@ -22,10 +22,6 @@ var root: Control
 var views: HBoxContainer
 var driver_screen: TextureRect
 var navigator_screen: TextureRect
-var driver_mirror: TextureRect
-var navigator_mirror: TextureRect
-var driver_mirror_frame: PanelContainer
-var navigator_mirror_frame: PanelContainer
 var menu: PanelContainer
 var hud: Control
 var map: Control
@@ -99,7 +95,6 @@ func _ready() -> void:
 	root.theme = theme
 	_build_views()
 	_build_hud()
-	_build_mirrors()
 	_build_menu()
 	_build_settings()
 	_build_local_menu()
@@ -231,27 +226,6 @@ func _build_hud() -> void:
 	hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	hint_label.position = Vector2(28, -FOOTER_HEIGHT - 90)
 	hud.add_child(hint_label)
-
-func _build_mirrors() -> void:
-	for seat in ["driver", "navigator"]:
-		var frame := PanelContainer.new()
-		var style := _style(Color("0b211e"), 12, Color("87988b"))
-		style.set_content_margin_all(4)
-		frame.add_theme_stylebox_override("panel", style)
-		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		hud.add_child(frame)
-		var mirror := TextureRect.new()
-		mirror.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		mirror.stretch_mode = TextureRect.STRETCH_SCALE
-		mirror.flip_h = true
-		mirror.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		frame.add_child(mirror)
-		if seat == "driver":
-			driver_mirror = mirror
-			driver_mirror_frame = frame
-		else:
-			navigator_mirror = mirror
-			navigator_mirror_frame = frame
 
 func _menu_box(panel: PanelContainer) -> VBoxContainer:
 	panel.add_theme_stylebox_override("panel", _style(ink, 14))
@@ -508,14 +482,6 @@ func _button(text: String, action: Callable) -> Button:
 func _layout() -> void:
 	var width := root.size.x
 	var height := root.size.y
-	var seat_width := width * 0.5 if mode == "split" else width
-	var mirror_size := Vector2(minf(220, seat_width * 0.38), minf(220, seat_width * 0.38) / 3.2 + 8)
-	driver_mirror_frame.size = mirror_size
-	navigator_mirror_frame.size = mirror_size
-	driver_mirror_frame.position = Vector2((seat_width - mirror_size.x) * 0.5, 90)
-	navigator_mirror_frame.position = Vector2((seat_width - mirror_size.x) * 0.5 + (seat_width if mode == "split" else 0.0), 90)
-	driver_mirror_frame.visible = not in_menu and mode in ["split", "host"]
-	navigator_mirror_frame.visible = not in_menu and mode != "host"
 	for panel in [menu, settings_panel, local_panel]:
 		if panel != null:
 			panel.position = Vector2(32, 94)
