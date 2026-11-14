@@ -346,6 +346,12 @@ func _physics_process(delta: float) -> void:
 		# all four tires in its roadside thorns is therefore a terminal failure.
 		if world.basic_course and car.punctured_tires == 15:
 			car.finish_run("Thorns destroyed all four tires")
+		# Police never follow into the forest, so a wreck limping there must still end.
+		# Three broken tires, or a blown engine with two, leave the car undriveable.
+		elif not world.basic_course and car.damage.broken_tires() >= 3:
+			car.finish_run("Your car broke down on shredded tires")
+		elif not world.basic_course and car.damage.broken_tires() >= 2 and not car.damage.alive(car.damage.ENGINE):
+			car.finish_run("Your car broke down: blown engine and flat tires")
 	if car.global_position.y < -55.0 and car.run_state != "game_over":
 		car.begin_fall("You fell into the valley")
 		car.finish_run()

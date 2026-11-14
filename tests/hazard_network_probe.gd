@@ -68,8 +68,8 @@ func _tick() -> void:
 			game.car.recover(game.world.ground_point(26, 12, 0.17), Vector3.FORWARD)
 			phase = 5
 		if phase == 5 and game.car.punctured_tires != 0 and game.car.run_state == "driving":
-			# Thorns only cripple the car now; stand in for the patrol catching it.
-			game.car.finish_run("The police caught you on shredded tires")
+			# Shredding a third tire ends the run on its own; this stands in if it has not yet.
+			if game.car.damage.broken_tires() < 3: game.car.finish_run("The police caught you on shredded tires")
 		if phase == 5 and game.car.run_state == "game_over":
 			phase = 6
 			phase_at = elapsed

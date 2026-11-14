@@ -2,6 +2,7 @@ extends SceneTree
 const World = preload("res://scripts/procedural_world.gd")
 const Challenge = preload("res://scripts/road_challenge.gd")
 const Wire = preload("res://scripts/wire_protocol.gd")
+const Hazards = preload("res://scripts/road_hazards.gd")
 var failed := false
 func _initialize() -> void:
 	call_deferred("run")
@@ -25,6 +26,8 @@ func place_patrol(cop: Node3D, id: int, station: float) -> void:
 	cop.speed = 19
 	cop._place(1, 1)
 func run() -> void:
+	# Sample many generated junctions first, while the physics world is still empty.
+	check_middle_holes()
 	var game = load("res://scenes/main.tscn").instantiate()
 	root.add_child(game)
 	game._start("solo")
@@ -119,3 +122,40 @@ func run() -> void:
 	game.queue_free()
 	await process_frame
 	quit(1 if failed else 0)
+
+func check_middle_holes() -> void:
+	var middle := 0
+	var straight := 0
+	var clear := true
+	for seed in 3:
+		var w := World.new()
+		w.world_seed = 5000 + seed * 977
+		root.add_child(w)
+		var seen := {}
+		for _i in 16:
+			var f := frontier(w)
+			if f.is_empty(): break
+			w.grow_near(f.points[-1])
+			for road: Dictionary in w.roads:
+				if seen.has(road.id) or road.profile != "rough": continue
+				seen[road.id] = true
+				var hole: Dictionary = {}
+				var scenic: Dictionary = {}
+				for other: Dictionary in w.roads:
+					if other.parent != road.parent or other.depth != road.depth: continue
+					if other.profile == "scenic": scenic = other
+					elif other.danger and not other.hazards.is_empty() and other.hazards[0].size == World.MIDDLE_HOLE_SIZE: hole = other
+				if hole.is_empty():
+					straight += 1
+					continue
+				middle += 1
+				var start: Vector3 = hole.points[0]
+				clear = clear and absf(hole.points[-1].x - start.x) < 0.5 and signf(road.points[16].x - start.x) != signf(scenic.points[16].x - start.x)
+				clear = clear and road.points[-1].is_equal_approx(scenic.points[-1]) and Hazards.contains(hole.hazards[0], hole.points[-1] + Vector3(0, 0, -20))
+				for route: Dictionary in [road, scenic]:
+					for point: Vector3 in route.points:
+						clear = clear and not Hazards.contains(hole.hazards[0], point, 12.0)
+		w.free()
+	print("Three-way forks: %d straight middle, %d middle hole" % [straight, middle])
+	check(middle > 0 and straight > middle, "later three-way forks sometimes put the pit in the middle, but not usually")
+	check(clear, "a middle pit sits straight ahead while both through routes swing around it and rejoin")
