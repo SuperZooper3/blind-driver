@@ -389,7 +389,8 @@ func _build_settings() -> void:
 	blur_slider.min_value = 0.012
 	blur_slider.max_value = 0.055
 	blur_slider.step = 0.001
-	blur_slider.value = 0.028
+	# Default blindness: 65% of the slider range (0.012 + 0.65 * 0.043).
+	blur_slider.value = 0.040
 	box.add_child(blur_slider)
 	box.add_child(_label("WASD  drive   ·   SPACE  handbrake   ·   M  map\nB / RB  look back   ·   C  camera   ·   H  lights   ·   HOLD R  repair (navigator, under 15 km/h)\nF  fullscreen   ·   V  mute\nGamepad: left stick + triggers, A brake, Y map", 12, muted))
 	box.add_child(HSeparator.new())
