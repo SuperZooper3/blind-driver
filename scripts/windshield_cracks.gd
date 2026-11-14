@@ -11,6 +11,8 @@ var crack := 0.0:
 ## Where the glass first gave way, in 0..1 view coordinates.
 var origin := Vector2(0.62, 0.32)
 var paths: Array[PackedVector2Array] = []
+## Line widths are in pixels; the driver's low-resolution view uses thinner lines.
+var line_scale := 1.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -47,10 +49,10 @@ func _draw() -> void:
 		var points := PackedVector2Array()
 		for j in count:
 			points.append(center + path[j] * scale)
-		draw_polyline(points, Color(0.1, 0.12, 0.12, 0.35), 3.0, true)
-		draw_polyline(points, Color(0.95, 0.97, 0.95, 0.8), 1.4, true)
+		draw_polyline(points, Color(0.1, 0.12, 0.12, 0.35), maxf(1.0, 3.0 * line_scale), true)
+		draw_polyline(points, Color(0.95, 0.97, 0.95, 0.8), maxf(1.0, 1.4 * line_scale), true)
 	# Impact star.
-	var star := 6.0 + crack * 18.0
+	var star := (6.0 + crack * 18.0) * line_scale
 	draw_circle(center, star, Color(0.95, 0.97, 0.95, 0.22 + crack * 0.25))
 	if shattered:
 		# Spider-web rings linking the radial cracks.
@@ -60,4 +62,4 @@ func _draw() -> void:
 				var index := mini(path.size() - 1, int(ring / 0.08) + 1)
 				web.append(center + path[index].normalized() * ring * scale * (0.9 + 0.2 * sin(index * 3.1)))
 			web.append(web[0])
-			draw_polyline(web, Color(0.95, 0.97, 0.95, 0.6), 1.2, true)
+			draw_polyline(web, Color(0.95, 0.97, 0.95, 0.6), maxf(1.0, 1.2 * line_scale), true)

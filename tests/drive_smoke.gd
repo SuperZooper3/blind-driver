@@ -106,10 +106,15 @@ func _check_damage(game, car) -> void:
 	wall.add_child(shape)
 	game.add_child(wall)
 	wall.global_transform = Transform3D(car.global_basis, car.global_transform * Vector3(0, 0.5, -16))
+	var sounds := [0]
+	var count_sound := func(_strength: float): sounds[0] += 1
+	car.impacted.connect(count_sound)
 	Input.action_press("accelerate")
 	await frames(150)
 	Input.action_release("accelerate")
 	wall.queue_free()
+	car.impacted.disconnect(count_sound)
+	check(sounds[0] >= 1, "hitting the wall plays a crash sound")
 	print("Crash: health=%s" % [damage.health_array()])
 	check(damage.health[damage.FRONT_BUMPER] < 1.0, "driving into a wall damages the front bumper")
 	check(car.run_state == "driving", "one crash does not end the run")
@@ -122,19 +127,20 @@ func _check_damage(game, car) -> void:
 	damage.set_part(damage.ENGINE, 0.2)
 	check(damage.wheel_grip(0) == 1.0 and damage.wheel_toe(0) == 0.0 and damage.steer_scale() == 1.0, "damaged tires keep full grip until they break")
 	var worn := absf(await _yaw_drift(game, car, 110))
+	var healthy_speed: float = car.signed_speed
 	check(car.run_state == "driving" and car.signed_speed > 6.0, "a damaged engine still pulls normally")
 	damage.reset()
 	# Hard hits to the front: the bumper takes them, then falls off.
 	for _i in 3:
-		damage.apply_impact(Vector3(0, 0, -1.9), 11.0)
+		damage.apply_impact(Vector3(0, 0, -1.9), 14.0)
 	await process_frame
 	check(not damage.alive(damage.FRONT_BUMPER) and car.run_state == "driving", "hard hits knock the front bumper off")
 	check(damage.health[damage.ENGINE] < 1.0 and damage.alive(damage.ENGINE), "front hits spill into the engine")
 	car.toggle_lights()
 	check(not car.headlights[0].visible, "headlights are broken with the front bumper")
 	# A side hit by the front-left wheel knocks it off.
-	damage.apply_impact(Vector3(-0.9, 0.0, -1.0), 18.0)
-	damage.apply_impact(Vector3(-0.9, 0.0, -1.0), 18.0)
+	damage.apply_impact(Vector3(-0.9, 0.0, -1.0), 22.0)
+	damage.apply_impact(Vector3(-0.9, 0.0, -1.0), 22.0)
 	await process_frame
 	check(not damage.alive(damage.WHEEL_FL) and car.run_state == "driving", "a lost wheel leaves the car limping, not stopped")
 	check(get_nodes_in_group("car_debris").size() >= 2, "broken parts fall off as debris")
@@ -148,15 +154,23 @@ func _check_damage(game, car) -> void:
 	# Thorns tear a tire flat instead of ending the run at first touch.
 	car.wear_tires(1 << damage.WHEEL_RR, 0.5)
 	check(car.run_state == "driving" and damage.alive(damage.WHEEL_RR) and damage.health[damage.WHEEL_RR] < 1.0, "a brush with thorns only wears the tire")
+	var pops := [0]
+	var count_pop := func(): pops[0] += 1
+	car.tire_popped.connect(count_pop)
 	car.wear_tires(1 << damage.WHEEL_RR, 1.0)
 	await frames(5)
+	car.tire_popped.disconnect(count_pop)
 	check(car.punctured_tires & (1 << damage.WHEEL_RR) and car.wheel_meshes[damage.WHEEL_RR].visible, "a worn-out tire goes flat but stays on")
-	check(car.run_state == "game_over" and car.crash_reason.contains("Thorns"), "a second broken tire breaks the car down")
+	check(pops[0] == 1, "a tire going flat plays one pop")
+	check(car.run_state == "driving" and damage.power_scale() < 0.75, "two broken tires cripple the car but do not end the run")
+	damage.set_part(damage.ENGINE, 0.0)
+	await frames(5)
+	check(car.run_state == "driving" and car.smoke.emitting and damage.power_scale() < 0.35, "a wrecked engine smokes and loses most of its power")
+	var wrecked_speed := absf(await _yaw_drift(game, car, 110))
+	wrecked_speed = car.signed_speed
+	print("Speed after 110 frames: healthy=%.1f m/s, wrecked=%.1f m/s" % [healthy_speed, wrecked_speed])
+	check(car.run_state == "driving" and wrecked_speed < healthy_speed * 0.6, "a wrecked car still drives, much slower")
 	game._restart_run()
 	game.police.phase = "escaped"
 	await frames(30)
-	check(damage.is_pristine() and car.wheel_meshes[0].visible and car.punctured_tires == 0, "a new run repairs every part")
-	damage.set_part(damage.ENGINE, 0.0)
-	check(car.run_state == "game_over" and car.crash_reason.contains("engine"), "a broken engine ends the run")
-	game._restart_run()
-	await frames(30)
+	check(damage.is_pristine() and car.wheel_meshes[0].visible and car.punctured_tires == 0 and not car.smoke.emitting, "a new run repairs every part")

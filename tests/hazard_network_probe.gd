@@ -67,6 +67,9 @@ func _tick() -> void:
 			game.car.distance_driven = 2345.0
 			game.car.recover(game.world.ground_point(26, 12, 0.17), Vector3.FORWARD)
 			phase = 5
+		if phase == 5 and game.car.punctured_tires != 0 and game.car.run_state == "driving":
+			# Thorns only cripple the car now; stand in for the patrol catching it.
+			game.car.finish_run("The police caught you on shredded tires")
 		if phase == 5 and game.car.run_state == "game_over":
 			phase = 6
 			phase_at = elapsed
@@ -131,7 +134,7 @@ func _tick() -> void:
 			elif phase == 2 and not game.session.recovering and game.session.snapshots_received > 120:
 				saw_reconnect = true
 		if game.car.run_id == 1 and game.car.run_state == "game_over":
-			saw_puncture = game.car.punctured_tires != 0 and game.car.crash_reason.contains("Thorns") and absf(game.car.distance_driven - 2345.0) < 1.0 and game.ui.result_panel.visible
+			saw_puncture = game.car.punctured_tires != 0 and game.car.crash_reason.contains("shredded") and absf(game.car.distance_driven - 2345.0) < 1.0 and game.ui.result_panel.visible
 			for i in game.car.wheel_pivots.size():
 				if game.car.punctured_tires & (1 << i):
 					saw_puncture = saw_puncture and is_equal_approx(game.car.wheel_pivots[i].scale.y, 0.55)

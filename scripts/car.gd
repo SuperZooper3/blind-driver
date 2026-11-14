@@ -20,12 +20,27 @@ var handbrake := false
 var run_state := "driving"
 var crash_reason := ""
 var run_id := 0
-var punctured_tires := 0
+## Flat tires as a wheel bitmask. Newly flattened tires play the pop sound on both seats.
+var punctured_tires := 0:
+	set(value):
+		if value & ~punctured_tires & 15:
+			tire_popped.emit.call_deferred()
+		punctured_tires = value
 ## Tires touching thorns this frame, as a wheel bitmask.
 var thorn_contact := 0
-var broken_down := false
+var smoke: CPUParticles3D
+var last_impact_sound := -1.0
+signal impacted(strength: float)
+signal tire_popped
 ## Tire health lost per second while a tire sits in thorns.
 const THORN_WEAR := 0.8
+## Extra rolling resistance of a flat tire, and drag of a bare hub on the ground.
+const FLAT_TIRE_DRAG := 45.0
+## A flat rides a little lower: more than the suspension can soak up lifts the
+## diagonally opposite wheel off the road. It is drawn more squashed than that.
+const FLAT_RADIUS := 0.82
+const FLAT_LOOK := 0.55
+const HUB_SCRAPE := 240.0
 var rollover_time := 0.0
 var driving_enabled := false
 var remote := false
@@ -90,6 +105,10 @@ func _ready() -> void:
 		add_child(side)
 	_build_model()
 	damage.part_broken.connect(_on_part_broken)
+	# The navigator has no contacts of its own; mirrored damage drives its crash sound.
+	damage.damaged.connect(func(amount: float):
+		if remote:
+			impacted.emit(clampf(amount * 2.5, 0.15, 1.0)))
 	body_entered.connect(func(_body: Node):
 		impact_strength = clampf(linear_velocity.length() / 12.0, 0.0, 1.0))
 
@@ -166,6 +185,30 @@ func _build_model() -> void:
 		light.visible = false
 		add_child(light)
 		headlights.append(light)
+	# A wrecked engine smokes from under the missing hood.
+	smoke = CPUParticles3D.new()
+	smoke.position = Vector3(0, 0.55, -1.3)
+	smoke.emitting = false
+	smoke.amount = 24
+	smoke.lifetime = 1.6
+	smoke.direction = Vector3.UP
+	smoke.spread = 25.0
+	smoke.initial_velocity_min = 1.2
+	smoke.initial_velocity_max = 2.2
+	smoke.gravity = Vector3(0, 0.6, 0)
+	smoke.scale_amount_min = 0.6
+	smoke.scale_amount_max = 1.4
+	var puff := SphereMesh.new()
+	puff.radius = 0.22
+	puff.height = 0.44
+	puff.radial_segments = 6
+	puff.rings = 3
+	var smoke_mat := Geo.material(Color(0.32, 0.32, 0.3, 0.55))
+	smoke_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	puff.material = smoke_mat
+	smoke.mesh = puff
+	smoke.local_coords = false
+	add_child(smoke)
 
 func _physics_process(delta: float) -> void:
 	recovery_grace = maxi(0, recovery_grace - 1)
@@ -231,10 +274,11 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	for i in suspension_points.size():
 		var local: Vector3 = suspension_points[i]
 		var origin := state.transform * local
-		var radius := WHEEL_RADIUS * (0.55 if punctured_tires & (1 << i) else 1.0)
+		var radius := WHEEL_RADIUS * (FLAT_RADIUS if punctured_tires & (1 << i) else 1.0)
 		var query := PhysicsRayQueryParameters3D.create(origin, origin - up * (SPRING_LENGTH + radius))
 		query.exclude = [get_rid()]
-		if not damage.alive(i):
+		# A lost wheel drags its hub; a flat tire still rolls, just badly.
+		if not damage.alive(i) and not punctured_tires & (1 << i):
 			_scrape(state, origin, up)
 			continue
 		var hit := state.get_space_state().intersect_ray(query)
@@ -261,13 +305,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var tire_offset := offset - up * 0.18
 		state.apply_force(tire_side * side_force, tire_offset)
 		var speed := velocity.dot(tire_forward)
-		var speed_limit := MAX_SPEED if throttle >= 0.0 else 9.0
-		var drive := throttle * ENGINE_FORCE / 4.0 * clampf(1.0 - absf(speed) / speed_limit, 0.0, 1.0)
+		var speed_limit := (MAX_SPEED if throttle >= 0.0 else 9.0) * damage.speed_scale()
+		var drive := throttle * ENGINE_FORCE * damage.power_scale() / 4.0 * clampf(1.0 - absf(speed) / speed_limit, 0.0, 1.0)
 		var brake_force := -speed * (1700.0 * brake_input + (700.0 if handbrake else 0.0))
-		var rolling := -speed * ((16.0 if on_road else 100.0) + (320.0 if punctured_tires & (1 << i) else 0.0))
+		var rolling := -speed * ((16.0 if on_road else 100.0) + (FLAT_TIRE_DRAG if punctured_tires & (1 << i) else 0.0))
 		var traction := clampf(drive + brake_force + rolling, -spring_force * 1.3, spring_force * 1.3)
 		state.apply_force(tire_forward * traction, tire_offset)
-	if run_state == "game_over" and (punctured_tires != 0 or broken_down) and grounded_wheels > 0:
+	if run_state == "game_over" and punctured_tires != 0 and grounded_wheels > 0:
 		# Flat tires and tangled brambles bring the wreck to a halt, without cancelling gravity.
 		state.apply_central_force(-Vector3(state.linear_velocity.x, 0, state.linear_velocity.z) * mass * 7.0)
 	# Aerodynamic drag and gentle roll damping; never lock pitch/roll or erase collisions.
@@ -291,7 +335,7 @@ func _scrape(state: PhysicsDirectBodyState3D, origin: Vector3, up: Vector3) -> v
 	# Weak support stops the hub sinking through; strong friction drags that corner back.
 	var depth: float = 0.75 - origin.distance_to(hit.position)
 	state.apply_force(hit.normal * clampf(depth * 9000.0 - velocity.dot(hit.normal) * 900.0, 0.0, 5000.0), offset)
-	state.apply_force(-slide.limit_length(12.0) * 520.0, offset)
+	state.apply_force(-slide.limit_length(10.0) * HUB_SCRAPE, offset)
 
 func _detect_impacts(state: PhysicsDirectBodyState3D) -> void:
 	# One collision reports several contact points and may bounce for a few frames;
@@ -299,22 +343,36 @@ func _detect_impacts(state: PhysicsDirectBodyState3D) -> void:
 	sim_time += state.step
 	var time := sim_time
 	var to_local := state.transform.affine_inverse()
+	# Gather every contact point of each newly touched object: a flat wall touches
+	# both front corners, and the hit should land in the middle, not one corner.
+	var hits: Dictionary = {}
 	for c in state.get_contact_count():
 		var id := state.get_contact_collider_id(c)
-		var recent: bool = touching.has(id) and time - float(touching[id]) < 0.35
-		touching[id] = time
-		if recent:
+		if not hits.has(id) and touching.has(id) and time - float(touching[id]) < 0.35:
+			touching[id] = time
 			continue
+		touching[id] = time
 		# Contact positions and normals are reported in global space.
 		var point := state.get_contact_local_position(c)
 		var normal := state.get_contact_local_normal(c)
 		var r := point - state.transform.origin
 		var closing := absf((prev_linear_velocity + prev_angular_velocity.cross(r)).dot(normal))
-		if normal.dot(Vector3.UP) > 0.7 and state.transform.basis.y.dot(Vector3.UP) > 0.3:
+		if not hits.has(id):
+			hits[id] = {"sum": Vector3.ZERO, "count": 0, "closing": 0.0, "ground": true}
+		var hit: Dictionary = hits[id]
+		hit.sum += point
+		hit.count += 1
+		hit.closing = maxf(hit.closing, closing)
+		hit.ground = hit.ground and normal.dot(Vector3.UP) > 0.7
+	for hit: Dictionary in hits.values():
+		if hit.ground and state.transform.basis.y.dot(Vector3.UP) > 0.3:
 			# Ground under the floor: only a hard landing hurts.
-			damage.apply_landing(closing)
+			damage.apply_landing(hit.closing)
 		else:
-			damage.apply_impact(to_local * point, closing)
+			damage.apply_impact(to_local * (hit.sum / hit.count), hit.closing)
+			if hit.closing > 3.0 and time - last_impact_sound > 0.15:
+				last_impact_sound = time
+				impacted.emit.call_deferred(clampf((hit.closing - 3.0) / 25.0, 0.12, 1.0))
 	if touching.size() > 32:
 		for id in touching.keys():
 			if time - float(touching[id]) > 1.0:
@@ -326,18 +384,12 @@ func _on_part_broken(part: int) -> void:
 		lamp_material.albedo_color = Color("4a4a42")
 		for light in headlights:
 			light.visible = false
-	if remote or run_state != "driving":
-		return
 	if part == Damage.ENGINE:
-		broken_down = true
-		finish_run("Your engine broke down")
-	elif part <= Damage.WHEEL_RR and damage.broken_tires() >= Damage.TIRES_TO_BREAK_DOWN:
-		broken_down = true
-		finish_run("Thorns shredded your tires" if thorn_contact != 0 else "Your tires gave out")
+		smoke.emitting = true
 
 func _damage_reset() -> void:
-	broken_down = false
 	thorn_contact = 0
+	smoke.emitting = false
 	lamp_material.emission_enabled = true
 	lamp_material.albedo_color = Color("f8e6ae")
 
@@ -370,8 +422,8 @@ func check_rollover(delta: float) -> void:
 	if rollover_time >= 0.65:
 		finish_run("You rolled the car")
 
-## Thorns tear at every tire touching them. Tires go flat one by one; the run
-## only ends once the car can no longer go on (see _on_part_broken).
+## Thorns tear at every tire touching them until each goes flat. Flats never end
+## the run; they slow the car down until the police catch it.
 func wear_tires(mask: int, delta: float) -> void:
 	thorn_contact = mask & 15
 	if remote or run_state != "driving" or mask == 0:
@@ -386,7 +438,7 @@ func flatten_tire(wheel: int) -> void:
 
 func update_tire_visuals() -> void:
 	for i in wheel_pivots.size():
-		wheel_pivots[i].scale.y = 0.55 if punctured_tires & (1 << i) else 1.0
+		wheel_pivots[i].scale.y = FLAT_LOOK if punctured_tires & (1 << i) else 1.0
 
 func recover(point: Vector3, direction: Vector3) -> void:
 	if run_state != "driving":

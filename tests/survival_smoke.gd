@@ -22,7 +22,10 @@ func _run() -> void:
 	car.distance_driven = 2468.0
 	car.recover(world.ground_point(26, 12, 0.17), Vector3.FORWARD)
 	await frames(120)
-	check(car.punctured_tires != 0 and car.run_state == "game_over" and car.crash_reason.contains("Thorns"), "grounded tires in deep forest puncture and end the run")
+	check(car.punctured_tires != 0 and car.run_state == "driving", "grounded tires in deep forest go flat without ending the run")
+	# Crippled cars end when caught; stand in for the patrol here.
+	car.finish_run("The police caught you")
+	await frames(60)
 	check(car.linear_velocity.length() < 0.7 and game.ui.result_panel.visible, "punctured tires stop the car and show failure")
 	check(game.records.best_distance >= 2468.0 and game.ui.result_detail.text.contains("PERSONAL BEST"), "failure records distance and celebrates a personal best")
 	var loaded = Records.new()

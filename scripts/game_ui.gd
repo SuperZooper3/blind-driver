@@ -252,7 +252,9 @@ func _build_hud() -> void:
 	hud.add_child(hint_label)
 	damage_label = _label("", 13, Color("e58a6a"))
 	damage_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	damage_label.offset_top = -122
+	# Just above the dashboard footer.
+	damage_label.offset_top = -FOOTER_HEIGHT - 30
+	damage_label.offset_bottom = -FOOTER_HEIGHT - 8
 	damage_label.offset_left = 28
 	hud.add_child(damage_label)
 

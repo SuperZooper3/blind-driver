@@ -1,34 +1,51 @@
 extends RefCounted
 ## Health for the car's few big, breakable parts, and what each loss costs.
 ## A damaged part only looks and sounds worse; the car drives normally until a
-## part actually breaks. The driver's game is authoritative; navigators mirror
-## `health` from snapshots.
+## part actually breaks. Breaking never ends the run by itself: a wrecked car
+## just limps along until the police catch it. The driver's game is
+## authoritative; navigators mirror `health` from snapshots.
 
 enum { WHEEL_FL, WHEEL_FR, WHEEL_RL, WHEEL_RR, ENGINE, FRONT_BUMPER, REAR_BUMPER, WINDSHIELD }
 const PART_COUNT := 8
 const NAMES := ["FL TIRE", "FR TIRE", "RL TIRE", "RR TIRE", "ENGINE", "FRONT BUMPER", "REAR BUMPER", "WINDSHIELD"]
-## Broken tires (flat or lost) that leave the car unable to go on.
-const TIRES_TO_BREAK_DOWN := 2
-## Closing speed (m/s) below which a hit does no harm.
-const SAFE_SPEED := 3.5
-## Damage per m/s above SAFE_SPEED.
-const RATE := [0.055, 0.055, 0.055, 0.055, 0.05, 0.06, 0.06, 0.045]
-## Frontal hits only reach the windshield above this closing speed.
-const WINDSHIELD_SPEED := 8.0
+## Closing speed (m/s) below which a hit does no harm: 4.5 m/s is about 16 km/h.
+const SAFE_SPEED := 4.5
+## Hit severity grows faster than speed, like crash energy: (speed - SAFE_SPEED) ^ CURVE.
+const CURVE := 1.3
+## Health lost per unit of severity. Severity is about 18 at 50 km/h, 42 at 80 km/h,
+## 70 at 110 km/h and 120 at the 158 km/h top speed. The front bumper and hood
+## are the soft parts: a 50 km/h hit visibly crumples the bumper, an 80 km/h hit
+## tears it off, and one head-on hit at top speed costs most of the engine.
+const RATE := [0.021, 0.021, 0.021, 0.021, 0.022, 0.026, 0.026, 0.014]
+## Frontal hits only reach the windshield above this closing speed (about 40 km/h).
+const WINDSHIELD_SPEED := 11.0
+## How much of a hit gets past a bumper that is still on.
+const BUMPER_SPILL := 0.3
+## Penalties for broken parts. Each broken tire costs this share of power and top speed.
+const TIRE_POWER_LOSS := 0.15
+const TIRE_SPEED_LOSS := 0.12
+## A broken engine still runs, badly.
+const ENGINE_BROKEN_POWER := 0.45
+const ENGINE_BROKEN_SPEED := 0.55
 const DEBRIS_LIFETIME := 20.0
 
 signal part_broken(part: int)
+## Health lost by any part this frame, summed: drives the crash sound on both seats.
+signal damaged(amount: float)
 
 var car: RigidBody3D
 var health := PackedFloat32Array()
 ## Each part's breakable visuals. A wheel's entry is its spinning wheel node.
 var visuals: Array = []
 var rest_transforms: Array = []
+## Which side the last dent came from, -1 (left) .. 1 (right), for lopsided crumpling.
+var dent_side := PackedFloat32Array()
 
 func _init(owner_car: RigidBody3D) -> void:
 	car = owner_car
 	health.resize(PART_COUNT)
 	health.fill(1.0)
+	dent_side.resize(PART_COUNT)
 	for i in PART_COUNT:
 		visuals.append([])
 		rest_transforms.append([])
@@ -50,6 +67,16 @@ func wheel_toe(wheel: int) -> float:
 		return 0.0
 	return (1.0 if wheel % 2 == 0 else -1.0) * 0.06
 
+## Drive force multiplier from broken parts.
+func power_scale() -> float:
+	var scale := 1.0 - TIRE_POWER_LOSS * broken_tires()
+	return scale * (1.0 if alive(ENGINE) else ENGINE_BROKEN_POWER)
+
+## Top speed multiplier from broken parts.
+func speed_scale() -> float:
+	var scale := 1.0 - TIRE_SPEED_LOSS * broken_tires()
+	return scale * (1.0 if alive(ENGINE) else ENGINE_BROKEN_SPEED)
+
 func broken_tires() -> int:
 	var count := 0
 	for wheel in 4:
@@ -57,7 +84,7 @@ func broken_tires() -> int:
 			count += 1
 	return count
 
-## Engine knock grows with damage. It is a warning only; power is unaffected.
+## Engine knock grows with damage; power only drops once the engine breaks.
 func engine_roughness() -> float:
 	return 1.0 if not alive(ENGINE) else (1.0 - health[ENGINE]) * 0.45
 
@@ -89,22 +116,37 @@ func apply_impact(local_point: Vector3, closing_speed: float) -> void:
 	var excess := closing_speed - SAFE_SPEED
 	if excess <= 0.0:
 		return
+	var severity := pow(excess, CURVE)
 	var left := local_point.x < 0.0
+	var side := clampf(local_point.x / 0.9, -1.0, 1.0)
+	for part in [ENGINE, FRONT_BUMPER, REAR_BUMPER]:
+		dent_side[part] = side
+	# Corner hits land on one wheel; hits near the middle spread across both.
+	var corner := absf(local_point.x) > 0.5
 	if local_point.y > 0.6:
-		_hurt(WINDSHIELD, excess)
+		_hurt(WINDSHIELD, severity)
 	elif local_point.z < -1.45:
-		var spill := _absorb(FRONT_BUMPER, excess)
-		_hurt(ENGINE, excess * spill)
-		_hurt(WHEEL_FL if left else WHEEL_FR, excess * spill * (1.4 if absf(local_point.x) > 0.5 else 0.6))
+		var spill := _absorb(FRONT_BUMPER, severity)
+		_hurt(ENGINE, severity * spill)
+		if corner:
+			_hurt(WHEEL_FL if left else WHEEL_FR, severity * spill * 1.4)
+		else:
+			_hurt(WHEEL_FL, severity * spill * 0.3)
+			_hurt(WHEEL_FR, severity * spill * 0.3)
 		if closing_speed > WINDSHIELD_SPEED:
-			_hurt(WINDSHIELD, excess * spill)
+			_hurt(WINDSHIELD, severity * spill)
 	elif local_point.z > 1.45:
-		var spill := _absorb(REAR_BUMPER, excess)
-		_hurt(WHEEL_RL if left else WHEEL_RR, excess * spill * (1.4 if absf(local_point.x) > 0.5 else 0.6))
+		var spill := _absorb(REAR_BUMPER, severity)
+		if corner:
+			_hurt(WHEEL_RL if left else WHEEL_RR, severity * spill * 1.4)
+		else:
+			_hurt(WHEEL_RL, severity * spill * 0.3)
+			_hurt(WHEEL_RR, severity * spill * 0.3)
 	else:
+		# Side hits are usually glancing; the nearest wheel takes part of it.
 		var front := local_point.z < 0.0
 		var wheel := (WHEEL_FL if left else WHEEL_FR) if front else (WHEEL_RL if left else WHEEL_RR)
-		_hurt(wheel, excess)
+		_hurt(wheel, severity * 0.6)
 
 ## A whole-car jolt such as a hard landing: shared out across the wheels.
 func apply_landing(closing_speed: float) -> void:
@@ -112,23 +154,26 @@ func apply_landing(closing_speed: float) -> void:
 	if excess <= 0.0:
 		return
 	for wheel in 4:
-		_hurt(wheel, excess * 0.5)
+		_hurt(wheel, pow(excess, CURVE) * 0.4)
 
 ## The bumper takes the hit first. Returns how much of it carries through.
 func _absorb(bumper: int, excess: float) -> float:
 	if not alive(bumper):
 		return 1.0
 	_hurt(bumper, excess)
-	return 0.3
+	return BUMPER_SPILL
 
-func _hurt(part: int, excess: float) -> void:
-	if not alive(part) or excess <= 0.0:
+func _hurt(part: int, severity: float) -> void:
+	if not alive(part) or severity <= 0.0:
 		return
-	set_part(part, maxf(0.0, health[part] - excess * RATE[part]))
+	set_part(part, maxf(0.0, health[part] - severity * RATE[part]))
 
 func set_part(part: int, value: float) -> void:
 	var was_alive := alive(part)
+	var before := health[part]
 	health[part] = clampf(value, 0.0, 1.0)
+	if health[part] < before:
+		damaged.emit(before - health[part])
 	_update_visual(part)
 	if was_alive and not alive(part):
 		_break(part)
@@ -162,6 +207,7 @@ func is_pristine() -> bool:
 
 func reset() -> void:
 	health.fill(1.0)
+	dent_side.fill(0.0)
 	for part in PART_COUNT:
 		_update_visual(part)
 		for node: Node3D in visuals[part]:
@@ -181,7 +227,7 @@ func summary() -> String:
 			if i <= WHEEL_RR:
 				lost.append(NAMES[i] + (" FLAT" if car.punctured_tires & (1 << i) else " LOST"))
 			else:
-				lost.append(NAMES[i] + (" BROKE DOWN" if i == ENGINE else " OFF"))
+				lost.append(NAMES[i] + (" WRECKED" if i == ENGINE else " OFF"))
 		elif health[i] < 0.5:
 			lost.append(NAMES[i] + " DAMAGED")
 	return "" if lost.is_empty() else "DAMAGE:  " + "  /  ".join(lost)
@@ -193,9 +239,18 @@ func _update_visual(part: int) -> void:
 		var rest: Transform3D = rest_transforms[part][j]
 		match part:
 			ENGINE:
-				node.transform = rest.rotated_local(Vector3.RIGHT, -wear * 0.2).translated(Vector3(0, wear * 0.06, 0))
+				# The hood buckles: front edge lifts, it twists toward the hit and crumples back.
+				node.transform = rest.rotated_local(Vector3.RIGHT, -wear * 0.42) \
+					.rotated_local(Vector3.FORWARD, -dent_side[part] * wear * 0.2) \
+					.scaled_local(Vector3(1.0 - wear * 0.08, 1.0 + wear * 0.5, 1.0 - wear * 0.3)) \
+					.translated(Vector3(0, wear * 0.12, wear * 0.16))
 			FRONT_BUMPER, REAR_BUMPER:
-				node.transform = rest.rotated_local(Vector3.FORWARD, wear * 0.22).translated(Vector3(0, -wear * 0.09, 0))
+				# Pushed in toward the cabin, bent toward the hit, and sagging.
+				var inward := 1.0 if part == FRONT_BUMPER else -1.0
+				node.transform = rest.rotated_local(Vector3.FORWARD, (0.12 + 0.3 * dent_side[part]) * wear) \
+					.rotated_local(Vector3.UP, dent_side[part] * wear * 0.3 * inward) \
+					.scaled_local(Vector3(1.0 - wear * 0.12, 1.0 + wear * 0.4, 1.0)) \
+					.translated(Vector3(0, -wear * 0.14, inward * wear * 0.22))
 			WINDSHIELD:
 				var glass := node as MeshInstance3D
 				if glass != null and glass.material_override is StandardMaterial3D:

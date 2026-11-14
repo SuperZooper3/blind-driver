@@ -40,7 +40,7 @@ Local play needs no additional packages or accounts. Models, forest, terrain, ma
 | F8 | Connection check, live network metrics, and logs |
 | Escape | Menu; driver applies brakes while the menu is open |
 
-Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, holding the right shoulder button (RB) looks behind, and Start opens the menu. Keyboard and gamepad can be used together. **Settings** has the driver-blur slider. There is no recovery shortcut. Use **Start a new ride** in the pause menu, or **Drive again** after Game Over; both reset the run and trip odometer while keeping your personal best. Landing on the roof/side, or the car breaking down (engine, or a second tire), ends the run automatically.
+Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, holding the right shoulder button (RB) looks behind, and Start opens the menu. Keyboard and gamepad can be used together. **Settings** has the driver-blur slider. There is no recovery shortcut. Use **Start a new ride** in the pause menu, or **Drive again** after Game Over; both reset the run and trip odometer while keeping your personal best. Landing on the roof/side ends the run automatically. A broken-down car keeps driving, slowly, until the police catch it.
 
 Talk to each other in person or over your preferred voice call. The navigator sees only the top edge of a folded map at the bottom of their view. **M / Tab** slides it up to cover their entire screen (their half in shared-screen mode), so checking the map means looking away from the road. Red **X / CLIFF** marks a fatal dead end. A circular **DEAD END / TURN AROUND** marks a solid cul-de-sac. Green **LONG / QUIETER** and amber **SHORT / HEAVY HAZARDS** routes rejoin; check the map to choose between extra distance and more dodging. Jump gaps, timed bridges, lakes, and construction zones are mapped; small obstacles are not. The navigator must also watch the clear road view and call out rocks, trees, ramps, bumps, and cones.
 
@@ -48,17 +48,19 @@ A small live rear-view mirror stays visible during the ride: blurred for the dri
 
 ### Car damage
 
-The car drives normally until something actually **breaks**. Gentle bumps (under about 13 km/h of closing speed) are harmless. Harder hits on rocks, trees, barriers and walls wear parts down, and the bumpers soak up most of a hit while they last. A damaged part only looks and sounds worse: dents, wobbling wheels, a knocking engine, a cracking windshield. Breaking it has a real consequence. The damage line above the speedometer lists what is hurt.
+Crashes and thorns break the car, but **breaking never ends the run by itself**. A wrecked car limps on, slower and slower, until the police catch it.
 
-| Part | When it breaks |
-| --- | --- |
-| Tires (4) | **Thorns** tear any tire touching them, and a tire goes flat after about 1¼ s in the brambles. A flat stays on the car but slides, drags and pulls toward its side. A hard crash can instead knock the wheel right off: that corner then drags on the ground, and a missing front wheel halves steering. **A second broken tire means the car breaks down and the run ends.** |
-| Engine (under the hood) | The hood flies off and **the car breaks down: the run ends.** Front hits reach the engine, mostly through the front bumper. |
-| Front bumper | Falls off. Front hits reach the engine, windshield and front wheels at full strength, and the headlights break. |
-| Rear bumper | Falls off. Rear hits reach the rear wheels at full strength. |
-| Windshield | Cracks spread across both seat views and finally shatter into a hazy web. It never ends the run. |
+Hits under about 16 km/h are harmless. Harder hits on rocks, trees, barriers and walls dent parts and play a crash sound on both seats. Damage grows faster than speed (like crash energy), and the bumpers soak up most of a hit while they last. The front bumper and hood are the soft parts: a 50 km/h hit visibly crumples the bumper, and an 80 km/h hit tears it off. A damaged part only looks and sounds worse. It costs nothing until it **breaks**:
 
-Damage lasts the whole run. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot.
+| Part | When it breaks | Top speed afterwards (healthy: ~106 km/h) |
+| --- | --- | --- |
+| Tires (4) | **Thorns** tear any tire touching them; a tire pops flat (with a bang) after about 1¼ s in the brambles. A flat stays on the car but slides and pulls toward its side. A hard crash can knock a wheel right off instead, leaving the hub dragging and halving steering for a front wheel. Each broken tire also costs 15% of power and 12% of top speed. | 1 flat ~82 km/h, 2 flats ~62, 1 wheel lost ~64 |
+| Engine (under the hood) | The hood flies off, the engine smokes and knocks, and power drops to 45%. | ~56 km/h; with 2 flats ~32; everything broken ~18 |
+| Front bumper | Falls off. Front hits reach the engine, windshield and front wheels at full strength, and the headlights break. | |
+| Rear bumper | Falls off. Rear hits reach the rear wheels at full strength. | |
+| Windshield | Cracks spread across both seat views (blurred for the driver, like the road), then shatter into a hazy web. | |
+
+Damage lasts the whole run. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot. Tuning lives at the top of `scripts/car_damage.gd` (`SAFE_SPEED`, `CURVE`, `RATE`, breakdown penalties) and `scripts/car.gd` (`THORN_WEAR`, `FLAT_TIRE_DRAG`, `HUB_SCRAPE`).
 
 ## Two windows or two computers
 
@@ -110,7 +112,7 @@ godot --path . -- --join=127.0.0.1
 - Faster acceleration and a 158 km/h engine cutoff (about 111 km/h sustained on a flat test road), physical boulders, tree chicanes, half-width ramps that can overturn the car, speed bumps, and construction cones/barriers. Roadside clutter is static and collides; it is not independently simulated debris.
 - Two arcade crossing challenges alternate on clear, straight connector roads. A full-width ramp launches you over a 16 m gap: line up and approach at **65+ km/h** for a forgiving takeoff assist, then land using the normal car physics. A sliding bridge initially opens for six seconds in a twelve-second cycle, warns for the last two seconds, and retracts sideways to expose a real pit. Roadside signals, the navigator’s route card, and live map markers show when to go. Miss either crossing and you fall, crash, and receive Game Over. The patrol jumps the ramp and waits for the bridge too.
 - Bridge motion, lights, map countdowns, and failure states follow the driver’s run clock, interpolated with the car on the navigator. Driver menus, connection recovery, and Game Over pause the clock; starting a new ride resets it. These challenges replace ordinary clutter on their road, leaving room to line up or wait.
-- Dense thorn bushes start roughly 18 m from the road center, leaving room to dodge obstacles on the shoulder. Deep-forest brambles wear down any tire touching them until it goes flat; a second broken tire breaks the car down and shows Game Over (see Car damage). Flat tires, part damage and the failure reason synchronize to the navigator.
+- Dense thorn bushes start roughly 18 m from the road center, leaving room to dodge obstacles on the shoulder. Deep-forest brambles wear down any tire touching them until it pops flat, slowing the car (see Car damage). Flat tires, part damage and the failure reason synchronize to the navigator.
 - Roof and cabin collision protect the seats when the car flips. A car resting on its roof or side for 0.65 seconds ends the run; an airborne flip can still land safely.
 - A seeded road graph with one growth frontier. After the introductory cliff fork, three-way junctions offer a longer, quieter road, a shorter road with more hazards, and a cul-de-sac or cliff. Both through routes rejoin the same continuation. Cul-de-sacs have a broad, solid turning circle and a no-through-road sign. Other forks offer one continuing road and a cul-de-sac. Dead ends and the forest cannot spawn extra routes. Distant sections are removed and forest tiles load incrementally. Trees use MultiMesh rendering; nearby-road queries use a spatial index.
 - Five heat levels, shown on the dashboard, increase every **750 m** of trip distance, reaching level five at 3 km. New rough shortcuts grow from three to six obstacles while quieter alternatives grow from one to three. Future bridge windows shorten by half a second per level, down to four seconds. Existing road layouts and bridge timing stay fixed; restarting resets heat. The patrol also increases its normal cruising speed with distance.
@@ -145,7 +147,8 @@ The project intentionally builds almost everything in code. The editor's main sc
 | `Dockerfile`, `server/Dockerfile`, `.railway/` | Railway frontend/relay containers and infrastructure blueprint |
 | `scripts/engine_audio.gd`, `scripts/police_siren.gd` | Procedural engine/tire sound and distance-based stereo siren |
 | `scripts/police_pursuit.gd` | Driver-owned patrol navigation, obstacle avoidance, gap estimates, and capture |
-| `scripts/car_damage.gd` | Part health, impact zones, breakdowns, debris; `SAFE_SPEED` and `RATE` tune how fragile the car is |
+| `scripts/impact_audio.gd` | Synthesized crash and tire-pop sounds |
+| `scripts/car_damage.gd` | Part health, impact zones, dents, breakdown penalties, debris; `SAFE_SPEED` and `RATE` tune how fragile the car is |
 | `scripts/windshield_cracks.gd` | Crack overlay drawn over both seat views |
 | `shaders/driver_blur.gdshader` | Driver's vision |
 
@@ -172,11 +175,11 @@ GODOT=/path/to/godot python3 tests/run_checks.py
 godot --headless --path . --fixed-fps 60 --script tests/drive_smoke.gd
 ```
 
-The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved lobby settings, name-based joining in either order, removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn tire wear and breakdowns, crash damage and debris, roof clearance, rollover failure, PB persistence, a single growth frontier with rejoining route choices, solid cul-de-sacs, heat progression, patrol navigation/avoidance/capture, rear-view controls and mirrors, ramp overturns, successful and failed gap jumps, timed bridge crossings and falls, shared bridge motion after reconnect, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
+The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved lobby settings, name-based joining in either order, removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn tire wear and flats, crash damage, debris, crash/pop sounds and crippled-car speed, roof clearance, rollover failure, PB persistence, a single growth frontier with rejoining route choices, solid cul-de-sacs, heat progression, patrol navigation/avoidance/capture, rear-view controls and mirrors, ramp overturns, successful and failed gap jumps, timed bridge crossings and falls, shared bridge motion after reconnect, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
 
 ## Prototype boundaries
 
-This is an early handling/cooperation sandbox. There are no traffic systems, repair mechanics, saved worlds, or finish line. Obstacle collisions can spin or overturn the car; ravines, lakes, grounded rollovers, car breakdowns (engine or two tires), and police capture end the run. Use the pause menu to start a new ride if the car is stuck. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
+This is an early handling/cooperation sandbox. There are no traffic systems, repair mechanics, saved worlds, or finish line. Obstacle collisions can spin or overturn the car; ravines, lakes, grounded rollovers, and police capture end the run; broken parts only slow the car down. Use the pause menu to start a new ride if the car is stuck. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
 
 Deploy the browser frontend and relay using [the Render guide](deployment.md)
 or [the Railway guide](docs/RAILWAY.md), then test the public

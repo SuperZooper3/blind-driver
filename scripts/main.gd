@@ -7,6 +7,8 @@ const Audio = preload("res://scripts/engine_audio.gd")
 const Session = preload("res://scripts/session.gd")
 const Pursuit = preload("res://scripts/police_pursuit.gd")
 const Siren = preload("res://scripts/police_siren.gd")
+const ImpactAudio = preload("res://scripts/impact_audio.gd")
+var impact_audio: Node
 var police: Node3D
 var siren: AudioStreamPlayer
 var looking_back := false
@@ -63,6 +65,13 @@ func _ready() -> void:
 	ui = UI.new()
 	add_child(ui)
 	ui.driver_screen.texture = driver_view.get_texture()
+	# Draw the driver's cracks inside their low-resolution view, so the blur pass
+	# smears them along with the road.
+	var driver_glass := CanvasLayer.new()
+	driver_view.add_child(driver_glass)
+	ui.driver_cracks.reparent(driver_glass, false)
+	ui.driver_cracks.line_scale = 0.8
+	ui.driver_cracks.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.navigator_screen.texture = navigator_view.get_texture()
 	ui.driver_mirror.texture = mirror_view.get_texture()
 	ui.navigator_mirror.texture = mirror_view.get_texture()
@@ -87,6 +96,10 @@ func _ready() -> void:
 	motor = Audio.new()
 	motor.car = car
 	add_child(motor)
+	impact_audio = ImpactAudio.new()
+	add_child(impact_audio)
+	car.impacted.connect(impact_audio.crash)
+	car.tire_popped.connect(impact_audio.pop)
 	siren = Siren.new()
 	siren.pursuit = police
 	siren.car = car
@@ -200,6 +213,7 @@ func _process(delta: float) -> void:
 	ui.update_pursuit(police, looking_back, car.run_state == "driving")
 	siren.enabled = started and not audio_muted and not ui.in_menu and car.run_state == "driving" and not session.recovering and not session.stale and session.role != "disconnected"
 	motor.enabled = started and not audio_muted and not ui.in_menu
+	impact_audio.enabled = started and not audio_muted
 	if ui.in_menu or car.run_state != "driving" or (session.online and not session.can_drive()):
 		car.driving_enabled = false
 	if local_navigator_pid > 0:
@@ -237,11 +251,13 @@ func _process(delta: float) -> void:
 		if not car.remote:
 			car.on_road = world.road_distance(car.global_position) < 4.6
 	ui.show_run_result(car.run_state, car.crash_reason, car.distance_driven, mode == "join", records.best_distance, records.new_best)
-	ui.hint_label.text = "Thorn thickets ahead — stay near the road" if car.run_state == "driving" and world.road_distance(car.global_position) > 12.0 else ""
+	ui.hint_label.text = "Thorns tear your tires — stay near the road" if car.run_state == "driving" and world.road_distance(car.global_position) > 12.0 else ""
 	if car.thorn_contact != 0 and car.run_state == "driving":
 		ui.surface_label.text = "THORNS / TIRES TEARING"
 	elif car.punctured_tires != 0:
 		ui.surface_label.text = "FLAT TIRE" if car.run_state == "driving" else "TIRES PUNCTURED"
+	elif not car.damage.alive(car.damage.ENGINE) and car.run_state == "driving":
+		ui.surface_label.text = "ENGINE WRECKED"
 	ui.damage_label.text = car.damage.summary() if started else ""
 	ui.set_windshield_crack(car.damage.windshield_crack(), ui.in_menu or chase_camera)
 	motor.roughness = car.damage.engine_roughness()
