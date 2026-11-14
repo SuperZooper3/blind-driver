@@ -46,7 +46,8 @@ class HarnessContractTests(unittest.TestCase):
                     answer, usage = agent.decide(image, {"frame": 3, "sim_time": 1, "held_keys": []}, [{"message": "Left"}])
             self.assertEqual(answer, action)
             self.assertEqual(usage["input_tokens"], 30)
-            self.assertEqual(len(agent.history), 4)
+            self.assertEqual(len(agent.history), 2)
+            self.assertEqual(len(requests[-1]["messages"]), 1)
             self.assertEqual(requests[-1]["thinking"], {"type": "disabled"})
             image_part = next(p for p in requests[0]["messages"][-1]["content"] if p["type"] == "image_url")
             self.assertTrue(image_part["image_url"]["url"].startswith("data:image/jpeg;base64,"))
@@ -138,7 +139,8 @@ class HarnessContractTests(unittest.TestCase):
             original = json.dumps(agent.history)
             text, _ = agent.summarize({}, [{"turn": 1, "action": action}])
             self.assertEqual(original, json.dumps(agent.history))
-            agent.decide(image, {"working_memory": {"text": text, "through_turn": 1}}, [])
+            agent.decide(image, {"working_memory": {"text": text, "through_turn": 1},
+                "coordination": {"recent_dialogue": [{"role": "navigator", "message": "Tree ahead"}]}}, [])
         self.assertNotIn("image_url", json.dumps(requests[1]))
         image_count = sum(p.get("type") == "image_url" for m in requests[-1]["messages"]
                           if isinstance(m["content"], list) for p in m["content"])
@@ -221,11 +223,13 @@ class HarnessContractTests(unittest.TestCase):
             args = run.call_args.args[0]
             self.assertEqual(args.driver_model, "command-a-vision-07-2025")
             self.assertEqual(args.navigator_model, "command-a-vision-07-2025")
-            self.assertEqual(args.memory_every, 8)
+            self.assertEqual(args.memory_every, 0)
             self.assertEqual(args.sim_seconds, 60)
-            self.assertEqual(args.max_requests, 100)
+            self.assertEqual(args.max_requests, 200)
             self.assertEqual(args.max_tokens, 200000)
-            self.assertEqual(args.speed, 25)
+            self.assertEqual(args.speed, 5)
+            self.assertEqual(args.history_turns, 2)
+            self.assertEqual(args.decision_interval_sim, .6)
             self.assertIsNone(args.review_speed)
 
     def test_local_viewer_exposes_only_spectator_data_and_frame_paths(self):

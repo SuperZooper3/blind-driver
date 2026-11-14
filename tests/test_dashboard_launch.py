@@ -27,7 +27,7 @@ class DashboardLaunchTests(unittest.TestCase):
                 "navigator_model": "c4ai-aya-vision-32b", "sim_seconds": 12, "max_requests": 18,
                 "max_tokens": 100000, "env_file": "/obsolete/.env", "memory_every": 3})
             for command, model, seconds, tokens, requests in (
-                (new_run_command(directory.parent, config), "command-a-vision-07-2025", 60, 200000, 100),
+                (new_run_command(directory.parent, config), "command-a-vision-07-2025", 60, 200000, 200),
                 (restart_command(directory, config), "c4ai-aya-vision-32b", 12, 100000, 18)):
                 with patch("sys.argv", ["ai_harness", *command[3:]]), patch("tools.ai_harness.__main__.run_episode") as run:
                     main()

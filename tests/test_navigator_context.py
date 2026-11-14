@@ -121,7 +121,7 @@ class NavigatorContextTests(unittest.TestCase):
         self.assertEqual(body["response_format"]["type"], "json_object")
         self.assertEqual(body["response_format"]["schema"]["properties"]["hold"]["items"]["enum"], ["B"])
         content = body["messages"][-1]["content"]
-        self.assertIn("You are NAVIGATOR", content[0]["text"])
+        self.assertIn("as NAVIGATOR", content[0]["text"])
         self.assertIn("Return ONLY the JSON object", content[-1]["text"])
         self.assertIn("Hit something; now stopped.", content[0]["text"])
         self.assertIn("CRASH", content[0]["text"])
@@ -130,6 +130,35 @@ class NavigatorContextTests(unittest.TestCase):
         self.assertNotIn("working_memory", json.dumps(agent.history))
         self.assertNotIn("coordination", json.dumps(agent.history))
         self.assertIn("Impact audible", json.dumps(agent.history))
+
+    def test_visible_hud_and_map_check_age_do_not_expose_evaluator_metrics(self):
+        team, memory = TeamContext(), WorkingMemory(0)
+        hud = {"speed": "79 km/h", "trip": "260 m", "surface": "OFF ROAD", "motion": "MOVING",
+               "damage": "CAR UNDAMAGED", "road_heading": 91.34}
+        first = team.observation("navigator", state(map_open=False, map_reveal=0, hud=hud), memory, 0)
+        self.assertTrue(first["map_check"]["due"])
+        self.assertEqual(first["hud"]["surface"], "OFF ROAD")
+        self.assertNotIn("road_heading", json.dumps(first))
+        self.assertIsNone(first["previous_hud"])
+        opened = team.observation("navigator", state(sim_time=6, hud=hud), memory, 0)
+        self.assertFalse(opened["map_check"]["due"])
+        self.assertEqual(opened["previous_hud"]["at"], 5)
+        later = team.observation("navigator", state(sim_time=15, map_open=False, map_reveal=0, hud=hud), memory, 0)
+        self.assertTrue(later["map_check"]["due"])
+        self.assertEqual(later["map_check"]["last_open_view"], {"at": 6, "trip": "260 m"})
+
+    def test_steering_pulse_requires_finite_bounded_driver_steering(self):
+        from tools.ai_harness.agents import validate_action
+        action = {"hold": ["W", "A"], "tap": [], "message": "", "steering_pulse_sim": .15}
+        self.assertEqual(validate_action(action, "driver"), action)
+        for pulse in (True, float("nan"), float("inf"), 0, 2, "0.2"):
+            with self.subTest(pulse=pulse), self.assertRaises(ValueError):
+                validate_action({**action, "steering_pulse_sim": pulse}, "driver")
+        for hold in (["W"], []):
+            with self.assertRaises(ValueError):
+                validate_action({**action, "hold": hold}, "driver")
+        with self.assertRaises(ValueError):
+            validate_action({**action, "hold": ["B"]}, "navigator")
 
     def test_invalid_image_reply_is_reported_next_turn_without_fabricating_an_action(self):
         action = {"hold": [], "tap": [], "message": "", "notes": "Road view; awaiting driver question"}

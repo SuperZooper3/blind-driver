@@ -11,6 +11,7 @@ var active := false
 var sim_time := 0.0
 var directory := ""
 var held: Array = []
+var steering_release_sim := -1.0
 var sequence := -1
 var applied_sequence := -1
 var last_error := ""
@@ -77,6 +78,11 @@ func _physics_process(delta: float) -> void:
 	if leader != null:
 		sim_time = leader.sim_time
 		return
+	if steering_release_sim >= 0.0 and sim_time >= steering_release_sim:
+		var remaining := held.filter(func(key): return key not in ["A", "D"])
+		_set_held(remaining)
+		steering_release_sim = -1.0
+		_event("steering_pulse_finished", {"hold": held.duplicate()})
 	if active and game.car.run_state != "game_over":
 		sim_time += delta
 		if not game.car.remote:
@@ -96,6 +102,7 @@ func _finish(reason: String) -> void:
 	active = false
 	finished_reason = reason
 	_set_held([])
+	steering_release_sim = -1.0
 	if not game.car.remote: game.car.freeze = true
 	_event("finished", {"reason": reason})
 	if peer != null and peer.active: peer._finish(reason)
@@ -147,6 +154,12 @@ func _read_command() -> void:
 	if ("W" in hold and "S" in hold) or ("A" in hold and "D" in hold) or ("B" in hold and "M" in tap):
 		_reject("conflicting_keys")
 		return
+	var pulse: Variant = command.get("steering_pulse_sim", null)
+	if pulse != null:
+		if options.role != "driver" or not ("A" in hold or "D" in hold) or not (pulse is float or pulse is int) or not is_finite(float(pulse)) or float(pulse) < 0.05 or float(pulse) > 1.0:
+			_reject("invalid_steering_pulse")
+			return
+	steering_release_sim = sim_time + float(pulse) if pulse != null else -1.0
 	_set_held(hold)
 	for key in tap:
 		_key(str(key), true)
@@ -240,9 +253,11 @@ func _save_capture(picture: Image, started_us: int, stamp: float) -> void:
 		"active": active, "connected": connected, "finished_reason": finished_reason,
 		"sequence": sequence, "applied_sequence": applied_sequence, "input_error": last_error,
 		"held": held, "hold_policy": "until_replaced",
+		"steering_release_sim": steering_release_sim,
 		"pressed_keys": pressed_keys, "input_reassertions": input_reassertions,
 		"engine_pid": OS.get_process_id(), "session_role": game.session.role,
 		"sound_events": game.ui.readable_hud.sounds.duplicate(true) if game.ui.readable_hud != null else [],
+		"hud": game.ui.readable_hud.instrument_text() if game.ui.readable_hud != null else {},
 		"speed_kmh": absf(car.signed_speed) * 3.6, "signed_speed_mps": car.signed_speed,
 		"distance_m": car.distance_driven, "forward_progress_m": maxf(0.0, progress),
 		"position": [car.position.x, car.position.y, car.position.z],

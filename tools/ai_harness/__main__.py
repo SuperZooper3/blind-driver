@@ -18,7 +18,7 @@ def main():
         p.add_argument("--navigator-model", default=DEFAULT_MODEL)
         p.add_argument("--driver-instructions", help="Optional coaching text appended to the driver's prompt")
         p.add_argument("--navigator-instructions", help="Optional coaching text appended to the navigator's prompt")
-        p.add_argument("--speed", type=float, default=25, help="Simulation speed percentage (1–100)")
+        p.add_argument("--speed", type=float, default=5, help="Simulation speed percentage (1–100)")
         p.add_argument("--seed", type=int, default=72419)
         p.add_argument("--course", choices=["basic", "standard"], default="basic")
         p.add_argument("--sim-seconds", type=float, default=60)
@@ -26,11 +26,12 @@ def main():
         p.add_argument("--video-fps", type=int, default=15)
         p.add_argument("--review-speed", type=float, help="Override normal-game-speed recap with this multiplier of real capture time")
         p.add_argument("--rpm", type=float, default=18, help="Combined API requests/minute across both seats")
-        p.add_argument("--max-requests", type=int, default=100)
+        p.add_argument("--max-requests", type=int, default=200)
         p.add_argument("--max-tokens", type=int, default=200000)
         p.add_argument("--max-output-tokens", type=int, default=512)
-        p.add_argument("--history-turns", type=int, default=32)
-        p.add_argument("--memory-every", type=int, default=8, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
+        p.add_argument("--history-turns", type=int, default=2)
+        p.add_argument("--memory-every", type=int, default=0, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
+        p.add_argument("--decision-interval-sim", type=float, default=.6, help="Minimum game seconds between agent observations; avoids redundant calls at slow speed")
         p.add_argument("--readable-ui", action=argparse.BooleanOptionalAction, default=True)
         p.add_argument("--keep-frames", action="store_true", help="Keep raw screenshots for debugging/rebuilding; otherwise clean them after the recap")
         p.add_argument("--timeout", type=float, default=30)
@@ -94,6 +95,8 @@ def main():
         parser.error("Speed must be 1–100%; capture FPS 1–30; video FPS 1–60")
     if args.memory_every < 0:
         parser.error("Memory interval must be zero or positive")
+    if not 0 <= args.decision_interval_sim <= 5:
+        parser.error("Decision interval must be 0–5 game seconds")
     if args.command == "run":
         run_episode(args)
     else:

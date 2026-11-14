@@ -99,7 +99,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 "prompt_revision": PROMPT_REVISION,
                 "prototype": prototype_number(),
                 "communication_policy": "optional speech; last 8 delivered messages with ages; own action acknowledgments",
-                "hold_policy": "until_replaced",
+                "hold_policy": "until_replaced_with_optional_steering_pulse",
                 "scoring": DEFAULT_SCORING.copy(),
                 "basic_course_version": "roadside_thorns_v2",
                 "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
@@ -107,7 +107,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 "godot_version": subprocess.check_output([godot, "--version"], text=True).strip(),
                 "capture": "one 2560x800 engine frame, two complete 1280x800 seat crops",
                 "engine_mode": "shared_local",
-                "history_policy": f"last {args.history_turns} own text turns + rolling recap; one current screenshot",
+                "history_policy": f"last {args.history_turns} own factual notes; compact delivered dialogue; one current screenshot and visible HUD transcript",
                 "benchmark_label": args.label,
                 "provider": args.provider}
     manifest.pop("func", None)
@@ -237,6 +237,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
         inbox = {role: [] for role in ROLES}
         turn = 0
         next_request = start
+        next_observation_sim = 0.0
         request_context = {}
         pending_ack = None
         error_streak = {role: 0 for role in ROLES}
@@ -304,7 +305,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     log("response", role=role, request_id=request_context["request_id"], action=action,
                         latency_seconds=latency, usage=usage,
                         sim_time=latest[role]["sim_time"], observation_sim=request_context["observation"]["sim_time"])
-                    seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap")},
+                    seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap", "steering_pulse_sim") if k in action},
                                   observation_sim=request_context["observation"]["sim_time"])
                     pending_ack = role, seq, action, latency, request_context
                     error_streak[role] = 0
@@ -329,7 +330,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     reason = "provider_errors"
                     break
 
-            if not future and not pending_ack and time.monotonic() >= next_request:
+            if (not future and not pending_ack and time.monotonic() >= next_request
+                    and driver.get("sim_time", 0) >= next_observation_sim):
                 if requests >= args.max_requests:
                     reason = "request_budget"
                     break
@@ -356,6 +358,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 future = executor.submit(agents[role].decide, directory / role / state["image"], observation, delivered)
                 interval = args.scripted_interval if args.provider == "scripted" else 0
                 next_request = time.monotonic() + interval
+                next_observation_sim = state["sim_time"] + args.decision_interval_sim
                 # Recap only when a second slot is available; never delay a
                 # driving decision just to accumulate background recap quota.
                 if recap_slot:
