@@ -37,6 +37,17 @@ func _run() -> void:
 	check(not ui.welcome_active, "backtracking to a visited region does not repeat the title")
 	ui.update_heat(0, 0, 1, true, false, 0.0)
 	check(ui.welcome_active and ui.heat_welcomes[0].heading.text == "Welcome to Spring" and ui.welcomed_regions.size() == 1, "a new ride welcomes players to spring again")
+	game.car.run_id = 2
+	game.car.remote = true
+	game.world.allow_generation = false
+	game._process(0.0)
+	check(not ui.welcome_active and ui.welcomed_regions.is_empty(), "a joining navigator waits for the driver's region and position")
+	game.session.snapshots_received = 1
+	game._process(0.0)
+	check(not ui.welcome_active, "a position without a region map cannot welcome the navigator to the wrong season")
+	game.session.graph_received = true
+	game._process(0.0)
+	check(ui.welcome_active and ui.heat_welcomes[1].heading.text == "Welcome to Spring", "a synchronized navigator receives the region welcome")
 	game.queue_free()
 	await process_frame
 	quit(1 if failed else 0)

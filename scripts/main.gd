@@ -318,6 +318,8 @@ func _process(delta: float) -> void:
 		ui.close_map()
 	_update_intro()
 	var heat_active: bool = started and not ui.in_menu and not intro_playing() and not session.recovering and not session.stale and not car.reset_pending and car.recovery_grace == 0 and car.run_state == "driving"
+	# A joining navigator needs both the driver's position and region map first.
+	heat_active = heat_active and (not car.remote or (session.graph_received and session.snapshots_received > 0))
 	ui.update_heat(season, region, car.run_id, heat_active, world.basic_course, delta)
 	_update_cameras(delta)
 	ui.update_pursuit(police, looking_back, car.run_state == "driving")

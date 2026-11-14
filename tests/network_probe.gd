@@ -147,7 +147,8 @@ func _tick() -> void:
 						bridge_matches = visual.hazard.level == 1 and visual.deck.position.is_equal_approx(visual.deck_origin + Vector3.RIGHT * state.shift * 17.0)
 			var passed: bool = clock_matches and bridge_matches and patrol_matches and session.snapshots_received > 90 and session.graph_received and session.received_reset >= 2 and game.car.distance_driven > 20.0 and game.car.remote and game.car.freeze and game.world.roads.size() >= 5 and follows_host and not latest.is_empty() and game.car.headlights[0].visible == bool(latest.lights) and (game.car.headlights[0].visible or not game.car.damage.headlights_ok())
 			var heat: int = preload("res://scripts/procedural_world.gd").heat_for_distance(game.car.distance_driven) + 1
-			passed = passed and route_choices_match and culdesac_matches and game.ui.heat_label.text == "HEAT %d / 5" % heat
+			var heat_text := "HEAT %d / 5  ·  %s" % [heat, preload("res://scripts/season_style.gd").NAMES[heat - 1]]
+			passed = passed and route_choices_match and culdesac_matches and game.ui.heat_label.text == heat_text
 			if cut_before_driver:
 				passed = passed and waiting_cut and game.started and not game.ui.in_menu and session.relay.reconnects >= 1
 			var damage = game.car.damage
@@ -161,7 +162,7 @@ func _tick() -> void:
 			if expect_recovery:
 				passed = passed and session.relay.reconnects >= 1 and session.relay.is_ready and not session.stale and session.last_sequence + session.last_pose_sequence > 1000
 			if not passed:
-				print("CHECK DETAILS: ", {"follows_host": follows_host, "patrol": patrol_matches, "routes": route_choices_match, "culdesac": culdesac_matches, "heat": game.ui.heat_label.text == "HEAT %d / 5" % heat, "started": game.started, "menu": game.ui.in_menu, "frozen": game.car.freeze, "waiting_cut": waiting_cut, "lights": not latest.is_empty() and game.car.headlights[0].visible == bool(latest.lights)})
+				print("CHECK DETAILS: ", {"follows_host": follows_host, "patrol": patrol_matches, "routes": route_choices_match, "culdesac": culdesac_matches, "heat": game.ui.heat_label.text == heat_text, "started": game.started, "menu": game.ui.in_menu, "frozen": game.car.freeze, "waiting_cut": waiting_cut, "lights": not latest.is_empty() and game.car.headlights[0].visible == bool(latest.lights)})
 			print("%s: navigator received %d snapshots, %d roads, reset=%d, distance=%.1f, remote=%s, bridge=%s, clock=%s" % ["PASS" if passed else "FAIL", session.snapshots_received, game.world.roads.size(), session.received_reset, game.car.distance_driven, game.car.remote, bridge_matches, clock_matches])
 			_finish(0 if passed else 1)
 

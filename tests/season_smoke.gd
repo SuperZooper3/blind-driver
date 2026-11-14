@@ -82,6 +82,8 @@ func _run() -> void:
 	await process_frame
 	world.reset_world()
 	check(world.seasons.stage == 0 and world.season_edges.is_empty() and world.season_at(Vector3(0, 0, -10000)) == 0, "new run clears the old region map and restores spring")
+	world.set_season(4)
+	check(world.season_styles[4].terrain_material.get_shader_parameter("previous_low") == Color(World.Seasons.PALETTES[0].ground_low), "skipped regions blend from the last scenery that actually existed")
 	var sign := Node3D.new()
 	root.add_child(sign)
 	Hazards.render(sign, {"kind": "spike_sign", "position": Vector3.ZERO, "yaw": 0.0}, world.tree_mesh)

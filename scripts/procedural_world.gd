@@ -124,8 +124,13 @@ func _configure_season_edges() -> void:
 		material.set_shader_parameter("transition_distance", TILE_SIZE if i > 0 and i <= season_edges.size() else 0.0)
 		if i > 0 and i <= season_edges.size():
 			material.set_shader_parameter("transition_start", season_edges[i - 1])
-			material.set_shader_parameter("previous_low", Color(Seasons.PALETTES[i - 1].ground_low))
-			material.set_shader_parameter("previous_high", Color(Seasons.PALETTES[i - 1].ground_high))
+			# Circling in an old area can advance several heats before any new
+			# scenery loads. Blend from the last region that actually existed.
+			var previous := i - 1
+			while previous > 0 and season_edges[previous - 1] == season_edges[i - 1]:
+				previous -= 1
+			material.set_shader_parameter("previous_low", Color(Seasons.PALETTES[previous].ground_low))
+			material.set_shader_parameter("previous_high", Color(Seasons.PALETTES[previous].ground_high))
 
 func _process(delta: float) -> void:
 	timer += delta
