@@ -10,6 +10,8 @@ fi
 mkdir -p build/web
 "$godot_bin" --headless --path . --editor --import
 "$godot_bin" --headless --path . --export-release Web build/web/game.html
-cp frontend/launcher.js frontend/style.css build/web/
+cp frontend/launcher.js frontend/style.css frontend/favicon.svg build/web/
+mkdir -p build/web/media
+cp frontend/media/*.png build/web/media/
 # Precompress once during the build, so serving the large engine is inexpensive.
 node frontend/compress.mjs build/web

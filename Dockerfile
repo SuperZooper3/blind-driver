@@ -14,6 +14,7 @@ COPY project.godot export_presets.cfg icon.svg ./
 COPY scenes/ scenes/
 COPY scripts/ scripts/
 COPY shaders/ shaders/
+COPY assets/ assets/
 COPY frontend/ frontend/
 COPY tools/export_web.sh tools/export_web.sh
 RUN bash tools/export_web.sh

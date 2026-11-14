@@ -1,289 +1,142 @@
-# Blind Driver
+<div align="center">
 
-**One drives. One sees the way.** A playable, code-built Godot prototype of a two-player road trip through an endless low-poly forest.
+# BLIND DRIVER
 
-The driver has extremely blurred vision. The navigator sits beside them, sees the road clearly, and unfolds a live map to give directions. Road choices include a longer, quieter route, a hazardous shortcut, cul-de-sacs, and marked cliffs. Through routes rejoin, and the next stretch gets harder as your trip grows. Read the map, watch the road, and survive as far as you can.
+### One drives. One sees the way.
 
-## Play it
+A chaotic co-op getaway through an endless low-poly forest.<br>
+One steering wheel. Two very different views. Keep talking.
 
-**Browser:** open the deployed frontend URL and click **Get in the car**. One
-player picks **Drive** or **Navigate** and presses **Create a room**, then shares
-the 6-character code (or the invite link). The friend types the code and presses
-**Join**, or just opens the link, and gets the other seat. No Godot
-installation is needed. Solo and shared-screen play are also available; automatic
-two-window and direct-LAN modes are desktop-only. See [Render browser deployment](deployment.md#add-the-playable-frontend-in-the-render-dashboard)
-to add the frontend as a **Web Service / Docker** alongside your relay. The
-[Railway setup](docs/RAILWAY.md) is also available.
+[How to play](#how-to-play) · [Pick your crew](#pick-your-crew) · [AI experiments](#two-seats-two-ai-agents) · [Setup & deployment](deployment.md)
 
-**Desktop / editor:**
+![The orange getaway car outside the bank, surrounded by forest](frontend/media/bank-getaway.png)
 
-1. Open **Godot 4.7** (developed and tested with 4.7.2).
-2. Import this folder's `project.godot`, or open the project if it is already in your project list.
-3. Press **F6** with `scenes/main.tscn` open, or **F5** from anywhere in the project.
-4. For online play, one player chooses **Drive** or **Navigate** and presses **Create a room**. Send the 6-character code that appears (for example `K7Q4MZ`; **Copy code** puts it on the clipboard). The friend types it into **Room code** and presses **Join**, and gets whichever seat is left. The ride starts when both are in. The preferred seat and server address are saved on each computer. After a run ends online, either player can press **Swap roles** on the Game Over card: both seats swap at once and the new driver starts a fresh ride.
-5. For offline play, choose **Play on this computer**, then **Two players / two windows**, **Two players / shared screen**, or **Solo practice**.
+</div>
 
-Local play needs no additional packages or accounts. Models, forest, terrain, map, UI, and engine audio are generated in GDScript. The Compatibility renderer is enabled. Internet rooms use the small Node relay in `server/`.
+You’ve just robbed a bank. The alarm is ringing. The police are coming.
+And your getaway driver has just broken their glasses.
 
-### Single Player Play with AI
+**Blind Driver** is a game about turning panic into useful directions. The driver
+controls the car through a heavily blurred windshield. The navigator sees clearly,
+reads the map, and tries to get both of you through the next corner in one piece.
 
-The AI play option is hidden from the browser launcher and in-game menus.
-Developers can still launch it with `godot --path . -- --ai`. In this mode you drive with the blurred windshield; **Cohere Command A Vision** sees the
-clear passenger camera and map and gives one current instruction across the top.
-The small spinner means a request is in flight. **Latest latency** is the most
-recent successful request's full round trip in milliseconds; source-image age is shown
-separately, with a warning once it is older than five seconds.
+Think the chase of **Subway Surfers**, the cooperative chaos of **Overcooked**, and
+the trust of **Keep Talking and Nobody Explodes**. Those are inspirations for the
+feel—not affiliated projects. The goal is simple: survive farther, then try again.
 
-The game runs at normal speed. Your first instruction starts the ride and police
-head start. Each completed request triggers a fresh capture on the next frame,
-without a fixed polling delay or a queue of old images. W/S and A/D remain your
-controls. Map, chase-camera and rear-view controls are unavailable in this mode.
-Pause, Game Over and leaving the mode stop requests; restarting clears old advice.
-Quota/network failures show a retry countdown. Model-access/configuration errors
-require the host to fix the service; pause/resume or start a new ride to retry.
+## How to play
 
-The frontend host needs `COHERE_API_KEY` and access to `command-a-vision-07-2025`.
-The key stays on the Node server; gameplay images are sent to Cohere only while
-this mode is active. Other play modes do not call Cohere. See
-[AI navigator setup](deployment.md#single-player-ai-navigator) for deployment and
-local desktop commands. This mode uses the human as driver; the existing two-AI
-research harness remains separate.
-
-### Controls
-
-| Input | Action |
+| The driver | The navigator |
 | --- | --- |
-| W / Up | Accelerate; brake first if reversing |
-| S / Down | Brake; reverse once stopped |
-| A D / Left Right | Steer |
-| Space | Handbrake; loosens the rear tires |
-| M / Tab | Navigator: unfold/fold map |
-| C | Navigator/solo: switch seat and chase cameras |
-| B (hold) | Navigator/solo: look behind and check police distance |
-| H | Headlights |
-| R (hold) | Repair (navigator; the car must be under 15 km/h) |
-| V | Mute/unmute driving audio, including the radio |
-| F | Fullscreen/windowed |
-| F8 | Connection check, live network metrics, and logs |
-| Escape | Menu; driver applies brakes while the menu is open |
+| **You have the wheel.** Accelerate, brake, and steer. Your vision is blurred, so listen to your partner. | **You have the view.** Call out obstacles, choose the route, watch the police, and repair the car when you can stop safely. |
+| “Your left or my left?” | “Left. A little. Straighten!” |
+| **W / S** pedals · **A / D** steering · **Space** handbrake | **M / Tab** map · **B / RB** look back · hold **R** repair below 15 km/h |
 
-Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, holding the right shoulder button (RB) looks behind, and Start opens the menu. Keyboard and gamepad can be used together. **Settings** has the driver-blur slider. There is no recovery shortcut. Use **Start a new ride** in the pause menu, or **Drive again** after Game Over; both reset the run and trip odometer while keeping your personal best. Landing on the roof/side ends the run automatically. A badly damaged car keeps driving, slowly, until the police catch it. In the thorn forest, where the police never follow, three broken tires (or the engine and two tires) end the run.
+![The driver’s blurred view beside the navigator’s clear view](frontend/media/two-seats.png)
 
-Talk to each other in person or over your preferred voice call. The navigator sees only the top edge of a folded map at the bottom of their view. **M / Tab** slides it up to cover their entire screen (their half in shared-screen mode), so checking the map means looking away from the road. Red **X / CLIFF** marks a fatal dead end. A circular **DEAD END / TURN AROUND** marks a solid cul-de-sac. Green **LONG / QUIETER** and amber **SHORT / HEAVY HAZARDS** routes rejoin; check the map to choose between extra distance and more dodging. Jump gaps, timed bridges, lakes, and construction zones are mapped; small obstacles are not. The navigator must also watch the clear road view and call out rocks, trees, ramps, bumps, cones, and spike strips.
+Talk in person or use your preferred voice call; there is no built-in voice chat.
+The map covers the navigator’s view when open. Checking the route means looking
+away from the road—and small obstacles aren’t marked on the map.
 
-Hold **B / RB** or the on-screen **Hold to look back** button for the full passenger rear view. This folds the map and shows the patrol’s distance along the route, whether it is closing, and an approximate catch time at the current pace. Release to face forward again. The driver keeps their forward view in shared-screen play.
+### Every shortcut is a conversation
 
-Steering needs rolling wheels: from rest, combine **W+A** or **W+D** and release
-the handbrake. While coasting, A/D can steer without more gas. Reverse steering
-swings the nose the opposite way. **B** looks behind; **C** switches seat/chase view.
-A large **WRONG WAY** banner appears in both seat views and on the unfolded map
-when travel (or heading at rest) opposes the local road. Slow down and turn around
-where clear. Short heading changes are filtered; returning from marked dead ends
-is allowed.
+Choose a longer, quieter route or a hazardous shortcut. Dodge rocks and spike
+strips, line up jumps, and time the moving bridges. Dead ends need a turnaround;
+cliffs and lakes end the ride. Crashes break parts and slow the car, while repairs
+use precious time. The police keep closing in, and the roads get harder as you go.
 
-### Car damage
+| Read the route | Watch your back |
+| --- | --- |
+| ![Field map showing the shortcut, quiet route, and dead end](frontend/media/field-map.png) | ![Police close behind the car in the navigator’s rear view](frontend/media/police-pursuit.png) |
+| The map shows your choices. Your partner makes them possible. | Hold B to check the pursuit. A repair stop might cost the getaway. |
 
-The car radio starts when you first move after the opening, playing the supplied **Chip Chase**
-music from the beginning. Its last half second before **2:04** crossfades into
-**0:13–0:13.5**, then continues from **0:13.5**, looping indefinitely. Brief
-stops keep the music going. Crashes instantly cut it with electrical static and
-a tuning squeal; after a short retune it resumes when you move again. Falling
-or Game Over silences it until a new ride. Damage adds progressively stronger
-bitcrushing, muffling, static, pitch wobble and dropouts; repairs clean it up.
-Menus and connection recovery pause the radio. Both seats hear their own radio
-react to shared damage, and **V** mutes it along with the other sounds.
+## Pick your crew
 
-The prepared track is `assets/audio/driving_music.ogg`. To rebuild it from the
-original supplied `music.mp3`, use `python3 tools/prepare_driving_music.py /path/to/music.mp3`
-with FFmpeg on PATH. The crossfade is baked into the audio and the player loops
-on the audio thread, so the transition does not depend on rendered frames.
-
-Crashes and thorns break the car. A damaged car limps on, slower and slower, but the police never follow you into the forest, so the car **breaks down and the run ends** once three tires are broken, or the engine is blown and two tires are broken.
-
-Hits under about 13 km/h are harmless. Harder hits on rocks, trees, barriers and walls dent parts and play a crash sound on both seats. Damage grows faster than speed (like crash energy), and the bumpers soak up most of a hit while they last. The car is fragile: a 30 km/h hit dents the bumper, a 50 km/h hit tears it off, an 80 km/h corner hit knocks that wheel off, and one head-on hit at top speed wrecks the engine. A damaged part only looks and sounds worse. It costs nothing until it **breaks**:
-
-| Part | When it breaks | Top speed afterwards (healthy: ~106 km/h) |
+| Mode | What it feels like | Get started |
 | --- | --- | --- |
-| Tires (4) | **Thorns** tear any tire touching them; a tire pops flat (with a bang) after about 1 s in the brambles. A flat stays on the car but slides and pulls toward its side. A hard crash can knock a wheel right off instead, leaving the hub dragging and halving steering for a front wheel. Each broken tire also costs 15% of power and 12% of top speed. | 1 flat ~82 km/h, 2 flats ~62, 1 wheel lost ~64 |
-| Engine (under the hood) | The hood flies off, the engine smokes and knocks, and power drops to 45%. | ~56 km/h; with 2 flats ~32; everything broken ~18 |
-| Front bumper | Falls off. Front hits reach the engine, windshield and front wheels at full strength, and the headlights break. | |
-| Rear bumper | Falls off. Rear hits reach the rear wheels at full strength. | |
-| Windshield | Cracks spread across the glass itself, so each seat sees them in perspective (blurred for the driver, like the road) and third person sees them from outside; they then shatter into a hazy web. | |
+| **Couch co-op** | Share a screen, shout directions, and negotiate whose fault that tree was. | **Play on this computer → Two players / shared screen.** Desktop builds also offer two windows. |
+| **Online co-op** | Same car, different computers. Your friend is still the navigation system. | Pick **Drive** or **Navigate**, choose **Create a room**, and share the six-character code or invite link. Your friend gets the other seat. |
+| **Solo practice** | Learn the handling with a clear view before trusting someone else with directions. | **Play on this computer → Solo practice.** |
+| **Human + AI prototype** | You drive through the blur; Cohere Command A Vision gives directions from the clear passenger view and map. | Developer-only, hidden from the public menus. [Local setup](deployment.md#single-player-ai-navigator). |
 
-**Opening scene.** Every new ride, including restarts, opens outside the bank the pair just robbed: the alarm bell rings, a red light flashes, and the driver's glasses fly off and break on the road. Both players see the bank, then the broken glasses, before the camera flies into their own seat and the ride begins (about 8.5 seconds; the car and the police wait until it ends). Both opening views stay sharp; the driver becomes blurry only after entering their head. The bank's clearing stays free of trees, rocks and thorns. Pausing freezes the opening; resuming continues it.
+The browser game needs a desktop browser with WebGL 2 and a keyboard or gamepad.
+Keep both game tabs visible during a ride. Human play needs no account or API key.
+After an online run, swap roles and see how the other half drives.
 
-The engine sounds only while actively accelerating or reversing. Coasting and idling have no engine sound or rolling hiss. The music, crash effects and damage-based radio interference remain separate.
+| First, pick your seat | Then, lose your glasses |
+| --- | --- |
+| ![The room menu with driver and navigator choices](frontend/media/choose-your-seat.png) | ![The driver’s broken glasses beneath the car](frontend/media/broken-glasses.png) |
 
-**Spike strips** appear from heat 4. A yellow **SPIKES AHEAD 100 m** sign stands at the start of the road, and the strip is always at least 100 m past it. It lies across one half of the road, striped yellow and black with red spikes, and pops every tire that rolls over it; steer into the clear half.
+*These supplied screenshots show prototype 30. The current release is identified
+in-game by `scripts/version.gd`; menus and visuals may have changed since capture.*
 
-The **navigator holds R** to repair while the car is under 15 km/h (on one computer, either player can press it). The car stays parked while you hold it; let go to drive on with whatever has been fixed so far. Repairs fix one part at a time, most crucial first: the engine, then the tires (worst first), the windshield, the front bumper and the rear bumper, at 5 seconds for a fully broken part. Lost wheels and bumpers go back on, and flats are reinflated.
+## Two seats. Two AI agents.
 
-Both seats show **REPAIRING... / You can't drive** over a translucent view of the
-road. Eight progress bars show every part's repair percentage, highlight the part
-being worked on, and keep completed parts visible. Looking back still works while
-repairing; the navigator's map opens above the repair display. Releasing R or
-finishing all repairs removes the overlay.
+What happens when the people in the car are models—and the road keeps moving
+while they think?
 
-Police beacons grow brighter and their red/blue glow grows larger as the patrol
-gets farther away, so distant flashes remain conspicuous in both camera views.
-The glow still sits in the world: hills and solid obstacles can hide it.
+Blind Driver also has an experimental **multi-agent evaluation harness**. Each
+agent receives its own complete screenshot and controls ordinary game inputs.
+The driver’s view stays blurred; the navigator sees the road but cannot steer.
+The harness delivers their messages, applies validated controls, and records
+screenshots, dialogue, response latency, progress, and collisions. Hidden road
+geometry is not supplied to the models.
 
-Damage lasts until you repair it or start over. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot. Tuning lives at the top of `scripts/car_damage.gd` (`SAFE_SPEED`, `CURVE`, `RATE`, breakdown penalties) and `scripts/car.gd` (`THORN_WEAR`, `FLAT_TIRE_DRAG`, `HUB_SCRAPE`).
+| Harness | Driver | Navigator | Communication |
+| --- | --- | --- | --- |
+| **Cohere** | Command A Vision by default | Command A Vision by default | Two-way directions, questions, and acknowledgments. Each seat has its own history. |
+| **Google** | Gemini Decisions selects driving inputs | Gemini Hydrogen interprets its clear view | Navigator-to-driver guidance. The driving controller remains silent. |
 
-## Two windows or two computers
+Both seats run independently while one shared Godot simulation continues. Model
+calls can overlap. Simulation speed is a recorded experiment setting, so slow
+model inference can be tested at reduced speed and compared under tighter deadlines.
+A correct warning delivered after the turn is already too late.
 
-**One computer:** choose **Play on this computer → Two players / two windows**. Your current game becomes the driver host; a second Godot process opens the navigator and joins `127.0.0.1` automatically. The two windows are placed side by side when running outside the editor. They use real WebSocket networking and separate worlds, with the driver owning physics and the navigator interpolating snapshots.
+**The research direction:** build toward an RL environment for training faster,
+clearer agent communication under simulated stakes. Recorded demonstrations could
+support supervised fine-tuning; a future trainer could optimize shared rewards
+across repeated attempts. The current code **evaluates models and records runs;
+it does not update model weights or implement an RL training loop**. Faster
+communication and transfer beyond the game are questions to test, not established
+results. Slowed trials and speed-restored recaps are not real-time performance claims.
 
-Click the driver window to drive and the navigator window to use its map; keyboard focus follows the active window. Both processes keep running when unfocused. You can move either window to another monitor. Closing the driver or changing its play mode closes the navigator it automatically launched; manually opened game instances are independent. Repeating the local co-op action resumes an already-connected pair.
+[Harness guide & commands](docs/AI_HARNESS.md) · [Research plan](docs/AI_HARNESS_PLAN.md)
 
-If Godot embeds the running game in its editor, the driver remains in that Game panel while the navigator opens separately. Turn off the editor's Embed Game option if you prefer two floating windows. **Two players / shared screen** remains available for one-keyboard play without switching window focus.
+## High-level setup
 
-**Two computers on the same network**, or manual two-instance testing:
-
-Manual LAN controls are hidden from the menus. For development, launch the
-driver with `godot --path . -- --host` and the navigator with
-`godot --path . -- --join=127.0.0.1` on the same computer, or replace `127.0.0.1`
-with the driver computer’s local IP address. Both computers need the same build.
-
-The host listens on TCP port **18765**. A second host on the same port will show an error. A third player is rejected. The operating system may ask to allow Godot's local network connection. Use split-screen when sharing one keyboard; separate windows have normal desktop keyboard-focus behavior.
-
-The driver owns physics. It sends a small car pose (position, rotation, motion, steering) 30 times a second and the full state (police, damage, run state, crossing clock) 10 times a second, or at once when the run changes. The navigator does not wait for the past: it predicts where the driver's car is *now* from the latest pose, keeps it moving and turning through network stalls of up to 0.6 s, and eases any correction in over about 0.1 s instead of jumping. Police and other slow state are interpolated 200 ms behind. It receives road graph changes, and snaps to the start when a new ride begins. Connection failures/stalls are shown on screen. A disconnected LAN navigator automatically retries its host for up to two minutes; restarting the host creates a new world. This is a local development connection, not a deployed public service.
-
-For **different networks**, use **Create a room** and **Room code / Join** on the start screen. The online server is already configured as **https://blind-driver-relay.onrender.com** and is hidden under advanced settings. Codes are 6 characters from an alphabet without lookalikes (no 0/O or 1/I/L). Typing ignores case, spaces and dashes. In the browser, **Copy invite link** gives `https://…/?room=K7Q4MZ`; opening it loads the game and joins that room. Desktop builds accept `-- --room=K7Q4MZ` on the command line. Follow [deployment.md](deployment.md) to update or deploy the backend. Both clients connect outward to the relay; no router port forwarding is needed. This path uses an explicit JSON protocol, while the direct LAN mode retains native Godot RPC.
-
-**This revision requires protocol 10 on Render and both clients.** Deploy the updated relay **and** browser frontend before online play. Protocol 10 adds WebRTC peer-to-peer negotiation; protocol 9 added short room codes, choosing your seat when creating a room, seat assignment on join, and swapping seats between rides (the relay swaps seats, including their reconnection credentials; the new driver's game takes over the physics). Route profiles, rejoining connections, heat levels, the shared crossing clock, patrol, hazards and car damage are unchanged. The relay still accepts the older lobby-name messages, but the game no longer shows them. This change does not deploy Render. The backend retains both seats through temporary disconnects and the games automatically reconnect and resync. A server or game-process restart ends the current run; create a new room for the next ride. Room codes are rendezvous points, not saved games or permanent reservations; a code stops working when its room closes. A seat from a crashed client can remain reserved for up to two minutes.
-
-**Which version am I on?** The header (top left) and the start screen show **RELEASE 1.0.0**. Every change merged to `main` bumps the release version and its internal build ID (see `AGENTS.md`). Before playing together, check you both see the same release. Once you are in a room, the start screen also tells you if your partner is on a different build. Browser diagnostics expose the release as `window.blindDriverStatus.version`; the legacy `prototype` field retains the internal build ID.
-
-P2P controls, manual LAN buttons, and transport-specific status messages are
-hidden from the player interface. Online players use room codes. The existing
-direct-link implementation and saved preference remain available internally for
-compatibility and development checks.
-
-The browser build publishes a read-only `window.blindDriverStatus` (version, seat, room, link type, updates received) for checking a session from the developer console.
-
-Press **F8** for a 75-second connection test, live latency/retry metrics, and **Open network logs folder** (**Download network logs** in the browser). The deployed server also provides `/diagnostics` for a browser-based check. Client JSONL logs and the relay's structured logs record timeouts, close codes, retries, validation failures, and stalls. See [connection checks and logs](deployment.md#connection-checks-and-logs) for instructions. Browser export and Railway hosting are configured in [docs/RAILWAY.md](docs/RAILWAY.md); room invite links remain future work. The original architecture research is preserved in [docs/ONLINE_PLAN.md](docs/ONLINE_PLAN.md).
-
-### Command-line launch
-
-Replace `godot` with your Godot executable. On this Mac it is currently `/Users/aa/Downloads/Godot.app/Contents/MacOS/Godot`.
+**Play locally:** install **Godot 4.7.2**, import `project.godot`, and press **F5**.
+Almost everything is generated in code, so run the game to see the world.
 
 ```sh
 godot --path .
-godot --path . -- --solo
-godot --path . -- --split
-godot --path . -- --local-coop
-
-# Run these in two terminals for a local network session:
-godot --path . -- --host
-godot --path . -- --join=127.0.0.1
 ```
 
-## What's in the prototype
-
-- A physical 1,050 kg car with four raycast suspension springs, tire grip, rear-wheel handbrake slip, braking, reverse, aerodynamic drag, and a low center of mass. It can bounce, slide, collide, and overturn. Starting a new ride resets the car and score.
-- Gravel and off-road grip/rolling resistance, physical road surfaces, gentle hills, collidable trunks and rocks, working steering/wheel visuals, two simple occupants (a head and a body each, plus the driver's two floating sphere hands on the steering wheel), each seat camera hiding only its own occupant so the other shows in your peripheral view, headlights, and synthesized engine/tire sound.
-- Breakable wheels, hood, bumpers and windshield. Each one has health, its own handling penalty, and debris when it breaks.
-- Two independent seat cameras sharing one simulation, a low-resolution blurred driver render, a clear navigator render, a heading-relative map, and a solo chase view.
-- A survival run: wrong forks end in broad, 36 m deep ravines (up to 160 × 112 m), with broken rims, layered rock walls around the whole drop, and rubble below, roadside lakes are fatal, and Game Over reports the distance driven. The driver can restart with **Drive again** without leaving the room. There is no recovery key or gamepad binding.
-- Faster acceleration and a 158 km/h engine cutoff (about 111 km/h sustained on a flat test road), physical boulders, tree chicanes, half-width ramps that can overturn the car, speed bumps, and construction cones/barriers. Roadside clutter is static and collides; it is not independently simulated debris. Each road's obstacles are seeded but random: their kinds, spacing and shoulder side change from road to road. Roads are one continuous surface through bends, with a round pad where branches meet.
-- Two arcade crossing challenges alternate on clear, straight connector roads. A full-width ramp launches you over a 16 m gap: line up and approach at **65+ km/h** for a forgiving takeoff assist, then land using the normal car physics. A sliding bridge initially opens for six seconds in a twelve-second cycle, warns for the last two seconds, and retracts sideways to expose a real pit. Roadside signals, the navigator’s route card, and live map markers show when to go. Miss either crossing and you fall, crash, and receive Game Over. The patrol jumps the ramp and waits for the bridge too.
-- Bridge motion, lights, map countdowns, and failure states follow the driver’s run clock, interpolated with the car on the navigator. Driver menus, connection recovery, and Game Over pause the clock; starting a new ride resets it. These challenges replace ordinary clutter on their road, leaving room to line up or wait.
-- Dense thorn bushes start roughly 18 m from the road center, leaving room to dodge obstacles on the shoulder. Deep-forest brambles wear down any tire touching them until it pops flat, slowing the car (see Car damage). Flat tires, part damage and the failure reason synchronize to the navigator.
-- Roof and cabin collision protect the seats when the car flips. A car resting on its roof or side for 0.65 seconds ends the run; an airborne flip can still land safely.
-- A seeded road graph with one growth frontier. After the introductory cliff fork, three-way junctions offer a longer, quieter road, a shorter road with more hazards, and a cul-de-sac or cliff. Half of three-way junctions put the dead end (pit or cul-de-sac) straight ahead in the middle, with both through routes swinging around it; the rest put it on the left or right (25% each). Both through routes rejoin the same continuation. Cul-de-sacs have a broad, solid turning circle and a no-through-road sign. Other forks offer one continuing road and a cul-de-sac. Dead ends and the forest cannot spawn extra routes. Distant sections are removed and forest tiles load incrementally. Trees use MultiMesh rendering; nearby-road queries use a spatial index.
-- Five heat levels, shown on the dashboard, increase every **750 m** of trip distance, reaching level five at 3 km. New rough shortcuts grow from three to six obstacles while quieter alternatives grow from one to three. Future bridge windows shorten by half a second per level, down to four seconds. Existing road layouts and bridge timing stay fixed; restarting resets heat. The patrol also increases its normal cruising speed with distance.
-- A police pursuit with an 85 m initial gap and a six-second head start. The patrol navigates the connected road network, takes rejoining routes, turns back through junctions if you change branches, steers around obstacles, and slows for bumps and bends. Its cruising speed starts at 50 km/h and rises steadily through the chase (about 1 km/h every 7 s) to a cap of 111 km/h, a healthy car's sustained top speed, so driving perfectly is never overtaken while damaged cars are eventually reeled in. A rubber band stops the lead growing: from about 150 m behind it starts matching your pace, and by 240 m it is fully leashed (briefly up to 126 km/h to make up corners), so it stays at the back instead of being lost. It brakes earlier for obstacles and junctions at catch-up speed and does not teleport forward.
-- Sirens grow louder with physical proximity and switch to a faster wail nearby. Police can catch you on the shoulder: capture reaches 24 m across the ground when they are within 14 m along your route and 4 m in height. Staying in that range for 2 seconds ends the run with **The police caught you**. Route and height checks prevent captures across separate branches or into a pit. Driver menus and connection recovery freeze pursuit. A new ride resets it. The patrol uses route steering and proximity capture.
-- A streamlined lobby/start menu, analog 0–160 km/h speedometer, mechanical-style trip odometer, route prompts, fullscreen, gamepad support, and local networking. The trip counter shows kilometers driven in this run; it resets for a new ride. Your personal best stays visible on the start screen, dashboard, and failure screen, with a new-record callout. It is saved locally in `user://records.cfg` during the ride, on failure, on restart, and on a normal exit. Both players record the shared distance on their own computer; this is not a saved world or an online leaderboard.
-
-## Development flow
-
-Agents should read [AGENTS.md](AGENTS.md) for branch ownership, merge compatibility,
-and playtesting from the latest `main`. Upcoming gameplay ideas are recorded in
-[docs/NEXT_STEPS.md](docs/NEXT_STEPS.md); they are not implemented yet.
-
-The first [visual-agent harness](docs/AI_HARNESS.md) runs one game engine with two complete seat views,
-accepts keyboard inputs from both agents, and records a recap video with dialogue
-and metrics. It supports scripted/Cohere agents, adjustable simulation speed, and
-model/role/speed comparisons, a live terminal timeline for both agents, and recaps
-that restore normal game speed. It includes a large-display profile with sound
-captions, background conversation recaps, safety scoring, and local Stop/Restart
-controls. The basic AI course restores roadside thorns and ends on four punctures.
-Cohere runs default to Command A Vision in both seats at 25% speed, with up to 60 seconds
-of game time, 200,000 tokens and 100 requests per run. The navigator is coached to
-give actionable directions, respond to the driver, and reassess after crashes;
-recent dialogue and accepted-control feedback accompany each screenshot. Both seats
-run independently, with overlapping model calls and no default pause between
-decisions; each request includes the latest available chat and screenshot.
-The web dashboard separates **Keys held now** from **Last accepted turn**, which
-retains each seat's holds, taps and pulse durations after keys have been released.
-The [research plan](docs/AI_HARNESS_PLAN.md) describes
-the longer path toward reinforcement learning.
-
-The project intentionally builds almost everything in code. The editor's main scene is a small entry point, so an empty-looking 3D editor is expected: **run the project to see the world**.
-
-| File | Responsibility / useful tuning |
+| Piece | Responsibility |
 | --- | --- |
-| `scenes/main.tscn` | Entry scene |
-| `scripts/main.gd` | Lighting, cameras, inputs, modes, route instructions |
-| `scripts/car.gd` | Car geometry and physical controller; spring, damping, grip, engine and steering tuning |
-| `scripts/procedural_world.gd` | Road graph, terrain, forest streaming, collision, world seed |
-| `scripts/road_hazards.gd`, `scripts/road_challenge.gd` | Physical obstacles, pits, ramp jumps, sliding bridge geometry and timing |
-| `scripts/geometry.gd` | Shared low-poly mesh/material helpers |
-| `scripts/game_ui.gd` | Room code menu, settings, and split-screen interface |
-| `scripts/dashboard.gd`, `scripts/lobby_settings.gd`, `scripts/run_records.gd` | Speed gauge, trip odometer, local seat/server preferences, and persistent personal best |
-| `scripts/route_map.gd` | Navigator's map |
-| `scripts/session.gd` | Direct/relayed sessions and shared snapshot interpolation |
-| `scripts/relay_client.gd`, `scripts/wire_protocol.gd` | Resumable internet rooms, diagnostics, and explicit JSON state protocol |
-| `scripts/network_log.gd` | Rotating per-process network event logs |
-| `server/`, `render.yaml` | Node relay and Render deployment configuration |
-| `frontend/`, `export_presets.cfg`, `tools/export_web.sh` | Browser loading page, Web export, static server, and browser checks |
-| `Dockerfile`, `server/Dockerfile`, `.railway/` | Railway frontend/relay containers and infrastructure blueprint |
-| `scripts/engine_audio.gd`, `scripts/police_siren.gd` | Throttle-driven engine revs and distance-based stereo siren |
-| `scripts/police_pursuit.gd` | Driver-owned patrol navigation, obstacle avoidance, gap estimates, and capture |
-| `scripts/impact_audio.gd` | Synthesized crash and tire-pop sounds |
-| `scripts/driving_radio.gd` | Looping driving music, crash retuning, and damage-based radio distortion |
-| `scripts/car_damage.gd` | Part health, impact zones, dents, breakdown penalties, debris; `SAFE_SPEED` and `RATE` tune how fragile the car is |
-| `scripts/windshield_cracks.gd` | Procedural crack pattern, painted onto the 3D windshield glass |
-| `shaders/driver_blur.gdshader` | Driver's vision |
+| **Godot / GDScript** | The car, procedural forest roads, two seat views, hazards, damage, and pursuit. |
+| **Browser frontend** | The introduction page and Godot Web export. Built with `tools/export_web.sh`; served by a small Node process. |
+| **Node relay** | Pairs two seats using a room code and forwards game state over WebSockets. The driver owns the simulation. |
+| **Python harness** | Runs the visual agents and produces local logs, metrics, dashboards, and recap videos. Optional; not needed for human play. |
 
-Edit a script, save, stop the running game, and press F5 again. Start with Solo practice to tune the handling, then test the same change with two people in local co-op. Use the Debugger and Output panels for errors. Godot's generated `.godot/` cache stays out of Git; script `.uid` files belong in Git.
+The [deployment guide](deployment.md) has the browser build, Render/Railway setup,
+full controls, gameplay details, code map, verification commands, and
+[release security review](deployment.md#public-release-security-review).
+The frontend and both clients must agree with the relay’s **protocol 12**.
 
-### Verification
+## Contributing and release notes
 
-The optional [visual-agent harness](docs/AI_HARNESS.md) records two model-controlled
-seats with screenshots, inputs, metrics and recap video. `--provider gemini` selects
-a silent Gemini Decisions driver and a Hydrogen navigator; `cohere` preserves the
-existing conversational pair. Keys belong in ignored `.env` files. See the harness
-guide for free-tier pacing, launch commands and a separate Gemini dashboard.
+Read [AGENTS.md](AGENTS.md) before changing the project. Relevant checks:
 
 ```sh
-# Physics, steering, braking, recovery, streaming, and real two-process networking:
-python3 tests/run_checks.py
-
-# Add the public-relay transport to the local integration checks:
-npm --prefix server ci
-npm --prefix server test
-python3 tests/run_checks.py --relay
-
-# Sustained drive with forced failures for both seats:
-python3 tests/run_checks.py --resilience
-
-# Set the executable explicitly if needed:
-GODOT=/path/to/godot python3 tests/run_checks.py
-
-# Just the fast driving/streaming checks:
-godot --headless --path . --fixed-fps 60 --script tests/drive_smoke.gd
+python3 tests/run_checks.py                 # Driving and LAN
+npm --prefix server ci && npm --prefix server test
+python3 tests/run_checks.py --relay         # Real relay integration
+node --test frontend/*.test.mjs             # Frontend and local AI gateway
 ```
 
-The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved seat settings, room codes (creating as either seat, joining by code, typos and full rooms), swapping seats after a run over a real relay, navigator smoothness through a relay that injects realistic jitter and 0.15–0.75 s stalls (`tests/relay_jitter_server.mjs`, `tests/lag_report.py`: the shown car must stay within 3 m of the real one at the 99th percentile and freeze on under 5% of frames; the old interpolation scored 11.7 m and 10%), pose prediction maths, direct same-network links (both sides listening, and each side refusing incoming connections), removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn tire wear and flats, crash damage, debris, crash/pop sounds and crippled-car speed, roof clearance, rollover failure, PB persistence, a single growth frontier with rejoining route choices, solid cul-de-sacs, heat progression, patrol navigation/avoidance/capture, rear-view controls, ramp overturns, successful and failed gap jumps, timed bridge crossings and falls, shared bridge motion after reconnect, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
+The public game needs no provider credentials. Keep `.env` files, private keys,
+and research recordings out of Git. The AI gateway is disabled by default and
+restricted to local development when explicitly enabled.
 
-## Prototype boundaries
-
-This is an early handling/cooperation sandbox. There are no traffic systems, repair mechanics, saved worlds, or finish line. Obstacle collisions can spin or overturn the car; ravines, lakes, grounded rollovers, and police capture end the run; broken parts only slow the car down. Use the pause menu to start a new ride if the car is stuck. Generation favors forward travel; old roads beyond the retention distance are discarded rather than saved, so it is not a persistent world to backtrack through forever. Very long runs still use ordinary floating-point world coordinates. The world seed is currently a code constant.
-
-Deploy the browser frontend and relay using [the Render guide](deployment.md)
-or [the Railway guide](docs/RAILWAY.md), then test the public
-frontend from two different computers/networks. Keep game tabs visible during a
-ride; browsers throttle background tabs and the driver owns the simulation.
+**Release clearance:** code licensing and the supplied music’s redistribution
+rights still need owner confirmation; see [release gates](deployment.md#release-gates).

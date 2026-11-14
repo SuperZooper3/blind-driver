@@ -14,7 +14,7 @@ personal bests, and network diagnostics are available in the browser.
 The frontend and relay are separate services. The relay pairs the players and
 forwards state; the driver's browser still simulates the car and police.
 Both services can live in the same Railway project. An existing Render relay
-also works, provided its `/healthz` reports **protocol 10**.
+also works, provided its `/healthz` reports **protocol 12**.
 
 ## Add the frontend to your existing Railway project
 
@@ -50,7 +50,7 @@ also works, provided its `/healthz` reports **protocol 10**.
    Domain**, targeting port **8080**. Open that HTTPS address. This is the
    playable URL to share with friends.
 7. Check `<frontend URL>/healthz` returns `"ok":true`, then check
-   `<relay URL>/healthz` returns `"ok":true,"protocol":10` (additional fields
+   `<relay URL>/healthz` returns `"ok":true,"protocol":12` (additional fields
    are normal). Frontend health verifies the game files, not relay reachability.
 
 No frontend database, persistent disk, API key, manual Godot export, or upload of
@@ -132,7 +132,7 @@ repository does not introduce it.
 - Keep both game tabs visible and the computers awake. Browsers throttle hidden
   tabs; the driver owns the simulation, so backgrounding their tab can stall a
   ride. Browser Escape may first exit fullscreen; press it again for the menu.
-- Lobby name, preferred seat, and personal best use browser storage for that
+- Preferred seat and personal best use browser storage for that
   site's origin. Private browsing, cleared data, or changing domains can lose
   these preferences. A reload closes the current game and its in-memory resume
   credential; it does not resume a saved world. Use **Cancel / leave room** before

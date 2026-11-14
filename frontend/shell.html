@@ -3,32 +3,77 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#142b25">
-  <meta name="description" content="One drives. One sees the way. Play Blind Driver together in your browser: create a room, share the code, and survive the forest.">
+  <meta name="theme-color" content="#153b32">
+  <meta name="description" content="One drives. One sees the way. A chaotic co-op getaway through the forest. Pick a seat, talk to your partner, and see how far you make it.">
   <title>Blind Driver — One drives. One sees the way.</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   $GODOT_HEAD_INCLUDE
 </head>
 <body>
   <canvas id="canvas" tabindex="0" aria-label="Blind Driver game. Keyboard and gamepad controls." hidden>Your browser needs canvas and WebGL 2 to play.</canvas>
   <main id="launch">
-    <div class="route" aria-hidden="true"><span></span><i></i><b></b></div>
-    <div class="content">
-      <p class="eyebrow">A two-seat road trip into the unknown</p>
-      <h1>BLIND<br><span>DRIVER</span><span class="period">.</span></h1>
-      <p class="tagline">One drives. One sees the way.</p>
-      <p class="intro">A winding road. A blurred windshield. A friend who knows which way to turn. How far can you make it?</p>
-      <button id="play" type="button">Get in the car <span aria-hidden="true">↗</span></button>
-      <p id="status" role="status" aria-live="polite">Play free in your browser. No download or account.</p>
-      <progress id="progress" aria-label="Loading game" hidden></progress>
-      <noscript>Enable JavaScript to load the game.</noscript>
-      <div class="steps">
-        <p><b>01</b><span>Create a room, or open your friend's invite link</span></p>
-        <p><b>02</b><span>Share the 6-letter room code with your friend</span></p>
-        <p><b>03</b><span>Talk your way through the forest</span></p>
+    <a class="skip-link" href="#how-to-play">Skip to how to play</a>
+    <header class="site-header wrap">
+      <a class="wordmark" href="#top" aria-label="Blind Driver home"><span class="brand-icon" aria-hidden="true">↗</span> BLIND DRIVER</a>
+      <nav aria-label="Main navigation"><a href="#how-to-play">How to play</a><a href="#ways-to-play">Pick your crew</a><a href="https://github.com/SuperZooper3/blind-driver">GitHub ↗</a></nav>
+    </header>
+    <section class="hero wrap" id="top" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="signal" aria-hidden="true"></span> A co-op getaway. A very bad plan.</p>
+        <h1 id="hero-title">One drives.<br>One sees<br><em>the way.</em></h1>
+        <p class="intro">The bank alarm is ringing. Your glasses are broken. The police are coming. Good thing your friend can see where you’re going.</p>
+        <div class="launch-controls">
+          <button id="play" type="button">Get in the car <span aria-hidden="true">↗</span></button>
+          <p id="status" role="status" aria-live="polite">Free in your desktop browser. No download or account.</p>
+          <progress id="progress" aria-label="Loading game" hidden></progress>
+          <noscript>Enable JavaScript to load the game.</noscript>
+        </div>
+        <p class="hero-note">2 players · Keyboard or gamepad · Solo practice included</p>
       </div>
-      <footer>Keyboard or gamepad · Solo & shared screen included<br>Use a voice call with your navigator. Keep the game tab visible while playing.</footer>
-    </div>
+      <figure class="hero-art">
+        <div class="hero-scene" role="img" aria-label="An orange getaway car outside a bank in a low-poly pine forest"></div>
+        <div class="scene-stamp"><span aria-hidden="true">↗</span> GETAWAY PLAN<br><strong>Keep talking.<br>Keep moving.</strong></div>
+        <figcaption><span class="signal" aria-hidden="true"></span> Actual gameplay <span>Forest roads / endless trouble</span></figcaption>
+      </figure>
+    </section>
+    <div class="inspiration"><div class="wrap"><span>THE VIBE</span><p>The chase of <b>Subway Surfers.</b> The chaos of <b>Overcooked.</b> The trust of <b>Keep Talking and Nobody Explodes.</b></p></div></div>
+    <section class="roles wrap section" id="how-to-play" aria-labelledby="roles-title">
+      <div class="section-heading"><div><p class="eyebrow">01 / Same car. Different problems.</p><h2 id="roles-title">You need each other.</h2></div><p>The driver has the wheel. The navigator has the view. A good getaway takes both.</p></div>
+      <div class="role-grid">
+        <article class="role driver">
+          <div class="role-shot driver-shot" role="img" aria-label="The driver's heavily blurred view through the windshield"><span class="seat-label">01 / DRIVER</span><span class="speech">“Your left or my left?”</span></div>
+          <div class="role-copy"><h3>You drive. Mostly by faith.</h3><p>Accelerate, brake, and steer through a blurred windshield. Listen for the next turn—and trust the person beside you.</p><p class="keys"><kbd>W</kbd><kbd>S</kbd> pedals <span>·</span> <kbd>A</kbd><kbd>D</kbd> steer <span>·</span> <kbd>SPACE</kbd> handbrake</p></div>
+        </article>
+        <article class="role navigator">
+          <div class="role-shot navigator-shot" role="img" aria-label="The navigator's clear view of the forest road"><span class="seat-label">02 / NAVIGATOR</span><span class="speech">“Left. A little. Straighten!”</span></div>
+          <div class="role-copy"><h3>You see. Keep talking.</h3><p>Call out obstacles, choose the route, and watch the police. Unfolding the map covers your view, so pick your moment.</p><p class="keys"><kbd>M</kbd> map <span>·</span> <kbd>B</kbd> look back <span>·</span> hold <kbd>R</kbd> repair when slow</p></div>
+        </article>
+      </div>
+      <p class="caption">Talk in person or use your own voice call. Voice chat isn’t built in. Illustrative callouts above; screenshots show an earlier build.</p>
+    </section>
+    <section class="road-section" aria-labelledby="road-title"><div class="wrap road-grid">
+      <div class="road-copy"><p class="eyebrow">02 / The scenic route has consequences.</p><h2 id="road-title">A shortcut.<br>A wrong turn.<br>One more try.</h2><p>Read the map before the fork. Take the longer, quieter road or risk the shortcut. Dodge rocks, line up jumps, and wait for the bridge—if the police give you time.</p><p>Crashes break parts and slow you down. Repairs take precious seconds. Get caught, flip over, or miss the road entirely, and it’s time for another ride.</p><div class="route-legend"><span><i class="quiet"></i> Longer / quieter</span><span><i class="hazard"></i> Shorter / more hazards</span><span><i class="dead-end"></i> Dead end / turn around</span></div></div>
+      <figure class="map-figure"><div class="map-shot" role="img" aria-label="The field map with a hazardous shortcut, quieter detour, and marked dead end"></div><figcaption>Your map shows the route. Your eyes catch the small stuff.</figcaption></figure>
+    </div></section>
+    <section class="wrap section" id="ways-to-play" aria-labelledby="modes-title">
+      <div class="section-heading"><div><p class="eyebrow">03 / Pick your crew.</p><h2 id="modes-title">Same panic. Your setup.</h2></div><p>Start with a friend, or learn the handling on your own. Use a desktop browser and keep the game tab visible.</p></div>
+      <div class="mode-list">
+        <article><span class="mode-number">01</span><div><h3>On the couch</h3><p>Choose <b>Play on this computer → Two players / shared screen.</b> Share the screen and talk through every near miss. Desktop builds also support two windows.</p></div><span class="mode-tag">LOCAL CO-OP</span></article>
+        <article><span class="mode-number">02</span><div><h3>Across the internet</h3><p>Choose <b>Drive</b> or <b>Navigate</b>, then <b>Create a room.</b> Send your friend the six-character code or invite link. They join the other seat. Hop on a voice call and go.</p></div><span class="mode-tag">ONLINE CO-OP</span></article>
+        <article><span class="mode-number">03</span><div><h3>A little practice first</h3><p>Choose <b>Play on this computer → Solo practice.</b> Get a clear view, learn the controls, and find out how much speed that corner really needs.</p></div><span class="mode-tag">SOLO PRACTICE</span></article>
+      </div>
+      <div class="small-scenes">
+        <figure><div class="scene-crop glasses-shot" role="img" aria-label="The driver's broken glasses under the getaway car"></div><figcaption>The getaway starts with a small problem.</figcaption></figure>
+        <figure><div class="scene-crop police-shot" role="img" aria-label="A police car closing in behind the players"></div><figcaption>And the problem gets closer.</figcaption></figure>
+      </div>
+    </section>
+    <section class="research wrap" aria-labelledby="research-title">
+      <div><p class="eyebrow">Beyond the couch / AI experiments</p><h2 id="research-title">Can two agents<br>talk their way out?</h2><p>The same game is a testbed for communication under time pressure. Two AI agents get separate views and control their own inputs while the simulation keeps moving.</p><p>Cohere agents exchange directions and replies. The Google harness pairs a Gemini navigator with a silent Decisions driver. A separate solo prototype lets a human drive with AI guidance.</p><p class="research-note">These are developer experiments, separate from the public play button. The harness evaluates and records runs today; reinforcement learning and fine-tuning are the next research step.</p><a class="text-link" href="https://github.com/SuperZooper3/blind-driver/blob/main/docs/AI_HARNESS.md">Explore the AI harness <span aria-hidden="true">↗</span></a></div>
+      <div class="agent-diagram" role="img" aria-label="Navigator gets clear screenshots and sends directions to the driver, which uses a blurred view to control the car; the harness records timing and outcomes"><div><small>CLEAR VIEW + MAP</small><strong>Navigator</strong><span>“Brake. Turn left. Straighten.”</span></div><p aria-hidden="true">↓ &nbsp; directions &nbsp; ↓</p><div><small>BLURRED VIEW + CONTROLS</small><strong>Driver</strong><span>Observe → act → observe again</span></div><p class="diagram-foot">One shared world.<br>Every late instruction has a cost.</p></div>
+    </section>
+    <section class="final-cta wrap"><p class="eyebrow">Your friend is the navigation system.</p><h2>Make it a good one.</h2><a class="button-link" href="#play">Pick your seats <span aria-hidden="true">↗</span></a></section>
+    <footer class="site-footer wrap"><a class="wordmark" href="#top">BLIND DRIVER</a><p>A small car. A big communication problem.</p><a href="https://github.com/SuperZooper3/blind-driver">Source & setup ↗</a></footer>
   </main>
   <script src="/config.js"></script>
   <script src="$GODOT_URL"></script>

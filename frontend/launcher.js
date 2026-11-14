@@ -31,15 +31,18 @@
           else progress.removeAttribute('value');
         },
         onExit(code) {
+          document.body.classList.remove('playing');
           canvas.hidden = true;
           launch.hidden = false;
           button.disabled = false;
           button.textContent = 'Reload game ↗';
           progress.hidden = true;
           status.textContent = code ? 'The game stopped. Reload to try again.' : 'The ride has ended.';
+          button.focus();
         },
       });
       launch.hidden = true;
+      document.body.classList.add('playing');
       canvas.hidden = false;
       canvas.focus();
       // Audio starts/resumes on the next game interaction if the download outlasted
