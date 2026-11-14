@@ -21,8 +21,6 @@ var car: RigidBody3D
 var ui: CanvasLayer
 var driver_view: SubViewport
 var navigator_view: SubViewport
-var mirror_view: SubViewport
-var mirror_camera: Camera3D
 var driver_camera: Camera3D
 var navigator_camera: Camera3D
 var motor: AudioStreamPlayer
@@ -58,10 +56,6 @@ func _ready() -> void:
 	navigator_view = _make_view("NavigatorView")
 	driver_camera = _make_camera(driver_view)
 	navigator_camera = _make_camera(navigator_view)
-	mirror_view = _make_view("MirrorView")
-	mirror_view.size = Vector2i(640, 200)
-	mirror_camera = _make_camera(mirror_view)
-	mirror_camera.fov = 65
 	ui = UI.new()
 	add_child(ui)
 	ui.driver_screen.texture = driver_view.get_texture()
@@ -73,12 +67,9 @@ func _ready() -> void:
 	ui.driver_cracks.line_scale = 0.8
 	ui.driver_cracks.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.navigator_screen.texture = navigator_view.get_texture()
-	ui.driver_mirror.texture = mirror_view.get_texture()
-	ui.navigator_mirror.texture = mirror_view.get_texture()
 	blur_material = ShaderMaterial.new()
 	blur_material.shader = preload("res://shaders/driver_blur.gdshader")
 	ui.driver_screen.material = blur_material
-	ui.driver_mirror.material = blur_material
 	ui.blur_slider.value_changed.connect(func(value: float): blur_material.set_shader_parameter("blur_amount", value))
 	ui.map.world = world
 	ui.map.car = car
@@ -197,7 +188,6 @@ func _make_camera(view: SubViewport) -> Camera3D:
 func _resize_views() -> void:
 	driver_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.driver_screen.visible else SubViewport.UPDATE_DISABLED
 	navigator_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.navigator_screen.visible else SubViewport.UPDATE_DISABLED
-	mirror_view.render_target_update_mode = SubViewport.UPDATE_DISABLED if ui.in_menu else SubViewport.UPDATE_ALWAYS
 	var size := get_viewport().get_visible_rect().size
 	var width := size.x * 0.5 if mode == "split" and not ui.in_menu else size.x
 	# Low resolution plus the blur pass makes the driver's vision genuinely unreadable.
@@ -334,8 +324,6 @@ func _update_cameras(delta: float) -> void:
 	if not camera_initialized:
 		weight = 1.0
 		camera_initialized = true
-	var mirror_target := Transform3D(seat_basis * Basis(Vector3.UP, PI), car.global_transform * Vector3(0, 1.32, 1.35))
-	mirror_camera.global_transform = mirror_camera.global_transform.interpolate_with(mirror_target, 1.0 - exp(-delta * 18.0) if weight < 1.0 else 1.0)
 	driver_camera.global_transform = driver_camera.global_transform.interpolate_with(driver_target, weight)
 	navigator_camera.global_transform = navigator_camera.global_transform.interpolate_with(nav_target, weight)
 	navigator_camera.fov = lerpf(navigator_camera.fov, 76.0 + absf(car.signed_speed) * 0.24, delta * 2.0)

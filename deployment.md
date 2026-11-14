@@ -217,7 +217,7 @@ Use two computers, ideally on different networks, and check:
 - There is no R/gamepad recovery shortcut. **Start a new ride** in the driver’s pause menu resets both views and the trip odometer.
 - Headlights, suspension, impacts, and car rotation remain in sync.
 - Drive deep into the thorn forest: both players see punctured tires and the same failure reason. Roll onto the roof: the cabin stays above the ground and the failure screen appears after landing.
-- Check the small rear-view mirror, then hold B / RB on the navigator: the full rear view reveals the patrol and its gap/closing estimate. The driver’s forward view stays unchanged.
+- Hold B / RB on the navigator: the full rear view reveals the patrol and its gap/closing estimate. The driver’s forward view stays unchanged.
 - Both players should see the same patrol position and flashing lights, hear a louder siren as it approaches, and see the same police-capture Game Over. Pause on the driver or disconnect temporarily: pursuit must freeze instead of catching you during recovery.
 - Each computer saves its own PB from the shared run distance. Restart and relaunch to check that the best remains while the trip resets.
 - Drive over a marked cliff: both players see the fall, Game Over, and the same distance. Reconnect a navigator during Game Over and check that the result remains. Choose Drive again on the driver and confirm both return to the start in the same room.

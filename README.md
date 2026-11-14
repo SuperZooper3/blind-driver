@@ -44,7 +44,7 @@ Gamepad: left stick steers, right trigger accelerates, left trigger brakes/rever
 
 Talk to each other in person or over your preferred voice call. The navigator sees only the top edge of a folded map at the bottom of their view. **M / Tab** slides it up to cover their entire screen (their half in shared-screen mode), so checking the map means looking away from the road. Red **X / CLIFF** marks a fatal dead end. A circular **DEAD END / TURN AROUND** marks a solid cul-de-sac. Green **LONG / QUIETER** and amber **SHORT / HEAVY HAZARDS** routes rejoin; check the map to choose between extra distance and more dodging. Jump gaps, timed bridges, lakes, and construction zones are mapped; small obstacles are not. The navigator must also watch the clear road view and call out rocks, trees, ramps, bumps, and cones.
 
-A small live rear-view mirror stays visible during the ride: blurred for the driver, clear for the navigator. Hold **B / RB** or the on-screen **Hold to look back** button for the full passenger rear view. This folds the map and shows the patrol’s distance along the route, whether it is closing, and an approximate catch time at the current pace. Release to face forward again. The driver keeps their forward view in shared-screen play.
+Hold **B / RB** or the on-screen **Hold to look back** button for the full passenger rear view. This folds the map and shows the patrol’s distance along the route, whether it is closing, and an approximate catch time at the current pace. Release to face forward again. The driver keeps their forward view in shared-screen play.
 
 ### Car damage
 
@@ -126,6 +126,10 @@ Agents should read [AGENTS.md](AGENTS.md) for branch ownership, merge compatibil
 and playtesting from the latest `main`. Upcoming gameplay ideas are recorded in
 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md); they are not implemented yet.
 
+The [AI harness plan](docs/AI_HARNESS_PLAN.md) proposes visual agents, continuous
+slow-motion evaluation, two-view recordings, and a path toward reinforcement
+learning. This is a design proposal; the harness is not implemented yet.
+
 The project intentionally builds almost everything in code. The editor's main scene is a small entry point, so an empty-looking 3D editor is expected: **run the project to see the world**.
 
 | File | Responsibility / useful tuning |
@@ -175,7 +179,7 @@ GODOT=/path/to/godot python3 tests/run_checks.py
 godot --headless --path . --fixed-fps 60 --script tests/drive_smoke.gd
 ```
 
-The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved lobby settings, name-based joining in either order, removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn tire wear and flats, crash damage, debris, crash/pop sounds and crippled-car speed, roof clearance, rollover failure, PB persistence, a single growth frontier with rejoining route choices, solid cul-de-sacs, heat progression, patrol navigation/avoidance/capture, rear-view controls and mirrors, ramp overturns, successful and failed gap jumps, timed bridge crossings and falls, shared bridge motion after reconnect, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
+The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved lobby settings, name-based joining in either order, removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn tire wear and flats, crash damage, debris, crash/pop sounds and crippled-car speed, roof clearance, rollover failure, PB persistence, a single growth frontier with rejoining route choices, solid cul-de-sacs, heat progression, patrol navigation/avoidance/capture, rear-view controls, ramp overturns, successful and failed gap jumps, timed bridge crossings and falls, shared bridge motion after reconnect, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
 
 ## Prototype boundaries
 
