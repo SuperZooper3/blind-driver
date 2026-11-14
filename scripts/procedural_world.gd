@@ -16,6 +16,8 @@ const CULDESAC_RADIUS := 14.0
 const HEAT_DISTANCE := 750.0
 const PROFILES := ["main", "scenic", "rough", "culdesac", "cliff"]
 var difficulty := 0
+## Opt-in harness curriculum; ordinary play retains the original generator.
+var basic_course := false
 var world_seed := 72419
 var roads: Array[Dictionary] = []
 var tiles: Dictionary = {}
@@ -56,7 +58,7 @@ func _ready() -> void:
 	rock_material = Geo.material(Color("838a7e"))
 	_build_tree_mesh()
 	if allow_generation:
-		_add_road(Vector3(0, 0, 150), 0.0, 0, 0, 360.0)
+		_add_road(Vector3(0, 0, 40 if basic_course else 150), 0.0, 0, 0, 180.0 if basic_course else 360.0)
 		grow_near(Vector3.ZERO)
 	update_stream(Vector3.ZERO, true)
 
@@ -122,7 +124,9 @@ func grow_near(at: Vector3) -> void:
 		if end.distance_to(at) < 235.0:
 			frontier.expanded = true
 			var depth: int = frontier.depth + 1
-			if frontier.depth % 2 == 0:
+			if basic_course:
+				_add_road(end, 0.0, depth, frontier.id, 180.0)
+			elif frontier.depth % 2 == 0:
 				var fork_rng := RandomNumberGenerator.new()
 				fork_rng.seed = world_seed + int(frontier.id) * 1531
 				var left_safe := fork_rng.randf() > 0.5
@@ -173,7 +177,7 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 	# Straight connector roads give a clear run-up and keep grid-aligned pits away
 	# from forks. A set piece replaces ordinary clutter on this entire stretch.
 	var challenge_kind := ""
-	if profile == "main" and depth > 0 and is_zero_approx(heading):
+	if not basic_course and profile == "main" and depth > 0 and is_zero_approx(heading):
 		if depth % 6 == 2: challenge_kind = "jump_gap"
 		elif depth % 6 == 4: challenge_kind = "timed_bridge"
 	if not challenge_kind.is_empty(): bend = 0.0
@@ -204,9 +208,12 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 			# Keep the ramp/deck centered on the actual road; the wider grid-aligned
 			# terrain cut is separate from its narrow crossing surface.
 			hazards.append({"kind": challenge_kind, "position": center, "size": Vector3(64, 18, 16), "yaw": 0.0, "lane_x": points[16].x, "level": difficulty})
-		elif depth > 0:
+		elif depth > 0 or basic_course:
 			var kinds := ["rock", "tree", "ramp", "bumps", "construction"]
 			var count := 2 + difficulty / 2
+			if basic_course:
+				kinds = ["rock"]
+				count = 1
 			if profile == "scenic": count = 1 + difficulty / 2
 			elif profile == "rough": count = 3 + mini(3, difficulty)
 			elif profile == "culdesac": count = 1 if difficulty < 3 else 2
@@ -216,6 +223,8 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 				var direction := (points[index + 1] - points[index]).normalized()
 				var side := direction.cross(Vector3.UP)
 				var offset := 0.0 if kind in ["tree", "bumps"] else (-1.8 if slot == 0 else 1.8)
+				if basic_course:
+					offset = -2.0 if rng.randf() < 0.5 else 2.0
 				var at := points[index] + side * offset
 				if kind == "tree":
 					for j in range(index - 3, index + 4):
@@ -223,7 +232,7 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 						points[j].y = height_at(points[j].x, points[j].z) + 0.17
 				at.y = height_at(at.x, at.z) + 0.18
 				hazards.append({"kind": kind, "position": at, "size": Vector3.ONE, "yaw": atan2(-direction.x, -direction.z)})
-		if profile == "main" and depth > 0 and depth % 6 == 0:
+		if not basic_course and profile == "main" and depth > 0 and depth % 6 == 0:
 			var center := points[16] + Vector3(28, 0, 0)
 			center.x = roundf(center.x / 8.0) * 8.0
 			center.z = roundf(center.z / 8.0) * 8.0
@@ -259,7 +268,7 @@ func reset_world() -> void:
 	pending_tiles.clear()
 	last_tile = Vector2i(99999, 99999)
 	# IDs never repeat in a session, including restarts and reconnects.
-	_add_road(Vector3(0, 0, 150), 0.0, 0, next_id, 360.0)
+	_add_road(Vector3(0, 0, 40 if basic_course else 150), 0.0, 0, next_id, 180.0 if basic_course else 360.0)
 	update_stream(Vector3.ZERO, true)
 
 func void_at(at: Vector3) -> Dictionary:
@@ -447,6 +456,8 @@ func recovery_spot(at: Vector3) -> Dictionary:
 	return best
 
 func thorn_at(at: Vector3) -> bool:
+	if basic_course:
+		return false
 	# The same global grid defines the visible thicket and tire contact on both peers.
 	var center := Vector3((floorf(at.x / THORN_CELL) + 0.5) * THORN_CELL, 0, (floorf(at.z / THORN_CELL) + 0.5) * THORN_CELL)
 	return road_distance(center) >= THORN_DISTANCE and void_at(center).is_empty() and void_at(at).is_empty()

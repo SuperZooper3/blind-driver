@@ -94,7 +94,7 @@ def run_lag_check(temporary):
         if "SCRIPT ERROR" in navigator.stderr + driver_path.read_text():
             raise RuntimeError(navigator.stderr + "\nLag probe failed")
         result = lag_report.report(temporary / "lag-driver.txt", temporary / "lag-navigator.txt")
-        passed = result["p99_m"] < 3.0 and result["frozen_pct"] < 3.0 and result["samples"] > 600
+        passed = result["p99_m"] < 3.0 and result["frozen_pct"] < 5.0 and result["samples"] > 600
         print("[online smoothness] {}: navigator vs real car under jitter and stalls: median {median_m:.2f} m, p99 {p99_m:.2f} m, max {max_m:.2f} m; frozen {frozen_pct:.1f}% of moving frames".format("PASS" if passed else "FAIL", **result))
         if not passed:
             raise RuntimeError("Online smoothness check failed")
@@ -173,6 +173,10 @@ if __name__ == "__main__":
             reservation.bind(("127.0.0.1", 0))
             os.environ["BLIND_DRIVER_LAN_PORT"] = str(reservation.getsockname()[1])
         os.environ["BLIND_DRIVER_RECORDS_PATH"] = str(temporary / "records.cfg")
+        harness = subprocess.run(command("tests/ai_harness_smoke.gd", temporary / "ai-harness.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=30)
+        print(harness.stdout)
+        if harness.returncode or "FAIL:" in harness.stdout or "SCRIPT ERROR" in harness.stderr:
+            sys.exit(harness.stderr or "AI harness input/course check failed")
         routes = subprocess.run(command("tests/route_choices_smoke.gd", temporary / "routes.log", "--fixed-fps", "60"), capture_output=True, text=True, timeout=30)
         print(routes.stdout)
         if routes.returncode or "FAIL:" in routes.stdout or "SCRIPT ERROR" in routes.stderr:

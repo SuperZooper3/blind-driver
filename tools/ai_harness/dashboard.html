@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blind Driver · Live agents</title>
+<style>
+:root{color-scheme:dark;font:15px/1.45 system-ui,sans-serif;color:#ecf3ee;background:#101e22}*{box-sizing:border-box}body{margin:0;padding:22px;max-width:1800px;margin-inline:auto}h1{font-size:26px;margin:0}h2{font-size:16px;margin:0;color:#85d9bf}header,.bar,.seathead{display:flex;gap:18px;align-items:center;justify-content:space-between}.subtle{color:#a8b9bc;font-size:13px}#status{border:1px solid #46605c;border-radius:30px;padding:6px 16px;color:#85d9bf}#stats{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.stat{background:#1c3036;padding:8px 12px;border-radius:9px;min-width:92px;flex:1}.stat strong{display:block;font-size:20px;font-variant-numeric:tabular-nums}.screens{display:grid;grid-template-columns:1fr 1fr;gap:16px}.seat{background:#1c3036;border-radius:12px;overflow:hidden}.seathead{padding:12px 16px;align-items:flex-start}.model{font-size:12px;color:#a8b9bc}.screen{width:100%;aspect-ratio:1.6;object-fit:contain;display:block;background:#0c161a}.keys{font:13px ui-monospace,monospace;color:#ecf3ee;padding:8px 16px}.navigator h2{color:#efc77d}.panel{margin-top:18px;border:1px solid #34494e;border-radius:12px;padding:16px}.bar{margin-bottom:12px}label{font-size:13px;color:#a8b9bc}#timeline{height:300px;overflow:auto;scrollbar-color:#46605c transparent}.event{padding:9px 12px;margin-bottom:7px;border-left:3px solid #46605c;background:#17282d;border-radius:4px;white-space:pre-wrap;overflow-wrap:anywhere}.event.message{font-size:16px;border-color:#85d9bf}.event.navigator.message{border-color:#efc77d}.event.error{border-color:#ef987e;color:#efb4a3}.stamp{display:block;font-size:12px;color:#a8b9bc;margin-bottom:3px}.technical{font-size:13px;color:#a8b9bc}a{color:#85d9bf}#connection{color:#ef987e}footer{display:flex;justify-content:space-between;gap:12px;margin-top:12px;font-size:12px;color:#a8b9bc}@media(max-width:560px){body{padding:12px}.screens{grid-template-columns:1fr}header{align-items:flex-start}#timeline{height:420px}}
+</style>
+<header><div><h1>Blind Driver <span class="subtle">/ Live agents</span></h1><div id="run" class="subtle">Waiting for a run…</div></div><span id="status">Connecting</span></header>
+<div id="stats"></div>
+<div class="screens">
+<section class="seat"><div class="seathead"><div><h2>Driver</h2><div id="driver-model" class="model"></div></div><span id="driver-thinking" class="subtle"></span></div><img class="screen" id="driver-image" alt="Complete driver game view"><div class="keys" id="driver-keys">Keys: released</div></section>
+<section class="seat navigator"><div class="seathead"><div><h2>Navigator</h2><div id="navigator-model" class="model"></div></div><span id="navigator-thinking" class="subtle"></span></div><img class="screen" id="navigator-image" alt="Complete navigator game view"><div class="keys" id="navigator-keys">Keys: released</div></section>
+</div>
+<section class="panel"><div class="bar"><h2>Conversation & actions</h2><label><input type="checkbox" id="follow" checked> Follow latest</label></div><div id="timeline" role="log" aria-label="Agent conversation"></div></section>
+<footer><span id="connection">Connecting to local recorder…</span><span>Read-only spectator · images update every second · <a id="recap" href="/recap.mp4" target="_blank" hidden>Normal-speed recap</a></span></footer>
+<script>
+const $=id=>document.getElementById(id);let lastRun='',count=0,frames={};
+const n=(x,d=1)=>Number(x||0).toFixed(d);
+function detail(e){
+ if(e.event==='message')return `${e.role.toUpperCase()} → ${e.to.toUpperCase()}: ${e.message}`;
+ if(e.event==='request')return `${e.role.toUpperCase()} is observing / waiting for model · request ${e.request_id}`;
+ if(e.event==='response'){const a=e.action;return `${e.role.toUpperCase()} answered in ${n(e.latency_seconds,2)}s · hold ${a.hold.join('+')||'none'} · tap ${a.tap.join('+')||'none'} · ${a.hold_sim_seconds===undefined?'until next instruction':`legacy ${a.hold_sim_seconds}s hold`} · awaiting game acknowledgment`}
+ if(e.event.endsWith('error'))return `${(e.role||'RUN').toUpperCase()} error: ${e.error}`;
+ if(e.event==='episode_finished')return `Run stopped: ${e.reason} · rendering recap…`;
+ if(e.event==='recap_ready')return 'Normal-speed recap ready';
+ return 'Run started · game continues throughout inference';
+}
+function update(s){
+ if(s.waiting){$('status').textContent='Waiting';$('connection').textContent='Local viewer ready; waiting for a new run.';return}
+ const r=s.run,d=s.seats.driver,end=s.result.reason;
+ if(lastRun!==r.run_id){lastRun=r.run_id;count=0;frames={};$('timeline').replaceChildren()}
+ $('run').textContent=`${r.run_id} · ${r.course} · seed ${r.seed} · source ${(r.git_commit||'').slice(0,7)}`;
+ $('status').textContent=end?`Finished · ${end}`:'Live';
+ const requests=s.events.filter(e=>e.event==='request'),responses=s.events.filter(e=>e.event==='response');
+ const tokens=responses.reduce((v,e)=>v+(e.usage?.input_tokens||0)+(e.usage?.output_tokens||0),0);
+ const stats=[['Game time',`${n(d.sim_time)} s`],['Recording time',`${n(s.started?d.unix_time-s.started:0)} s`],['Game speed',`${r.speed}%`],['Car speed',`${n(d.speed_kmh)} km/h`],['Progress',`${n(d.forward_progress_m)} m`],['Requests',requests.length],['Known tokens',end?Number(s.result.input_tokens||0)+Number(s.result.output_tokens||0):tokens]];
+ $('stats').replaceChildren(...stats.map(([label,value])=>{const el=document.createElement('div');el.className='stat';const title=document.createElement('span');title.className='subtle';title.textContent=label;const v=document.createElement('strong');v.textContent=value;el.append(title,v);return el}));
+ for(const role of ['driver','navigator']){const seat=s.seats[role];$(''+role+'-model').textContent=r.provider==='scripted'?'SCRIPTED · no model calls':r[role+'_model'];const ev=s.events.filter(e=>e.role===role&&['request','response','request_error','message'].includes(e.event)).at(-1);$(role+'-thinking').textContent=end?'Stopped':ev?.event==='request'?'Waiting for model…':'Between requests';$(role+'-keys').textContent=`Keys: ${(seat.held||[]).join(' + ')||'released'}${seat.fallback?' · legacy fallback':''}`;if(seat.frame!==undefined&&seat.frame!==null&&frames[role]!==seat.frame){$(role+'-image').src=`/image/${role}?run=${encodeURIComponent(r.run_id)}&frame=${seat.frame}`;frames[role]=seat.frame}}
+ const log=$('timeline');for(const e of s.events.slice(count)){const line=document.createElement('div');line.className=`event ${e.role||''} ${e.event==='message'?'message':'technical'} ${e.event.endsWith('error')?'error':''}`;const stamp=document.createElement('span');stamp.className='stamp';stamp.textContent=`real ${n(s.started?e.unix_time-s.started:0)}s${e.sim_time===undefined?'':` · game ${n(e.sim_time,2)}s`}`;line.append(stamp,document.createTextNode(detail(e)));log.append(line)}count=s.events.length;if($('follow').checked)log.scrollTop=log.scrollHeight;
+ $('recap').hidden=!s.recap_ready;$('connection').textContent=end?`Run saved${s.result.usage_complete?'':' · token accounting incomplete'}. Waiting for the next run.`:'Connected · controls stay held until replaced';
+}
+async function poll(){try{const response=await fetch('/state',{cache:'no-store'});if(!response.ok)throw Error(response.status);update(await response.json())}catch(e){$('connection').textContent='Viewer connection lost; retrying…';$('status').textContent='Disconnected'}setTimeout(poll,1000)}poll();
+</script></html>

@@ -132,9 +132,13 @@ Agents should read [AGENTS.md](AGENTS.md) for branch ownership, merge compatibil
 and playtesting from the latest `main`. Upcoming gameplay ideas are recorded in
 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md); they are not implemented yet.
 
-The [AI harness plan](docs/AI_HARNESS_PLAN.md) proposes visual agents, continuous
-slow-motion evaluation, two-view recordings, and a path toward reinforcement
-learning. This is a design proposal; the harness is not implemented yet.
+The first [visual-agent harness](docs/AI_HARNESS.md) runs two complete game windows,
+accepts keyboard inputs from both agents, and records a recap video with dialogue
+and metrics. It supports scripted/Cohere agents, adjustable simulation speed, and
+model/role/speed comparisons, a live terminal timeline for both agents, and recaps
+that restore normal game speed. Cohere runs default to Aya Vision 32B in both seats
+at 25% speed. The [research plan](docs/AI_HARNESS_PLAN.md) describes
+the longer path toward reinforcement learning.
 
 The project intentionally builds almost everything in code. The editor's main scene is a small entry point, so an empty-looking 3D editor is expected: **run the project to see the world**.
 
@@ -185,7 +189,7 @@ GODOT=/path/to/godot python3 tests/run_checks.py
 godot --headless --path . --fixed-fps 60 --script tests/drive_smoke.gd
 ```
 
-The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved seat settings, room codes (creating as either seat, joining by code, typos and full rooms), swapping seats after a run over a real relay, navigator smoothness through a relay that injects realistic jitter and 0.15–0.75 s stalls (`tests/relay_jitter_server.mjs`, `tests/lag_report.py`: the shown car must stay within 3 m of the real one at the 99th percentile and freeze on under 3% of frames), pose prediction maths, direct same-network links (both sides listening, and each side refusing incoming connections), removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn tire wear and flats, crash damage, debris, crash/pop sounds and crippled-car speed, roof clearance, rollover failure, PB persistence, a single growth frontier with rejoining route choices, solid cul-de-sacs, heat progression, patrol navigation/avoidance/capture, rear-view controls, ramp overturns, successful and failed gap jumps, timed bridge crossings and falls, shared bridge motion after reconnect, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
+The checks bind only to localhost and close their test processes afterwards. They select a free LAN port through `BLIND_DRIVER_LAN_PORT` and set `BLIND_DRIVER_RECORDS_PATH` to a temporary file, so checks leave running games and your real PB alone. They also verify saved seat settings, room codes (creating as either seat, joining by code, typos and full rooms), swapping seats after a run over a real relay, navigator smoothness through a relay that injects realistic jitter and 0.15–0.75 s stalls (`tests/relay_jitter_server.mjs`, `tests/lag_report.py`: the shown car must stay within 3 m of the real one at the 99th percentile and freeze on under 5% of frames; the old interpolation scored 11.7 m and 10%), pose prediction maths, direct same-network links (both sides listening, and each side refusing incoming connections), removed recovery controls, dashboard values, map animation and screen coverage, physical falls and lake deaths, thorn tire wear and flats, crash damage, debris, crash/pop sounds and crippled-car speed, roof clearance, rollover failure, PB persistence, a single growth frontier with rejoining route choices, solid cul-de-sacs, heat progression, patrol navigation/avoidance/capture, rear-view controls, ramp overturns, successful and failed gap jumps, timed bridge crossings and falls, shared bridge motion after reconnect, higher sustained speed, hazard serialization, and matching patrol and Game Over/restart state after navigator reconnection over LAN and relay. They cover the automatic second-window launcher as well as physical behavior and real snapshot delivery. Add `--relay` to test the Node relay too. Manual playtesting is still necessary to judge handling and camera comfort.
 
 ## Prototype boundaries
 
