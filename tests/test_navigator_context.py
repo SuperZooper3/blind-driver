@@ -151,21 +151,53 @@ class NavigatorContextTests(unittest.TestCase):
         from tools.ai_harness.agents import validate_action
         action = {"hold": ["W", "A"], "tap": [], "message": "", "steering_pulse_sim": .15}
         self.assertEqual(validate_action(action, "driver"), action)
-        for pulse in (True, float("nan"), float("inf"), 0, 2, "0.2"):
+        for pulse in (True, float("nan"), float("inf"), .01, 2, "0.2"):
             with self.subTest(pulse=pulse), self.assertRaises(ValueError):
                 validate_action({**action, "steering_pulse_sim": pulse}, "driver")
         for hold in (["W"], []):
-            with self.assertRaises(ValueError):
-                validate_action({**action, "hold": hold}, "driver")
+            self.assertNotIn("steering_pulse_sim", validate_action({**action, "hold": hold}, "driver"))
+        self.assertNotIn("steering_pulse_sim", validate_action({**action, "steering_pulse_sim": 0}, "driver"))
+        self.assertEqual(validate_action({"hold": ["S"], "tap": [], "message": "", "pedal_pulse_sim": .2}, "driver")["pedal_pulse_sim"], .2)
         with self.assertRaises(ValueError):
             validate_action({**action, "hold": ["B"]}, "navigator")
+
+    def test_reasoning_and_resizing_preserve_the_entire_seat_without_old_images(self):
+        import base64
+        import io
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "seat.jpg"
+            Image.new("RGB", (1280, 800), "red").save(image)
+            agent = CohereAgent("driver", DEFAULT_MODEL, "unused", "Drive", 10, 1536, 2,
+                                thinking_tokens=512, image_width=960)
+            requests = []
+            def chat(body):
+                requests.append(body)
+                return json.dumps({"notes": "Speed readable", "hold": [], "tap": [], "message": ""}), {}, {}
+            with patch.object(agent, "_chat", side_effect=chat):
+                agent.decide(image, {}, [])
+            body = requests[0]
+            self.assertEqual(body["thinking"], {"type": "enabled", "token_budget": 512})
+            data = body["messages"][0]["content"][1]["image_url"]["url"].split(",", 1)[1]
+            with Image.open(io.BytesIO(base64.b64decode(data))) as sent:
+                self.assertEqual(sent.size, (960, 600))
+            with Image.open(image) as original:
+                self.assertEqual(original.size, (1280, 800))
+
+    def test_recovery_question_overrides_routine_map_check(self):
+        from tools.ai_harness.prompts import current_task
+        question = current_task("navigator", {"hud": {"surface": "OFF ROAD"},
+            "view": {"map": "closed"}, "map_check": {"due": True, "last_open_view": None}})
+        self.assertIn("LEFT/RIGHT", question)
+        self.assertIn("Do not open the map", question)
+        self.assertIn("don't tap M", current_task("navigator", {"view": {"map": "opening"}}))
 
     def test_invalid_image_reply_is_reported_next_turn_without_fabricating_an_action(self):
         action = {"hold": [], "tap": [], "message": "", "notes": "Road view; awaiting driver question"}
         with tempfile.TemporaryDirectory() as tmp:
             image = Path(tmp) / "view.jpg"
             image.write_bytes(b"fixture")
-            agent = CohereAgent("navigator", DEFAULT_MODEL, "unused", "Navigator prompt", 10, 512, 2)
+            agent = CohereAgent("navigator", "command-a-vision-07-2025", "unused", "Navigator prompt", 10, 512, 2)
             requests = []
             def chat(body):
                 requests.append(body)

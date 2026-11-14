@@ -26,7 +26,7 @@ python3 -m venv .venv
 
 # With COHERE_API_KEY already exported in this terminal:
 .venv/bin/python -m tools.ai_harness run \
-  --provider cohere --speed 25 --sim-seconds 60 --max-tokens 200000 --max-requests 100
+  --provider cohere --speed 5 --sim-seconds 60 --max-tokens 200000 --max-requests 200
 ```
 
 Set `GODOT` or pass `--godot /path/to/Godot` if the executable is not detected.
@@ -50,96 +50,77 @@ scripted result is prominently labeled and is not a model-performance claim.
 
 ## Model choices, prompts, and speeds
 
-Both seats default to `command-a-vision-07-2025` (Command A Vision), using image
-input and locally validated JSON instructions. The original `command-a-03-2025`
-is text-only and cannot operate this screenshot harness. `command-a-plus-05-2026`
-and `c4ai-aya-vision-32b` remain explicit alternatives. The initial live A+ run
-returned malformed navigator actions despite its schema; bounded probes on the
-same saved views produced valid directions and driver controls with Command A
-Vision. This is a compatibility choice, not a general driving-performance ranking.
-[Cohere model capabilities](https://docs.cohere.com/docs/models),
-[Command A Vision](https://docs.cohere.com/docs/command-a-vision).
+Both seats default to `command-a-plus-05-2026` (Command A+) with **512 thinking
+tokens**, a 1,536-token total response limit, and local action validation. The
+1,024-token margin leaves room for the final JSON after thinking. Thinking blocks
+are never logged or sent to the partner; their token usage is counted. Command A
+Vision (`command-a-vision-07-2025`) and Aya remain explicit alternatives, without
+reasoning-specific API options. There is no silent model fallback.
+[Cohere reasoning controls](https://docs.cohere.com/docs/reasoning).
 
-```sh
-.venv/bin/python -m tools.ai_harness run --provider cohere \
-  --driver-model command-a-plus-05-2026 \
-  --navigator-model c4ai-aya-vision-32b \
-  --speed 10 --sim-seconds 20 --max-requests 60
-```
+The default speed is **5% (1/20)**. One simulated minute takes about twenty real
+minutes. Each episode allows 60 game seconds, 200,000 combined input/output tokens,
+and 200 API calls. The token cap is checked between requests and can overshoot by
+an in-flight group. `--decision-interval-sim .6` spaces consecutive observations
+by at least 0.6 game seconds; navigator and driver alternate, so each normally acts
+about once per 1.2 game seconds. This avoids spending the budget repeatedly
+observing almost identical frames at slow speed. Provider latency and the shared
+18-request/minute limiter may lengthen that interval; the game keeps running.
+Set the interval to zero for immediate successive requests.
 
-Supported simulation percentages are 1–100. Speed is fixed for an episode;
-changing it means a separate recorded benchmark condition. Five percent means
-one simulated minute takes about twenty real minutes. The recorder also measures
-actual clock advancement, because rendering and host load can change it.
+The game still captures each **complete 1280×800 seat**. Provider inputs are
+uniformly resized to at most 768 pixels wide, with no crop. The navigator uses
+`high` image detail to retain road/map detail; the driver's already blurred view
+uses `low` detail. Change `--image-width`, `--driver-image-detail`, or
+`--navigator-image-detail` explicitly for comparisons. All settings enter the
+manifest and benchmark fingerprint. Original screenshots remain at full size.
+[Cohere image detail and token accounting](https://docs.cohere.com/docs/image-inputs).
 
-Each seat has its own history, model ID, prompt, and received messages. Only the
-current complete-seat JPEG is sent on each request. The last 32 role-local text
-turns are retained by default; previous images are never sent. Each action may also
-contain short `notes` recording observations, its decision, and unresolved questions.
-Notes belong to that seat; only `message` goes to its partner. These are concise
-working records, not private chain-of-thought transcripts.
-Every eight own accepted actions (`--memory-every 8`), that seat updates a rolling
-recap while the other seat makes its next action request. Recap calls are text-only,
-use the same model, and receive immutable snapshots of conversation/notes. They do
-not select controls, pause play, or overwrite live history. The latest completed
-recap, with a `through_turn` watermark, accompanies later current-image requests.
-Recent turns remain verbatim even while a recap is pending. Set `--memory-every 0`
-to disable this. Errors retain the previous recap and are recorded separately.
-The history policy and exact prompts are saved. Use `--history-turns` to change it.
-Older text turns retain observations and notes without repeatedly embedding earlier
-recap/dialogue windows. This keeps the context from growing with duplicate summaries.
-Optional `--driver-instructions file.txt` and `--navigator-instructions file.txt`
-append coaching instructions; use `--label coached-v1` to identify the experiment.
+Each observation includes a transcript of the five instruments actually drawn
+in that seat: rounded speed and trip, surface, motion (including reversing), and
+damage text. Drawing and transcription share the same function. No precise
+position, road geometry, steering angle, hidden obstacle, or evaluator score is
+passed to either agent. The previous visible-instrument snapshot helps distinguish
+motion from stalling. Discrete own-seat view labels and audible-event captions
+remain available. The map itself must still be interpreted visually.
 
-The `cooperative-navigation-v3` prompt makes the navigator an active copilot:
+The `grounded-copilot-v6` instructions and context:
 
-- Give immediate steering/braking directions, timing, and when to straighten.
-  Distinguish a straight road from a car that is actually aligned with it.
-- Read the latest driver question/acknowledgment, check whether the last advice
-  worked, and correct it using current evidence. Speech is optional: `message: ""`
-  means silence; private map-check narration belongs in `notes`.
-- Prefer watching the road. Open the map for a route question, read it on a later
-  screenshot, then close it. The driver cannot check the map. North-up map directions
-  must be converted to the driver's left/right using the car's heading.
-- Reassess after crash/pop captions, loss of movement, or visible drift. Inspect
-  clearance before proposing recovery; an impact caption alone cannot identify a tree.
+- Plan with the map before departure, read a later fully opened frame, close it,
+  and remember the upcoming bend. A map-check reminder tracks the last offered
+  open view; it does not claim the model understood it.
+- Use the current road view for immediate car alignment and obstacles. The next
+  task changes with the visible UI: opening map, readable map, rear view,
+  off-road/impact, route check due, or ordinary road watching.
+- Give the driver an actionable speed/steering correction. The driver cannot use
+  navigator controls. Map-check narration and visual notes stay private.
+- Reassess after impact/off-road evidence; identify the road side, use chase view
+  if obscured, inspect rear clearance before reversing, and verify each recovery
+  step. Do not repeat an unresolved “stop and assess” message.
+- Use short explicit steering/pedal pulses when appropriate. These are model-selected
+  keyboard durations, not an automatic lane follower, speed governor, or brake.
 
-Each current observation includes the last eight **delivered** messages from both
-seats with delivery/evidence ages, the seat's latest control acknowledgment, and
-repetition counts for its speech and navigator map toggles. Discrete view labels
-(`open/opening/closing/closed`, seat/chase, forward/rear) describe the visible UI.
-They contain no road geometry, obstacle positions, partner controls, or partner
-private notes. Rejected actions never deliver speech; whitespace-only messages
-never create a chat event. Repeated urgent instructions are still delivered.
-The harness does not fabricate directions or silently rewrite a model's advice.
-Recaps distinguish observations, speech, and control acceptance from actual outcomes.
+Each seat keeps its last two short factual notes by default. Requests are fresh
+image tasks rather than a long conversation of repetitive assistant answers.
+The current context includes recent delivered speech, the newest partner message,
+actual held keys, rejected-action feedback, and repetition feedback. Private notes
+never cross seats. The full accepted dialogue and action history remain on disk.
+Speech is optional: empty/whitespace messages create no chat event; repeated urgent
+warnings remain deliverable. Invalid controls/format do not deliver speech.
 
-Cohere is the first implemented provider. Command A+ uses JSON Schema output and
-disables thinking for the initial latency baseline. Aya Vision and Command A Vision use JSON
-instructions plus the same local validation. A future Google adapter can use the
-same contract; it is not implemented in this sketch.
-Every Cohere model receives the role/action instructions in the image-bearing user
-turn as well as the system preamble, with a final JSON-only instruction after the
-image. Live Aya and Command A+ trials produced prose when the task appeared only
-in the system preamble, even with a response schema. Invalid output is rejected,
-not scraped for a plausible action; the next request includes concise validation
-feedback and states that no action or speech was delivered.
-[Cohere Chat API](https://docs.cohere.com/v2/reference/chat),
-[structured output](https://docs.cohere.com/docs/structured-outputs),
-[reasoning controls](https://docs.cohere.com/docs/reasoning).
+`--history-turns` controls factual-note history. Optional background text recaps
+are disabled by default (`--memory-every 0`) to avoid reinforcing stale visual
+claims and spending extra calls. Set a positive interval to enable them; they use
+immutable snapshots, count toward budgets, and do not delay an action waiting for
+a second rate slot. A recap is explicitly older evidence, never a current sensor.
+Optional `--driver-instructions` / `--navigator-instructions` files append experiment
+coaching; `--label` identifies the experiment. Exact prompts and their hashes are saved.
 
-The shared limiter defaults to 18 requests/minute across both seats, including
-background recap calls, with a two-call burst for concurrent action/recap requests.
-A due action/recap pair uses two rate slots when available. If only one is available,
-the action proceeds and the recap waits. Recapping still uses quota; it is an explicit
-benchmark condition. Defaults allow 60 simulation seconds (about four real minutes
-at 25% speed), 200,000 combined input/output tokens, and 100 requests including recaps.
-Bound runs with `--sim-seconds`, `--max-requests`, `--max-tokens`, and
-`--timeout`; the token cap is checked between requests and can overshoot by an
-in-flight group (up to three calls). Three consecutive provider/format errors from
-either seat stop the trial; a valid driver reply cannot reset navigator failures. No hidden
-provider/model fallback occurs. Dollar cost is recorded as unknown, not zero;
-token usage is retained for calculating it using the account's actual pricing.
+Three consecutive provider/format errors from either seat end the trial; valid
+replies from the other seat cannot reset that counter. Rejected responses receive
+concise feedback next turn. Dollar cost is recorded as unknown; billed tokens are
+retained for the account's pricing. A formatted response is not proof of good driving:
+inspect the live run, saved images, actions, and measured road progress.
 
 ## Live terminal or browser
 
@@ -215,7 +196,13 @@ key-down/key-up pair. Toggles retain normal semantics: tapping M twice opens the
 closes the map. The normal map animation/occlusion is preserved. S brakes, then
 reverses after stopping. Opposite inputs, duplicate keys, cross-role controls,
 malformed responses, and stale observations are rejected. Messages are capped at
-240 characters; optional notes at 600. There is no hold-duration field.
+240 characters; optional notes at 600. Driver actions can additionally select
+`steering_pulse_sim` (release A/D) and `pedal_pulse_sim` (release W/S), each 0.05–1
+**game seconds** after acceptance. Omitted pulses preserve ordinary persistent
+holds. Zero or a pulse for keys not held is a no-op and is omitted by the Python
+validator. A pulse releases only its own key group; other held keys persist.
+New accepted actions replace pending timers. Failed actions do not change them.
+The game checks time during physics, so expiry does not wait for another model call.
 If the game window loses focus and Godot clears keyboard state, the adapter
 restores the requested held keys before physics. It never repeats taps. Telemetry
 records both requested `held` keys and actual `pressed_keys`, plus an
@@ -228,14 +215,15 @@ next accepted instruction replaces them.** Inference, the partner's turn, quota
 waits, and rejected/failed responses do not release keys or apply automatic brakes.
 For example, `hold: ["W", "A"]` keeps accelerating left; a later `hold: ["W"]`
 straightens while continuing to accelerate; `hold: []` releases everything.
-This also applies to the navigator's B key. Taps remain momentary.
+This also applies to the navigator's B key. Explicit driver pulses are the exception
+above; taps remain momentary.
 
 The observation-age limit rejects stale *new* decisions; it does not expire an
 already accepted hold. Ending the episode (including errors, Ctrl-C, and limits)
 releases every held key. Game menus/network recovery retain their ordinary pause
 behavior. Pause/restart and changes to speed are not model actions.
 
-Schema version 4 adds the shared local engine, working recaps and readable-display settings; it still records `hold_policy: until_replaced`. Older timed-hold runs remain
+Schema version 4 adds the shared local engine, working recaps and readable-display settings; new runs record `hold_policy: until_replaced_with_optional_key_pulses`. Older timed-hold runs remain
 readable, with their fallback metrics retained, but should not be pooled with new
 runs. The source/configuration fingerprint keeps those benchmark groups separate.
 
@@ -247,8 +235,8 @@ runs. The source/configuration fingerprint keeps those benchmark groups separate
 written keyboard commands, dispatches them through `Input.parse_input_event`, and
 records telemetry. It forces a redraw at capture cadence so macOS window occlusion
 does not silently freeze one camera. Each capture includes that seat’s real HUD, driver blur where appropriate,
-windshield damage, and the navigator's map. Python never assembles observations
-from game internals.
+windshield damage, and the navigator's map. Python does not derive driving advice from game internals; the visible-instrument
+transcript is the explicit accessibility exception described above.
 
 This intentionally uses local files rather than another server/API protocol.
 Each process has its own directory and monotonically increasing command sequence.
@@ -287,7 +275,7 @@ heading degrees. The map still covers the road but leaves the instruments visibl
 Collision, tire-pop, engine-knock and siren captions appear in the game itself;
 unheard caption events with timestamps also accompany the next model request.
 No map obstacle detector, angle advice, or hidden damage/location values are added
-to model inputs. Ordinary human sessions retain their existing UI.
+to model inputs. The five visible instrument strings are also delivered as text. Ordinary human sessions retain their existing UI.
 `--course standard` selects the existing human game and all its hazards.
 
 The basic profile's progress measure is the maximum new forward (-Z) displacement
@@ -305,7 +293,7 @@ FPS, capture cost, applied keys, hold policy, and real/simulation clocks. Impact
 events come from the game's impact signal, not every physics contact. Per-request
 logs include observations, image references, dialogue, latencies, tokens,
 responses, validation failures, and acknowledgments. Precise telemetry is never
-included in model inputs. Sound captions and discrete own-seat view labels are
+included in model inputs. Sound captions, the exact rounded instrument strings, and discrete own-seat view labels are
 explicit accessibility exceptions; exact map-reveal fractions stay in telemetry.
 
 The versioned evaluation score is:
@@ -407,7 +395,9 @@ The smoke check verifies real key dispatch for both roles, stale/duplicate/inval
 actions, holds persisting beyond the old timeout, explicit release, stop cleanup,
 continued simulation, the readable map/captions, roadside thorns, and terminal
 all-tire punctures in the basic course at 5% speed. Unit tests cover one-image
-requests, text history, concurrent immutable recaps, score terms, and scoped HTTP controls.
+requests, resizing, reasoning budgets, bounded notes/dialogue, concurrent immutable
+recaps, score terms, and scoped HTTP controls. Native checks verify steering and
+pedal pulses release only their own keys on the game clock.
 Navigator regressions cover the repeated-map conversation, crash captions, dialogue
 ages, silent/rejected delivery, map animation labels, and exclusion of hidden telemetry.
 Rendered scripted runs verify the complete-seat capture/recap path. Live provider

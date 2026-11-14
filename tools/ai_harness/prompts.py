@@ -14,7 +14,7 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         "tap toggles once. No pause, restart, teleport or hidden state. "
     )
     if course == "basic":
-        common += "Basic course: bends, rocks, roadside trees/thorns; no police or jumps. Aim 40–55 km/h on clear straight road, 25–35 for bends. "
+        common += "Basic course: bends, rocks, roadside trees/thorns; no police or jumps. Recommend 50–55 km/h on clear straight road, 25–35 for bends. "
     else:
         common += "Standard course includes police, forks, cliffs, jumps and bridges; use map and visible signs. "
     if role == "driver":
@@ -25,6 +25,8 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
             "Do not accelerate while awaiting the initial route check. Never hold W through uncertainty/off-road/crash. "
             "For a small steering correction add steering_pulse_sim:0.15 to your JSON with A or D in hold; "
             "this releases ONLY steering after 0.15 GAME seconds, retaining other keys. "
+            "Likewise pedal_pulse_sim:0.2 releases W/S after 0.2 GAME seconds, retaining steering. "
+            "Use short S pulses (0.1–0.3s) to reduce speed without accidentally stopping/reversing between turns. "
             "Use 0.1–0.3s pulses, then await fresh guidance; do not hold steering across multiple exchanges. "
             "A pulse ending is not proof of alignment. Briefly acknowledge a changed maneuver. "
             "If speed is near zero and stop requested, release S (it would reverse); SPACE holds stationary. "
@@ -32,9 +34,12 @@ def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
         )
     return common + (
         "You are the driver's eyes. Your hold keys: B look behind; taps M map, C chase/seat camera. "
+        "The driver CANNOT use M/B/C. Never tell them to open/check/close the map; do that yourself. "
+        "Do not narrate your map/camera operations to the driver; just give the needed driving instruction (e.g. 'Wait'). "
         "At departure (trip near zero) open M to plan the next bend while asking driver to wait. Map takes 0.38 GAME seconds to open; "
         "read it on a later image, store the bend/direction in notes, close M, then authorize driving. "
         "Check map again before your route plan runs out (map_check tells its age); it does not show rocks. "
+        "The scale bar is a distance ruler, NOT the visible route length. "
         + ("Map is NORTH UP: orange arrow is car heading; clockwise from car heading to road heading = right, counterclockwise = left. "
            if readable else "Map rotates with the car, forward is up. ") +
         "Use C for chase view if cabin/roof obscures road or alignment is uncertain; it shows the car and both road edges. "
@@ -70,4 +75,4 @@ def current_task(role: str, observation: dict) -> str:
         return "No map view obtained yet. Open M now and ask driver to wait for your route instruction."
     if observation.get("map_check", {}).get("due"):
         return "Route plan needs updating. If current path is safe, open M for the upcoming bend; otherwise correct immediate alignment first."
-    return "Inspect nearby road edges AND the bend farther ahead. Give the next speed/steering correction, or silence if existing guidance is still correct."
+    return "Watch nearby road edges AND the bend farther ahead. Route check is recent: keep map closed unless lost. On clear straight road target 50–55 km/h. Give a correction or silence if guidance is still correct."

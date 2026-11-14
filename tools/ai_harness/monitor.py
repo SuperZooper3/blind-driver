@@ -55,6 +55,8 @@ class ConsoleMonitor:
             action = item["action"]
             holding = (f"for {action['hold_sim_seconds']:g} sim s (legacy timed hold)"
                        if "hold_sim_seconds" in action else "until next instruction")
+            if "steering_pulse_sim" in action:
+                holding = f"steering pulse {action['steering_pulse_sim']:g} game s; other keys until next instruction"
             detail = (f"{role} answered in {item['latency_seconds']:.2f}s | "
                       f"hold={'+'.join(action['hold']) or 'none'} tap={'+'.join(action['tap']) or 'none'} "
                       f"{holding} | awaiting game acknowledgment")

@@ -147,10 +147,12 @@ model/role/speed comparisons, a live terminal timeline for both agents, and reca
 that restore normal game speed. It includes a large-display profile with sound
 captions, background conversation recaps, safety scoring, and local Stop/Restart
 controls. The basic AI course restores roadside thorns and ends on four punctures.
-Cohere runs default to Command A Vision in both seats at 25% speed, with up to 60 seconds
-of game time, 200,000 tokens and 100 requests per run. The navigator is coached to
+Cohere runs default to Command A+ with bounded reasoning in both seats at 5% speed
+(1/20), with up to 60 game seconds, 200,000 tokens and 200 requests per run. The navigator is coached to
 give actionable directions, respond to the driver, and reassess after crashes;
-recent dialogue and accepted-control feedback accompany each screenshot.
+recent dialogue, a transcript of the visible instruments, and accepted-control feedback
+accompany each screenshot. Explicit short steering pulses prevent a small correction
+from staying held through both agents’ model calls.
 The [research plan](docs/AI_HARNESS_PLAN.md) describes
 the longer path toward reinforcement learning.
 

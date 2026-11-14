@@ -221,8 +221,8 @@ class HarnessContractTests(unittest.TestCase):
              patch("tools.ai_harness.__main__.run_episode") as run:
             main()
             args = run.call_args.args[0]
-            self.assertEqual(args.driver_model, "command-a-vision-07-2025")
-            self.assertEqual(args.navigator_model, "command-a-vision-07-2025")
+            self.assertEqual(args.driver_model, "command-a-plus-05-2026")
+            self.assertEqual(args.navigator_model, "command-a-plus-05-2026")
             self.assertEqual(args.memory_every, 0)
             self.assertEqual(args.sim_seconds, 60)
             self.assertEqual(args.max_requests, 200)
@@ -230,6 +230,8 @@ class HarnessContractTests(unittest.TestCase):
             self.assertEqual(args.speed, 5)
             self.assertEqual(args.history_turns, 2)
             self.assertEqual(args.decision_interval_sim, .6)
+            self.assertEqual(args.thinking_tokens, 512)
+            self.assertGreaterEqual(args.max_output_tokens, args.thinking_tokens + 1024)
             self.assertIsNone(args.review_speed)
 
     def test_local_viewer_exposes_only_spectator_data_and_frame_paths(self):

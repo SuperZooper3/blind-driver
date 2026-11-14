@@ -99,7 +99,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                 "prompt_revision": PROMPT_REVISION,
                 "prototype": prototype_number(),
                 "communication_policy": "optional speech; last 8 delivered messages with ages; own action acknowledgments",
-                "hold_policy": "until_replaced_with_optional_steering_pulse",
+                "hold_policy": "until_replaced_with_optional_key_pulses",
                 "scoring": DEFAULT_SCORING.copy(),
                 "basic_course_version": "roadside_thorns_v2",
                 "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
@@ -227,7 +227,8 @@ def run_episode(args, *, prepared: bool = False) -> Path:
             model = getattr(args, role + "_model")
             agents[role] = (ScriptedAgent(role) if args.provider == "scripted" else
                             CohereAgent(role, model, key, system, args.timeout, args.max_output_tokens, args.history_turns,
-                                        thinking_tokens=args.thinking_tokens, image_width=args.image_width))
+                                        thinking_tokens=args.thinking_tokens, image_width=args.image_width,
+                                        image_detail=getattr(args, role + "_image_detail")))
             manifest[role + "_prompt_sha256"] = hashlib.sha256(system.encode()).hexdigest()
         atomic_json(directory / "manifest.json", manifest)
         for role in ROLES:
@@ -306,7 +307,7 @@ def run_episode(args, *, prepared: bool = False) -> Path:
                     log("response", role=role, request_id=request_context["request_id"], action=action,
                         latency_seconds=latency, usage=usage,
                         sim_time=latest[role]["sim_time"], observation_sim=request_context["observation"]["sim_time"])
-                    seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap", "steering_pulse_sim") if k in action},
+                    seq = command(role, "keys", **{k: action[k] for k in ("hold", "tap", "steering_pulse_sim", "pedal_pulse_sim") if k in action},
                                   observation_sim=request_context["observation"]["sim_time"])
                     pending_ack = role, seq, action, latency, request_context
                     error_streak[role] = 0

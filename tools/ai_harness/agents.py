@@ -13,7 +13,7 @@ from pathlib import Path
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
 DEFAULT_MODEL = "command-a-plus-05-2026"
-PROMPT_REVISION = "grounded-copilot-v5"
+PROMPT_REVISION = "grounded-copilot-v6"
 
 from .prompts import prompt, current_task
 
@@ -25,7 +25,7 @@ class InvalidModelResponse(ValueError):
 
 
 def validate_action(value: object, role: str) -> dict:
-    if not isinstance(value, dict) or not {"hold", "tap", "message"} <= set(value) or set(value) - {"hold", "tap", "message", "notes", "steering_pulse_sim"}:
+    if not isinstance(value, dict) or not {"hold", "tap", "message"} <= set(value) or set(value) - {"hold", "tap", "message", "notes", "steering_pulse_sim", "pedal_pulse_sim"}:
         raise ValueError("Expected hold, tap, message, and optional notes only")
     for field, allowed in (("hold", HELD_KEYS[role]), ("tap", TAP_KEYS[role])):
         keys = value[field]
@@ -34,17 +34,25 @@ def validate_action(value: object, role: str) -> dict:
         if len(keys) != len(set(keys)):
             raise ValueError("Duplicate keys")
     held, tap = set(value["hold"]), set(value["tap"])
+    value = dict(value)
     if {"W", "S"} <= held or {"A", "D"} <= held or ("B" in held and "M" in tap):
         raise ValueError("Conflicting keys")
     if not isinstance(value["message"], str) or len(value["message"]) > 240:
         raise ValueError("Message must be a string of at most 240 characters")
     if not isinstance(value.get("notes", ""), str) or len(value.get("notes", "")) > 600:
         raise ValueError("Notes must be a string of at most 600 characters")
-    if "steering_pulse_sim" in value:
-        pulse = value["steering_pulse_sim"]
-        if (role != "driver" or not held.intersection({"A", "D"}) or isinstance(pulse, bool)
-                or not isinstance(pulse, (float, int)) or not math.isfinite(pulse) or not .05 <= pulse <= 1):
-            raise ValueError("steering_pulse_sim requires driver A/D and 0.05–1 game seconds")
+    for field, keys in (("steering_pulse_sim", {"A", "D"}), ("pedal_pulse_sim", {"W", "S"})):
+        if field not in value:
+            continue
+        pulse = value[field]
+        if (role != "driver" or isinstance(pulse, bool)
+                or not isinstance(pulse, (float, int)) or not math.isfinite(pulse)
+                or not (pulse == 0 or .05 <= pulse <= 1)):
+            raise ValueError(f"Invalid {field}: expected 0 (unused) or 0.05–1 game seconds, got {pulse!r}")
+        if pulse == 0 or not held.intersection(keys):
+            # A release timer for no pressed keys has no effect. Optional schema
+            # fields are sometimes filled with zero; this is not an invalid drive.
+            value.pop(field)
     return value
 
 
@@ -75,12 +83,13 @@ class ScriptedAgent:
 
 class CohereAgent:
     def __init__(self, role: str, model: str, key: str, system_prompt: str,
-                 timeout: float, max_tokens: int, history_turns: int, *, thinking_tokens: int = 0, image_width: int = 0):
+                 timeout: float, max_tokens: int, history_turns: int, *, thinking_tokens: int = 0, image_width: int = 0, image_detail: str = "auto"):
         self.role, self.model, self.key = role, model, key
         self.system_prompt = system_prompt
         self.timeout, self.max_tokens = timeout, max_tokens
         self.history_turns = history_turns
         self.thinking_tokens, self.image_width = thinking_tokens, image_width
+        self.image_detail = image_detail
         self.history: list[dict] = []
         self.response_feedback = ""
 
@@ -117,7 +126,7 @@ class CohereAgent:
         encoded = base64.b64encode(picture).decode("ascii")
         current = {"role": "user", "content": [
             {"type": "text", "text": context},
-            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded}},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded, "detail": self.image_detail}},
         ]}
         # A fresh task, with bounded factual records, avoids training the next
         # response to repeat a long run of previous assistant answers.
@@ -144,7 +153,8 @@ class CohereAgent:
                     "tap": {"type": "array", "items": {"type": "string", "enum": sorted(TAP_KEYS[self.role])}},
                     "message": {"type": "string"},
                     "notes": {"type": "string"},
-                    "steering_pulse_sim": {"type": "number"},
+                    "steering_pulse_sim": {"type": "number", "minimum": 0, "maximum": 1, "description": "Driver only: release A/D after game seconds; omit or zero when unused"},
+                    "pedal_pulse_sim": {"type": "number", "minimum": 0, "maximum": 1, "description": "Driver only: release W/S after game seconds; omit or zero when unused"},
                 }, "required": ["hold", "tap", "message", "notes"], "additionalProperties": False,
             }}
         content, usage, answer = self._chat(body)
