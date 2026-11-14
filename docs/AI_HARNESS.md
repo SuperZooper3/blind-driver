@@ -168,6 +168,11 @@ closes the map. The normal map animation/occlusion is preserved. S brakes, then
 reverses after stopping. Opposite inputs, duplicate keys, cross-role controls,
 malformed responses, and stale observations are rejected. Messages are capped at
 240 characters; optional notes at 600. There is no hold-duration field.
+If the game window loses focus and Godot clears keyboard state, the adapter
+restores the requested held keys before physics. It never repeats taps. Telemetry
+records both requested `held` keys and actual `pressed_keys`, plus an
+`input_reassertions` counter, so control delivery can be checked separately from
+the model's decisions.
 
 The navigator observes, sends a message and keys, then the driver observes a new
 frame, chooses keys and replies. **Held keys remain pressed until that same agent's

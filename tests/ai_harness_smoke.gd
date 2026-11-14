@@ -58,6 +58,13 @@ func _run() -> void:
 	await frames(4)
 	check(Input.is_action_pressed("accelerate") and Input.is_action_pressed("steer_left"), "driver keys use normal Input map")
 	check(game.car.headlights[0].visible, "driver H tap dispatched")
+	# Emulate the key releases Godot generates when its window loses focus,
+	# without replacing the harness's persistent requested hold.
+	game.ai_capture._key("W", false)
+	game.ai_capture._key("A", false)
+	await frames(4)
+	check(Input.is_action_pressed("accelerate") and Input.is_action_pressed("steer_left") and game.car.throttle > 0.0, "driver hold restores actual inputs after focus loss")
+	check(game.ai_capture.input_reassertions >= 2, "focus-loss restoration is measured")
 	var before: float = game.ai_capture.sim_time
 	# Wait beyond BOTH the old maximum two-second lease and the observation-age
 	# bound. That bound validates new commands; it must not expire held keys.
@@ -90,6 +97,8 @@ func _run() -> void:
 	await frames(4)
 	check(navigator.last_error == "invalid_held_key", "navigator cannot drive")
 	write_command({"type": "keys", "sequence": 8, "hold": ["B"], "tap": [], "observation_sim": game.ai_capture.sim_time}, true)
+	await frames(4)
+	navigator._key("B", false)
 	await frames(2700)
 	check(Input.is_action_pressed("look_back"), "navigator look-back also stays held until replaced")
 	write_command({"type": "stop", "sequence": 9, "reason": "operator_stop"})

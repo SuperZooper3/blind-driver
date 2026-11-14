@@ -22,6 +22,7 @@ var progress := 0.0
 var offroad_seconds := 0.0
 var impact_events := 0
 var impact_total := 0.0
+var input_reassertions := 0
 var frames: FileAccess
 var events: FileAccess
 
@@ -58,6 +59,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_read_command()
+	_restore_held()
 	if leader != null: return
 	var now := Time.get_ticks_usec() / 1000000.0
 	if now >= next_capture:
@@ -71,6 +73,7 @@ func _process(_delta: float) -> void:
 			RenderingServer.force_draw(false)
 
 func _physics_process(delta: float) -> void:
+	_restore_held()
 	if leader != null:
 		sim_time = leader.sim_time
 		return
@@ -174,6 +177,16 @@ func _set_held(keys: Array) -> void:
 		if key not in held: _key(str(key), true)
 	held = keys.duplicate()
 
+func _restore_held() -> void:
+	# Godot clears keyboard state on window focus loss. Our role-local lease
+	# still owns these held keys until the next command, so restore normal key
+	# events before physics/capture. Never replay taps or touch the other seat.
+	if not active: return
+	for key in held:
+		if not Input.is_physical_key_pressed(KEYS[key]):
+			_key(str(key), true)
+			input_reassertions += 1
+
 func _event(kind: String, extra: Dictionary) -> void:
 	var value := {"event": kind, "role": options.role, "sequence": sequence, "sim_time": sim_time, "unix_time": Time.get_unix_time_from_system()}
 	value.merge(extra)
@@ -215,6 +228,9 @@ func _save_capture(picture: Image, started_us: int, stamp: float) -> void:
 			_finish("capture_error")
 			return
 	var car: RigidBody3D = game.car
+	var pressed_keys: Array = []
+	for key in held:
+		if Input.is_physical_key_pressed(KEYS[key]): pressed_keys.append(key)
 	var connected: bool = game.session.navigator_id != 0 if options.role == "driver" else game.session.graph_received and game.session.snapshots_received > 0
 	if options.get("shared_screens", false): connected = game.session.role == "local"
 	var data := {
@@ -224,6 +240,7 @@ func _save_capture(picture: Image, started_us: int, stamp: float) -> void:
 		"active": active, "connected": connected, "finished_reason": finished_reason,
 		"sequence": sequence, "applied_sequence": applied_sequence, "input_error": last_error,
 		"held": held, "hold_policy": "until_replaced",
+		"pressed_keys": pressed_keys, "input_reassertions": input_reassertions,
 		"engine_pid": OS.get_process_id(), "session_role": game.session.role,
 		"sound_events": game.ui.readable_hud.sounds.duplicate(true) if game.ui.readable_hud != null else [],
 		"speed_kmh": absf(car.signed_speed) * 3.6, "signed_speed_mps": car.signed_speed,
