@@ -12,7 +12,7 @@ void vertex() {
 	// size AND intensity, remaining prominent through the driver's blur too.
 	float distance = length(center);
 	distance_boost = smoothstep(20.0, 220.0, distance);
-	float diameter = clamp(distance * mix(0.045, 0.12, distance_boost), 1.8, 80.0);
+	float diameter = clamp(distance * mix(0.045, 0.20, distance_boost), 1.8, 132.0);
 	MODELVIEW_MATRIX = mat4(vec4(1.0, 0.0, 0.0, 0.0),
 		vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, 0.0, 1.0, 0.0), vec4(center, 1.0));
 	VERTEX.xy *= diameter;
