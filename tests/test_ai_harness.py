@@ -229,7 +229,7 @@ class HarnessContractTests(unittest.TestCase):
             self.assertEqual(args.max_tokens, 200000)
             self.assertEqual(args.speed, 5)
             self.assertEqual(args.history_turns, 2)
-            self.assertEqual(args.decision_interval_sim, .6)
+            self.assertEqual(args.decision_interval_sim, 0)
             self.assertEqual(args.thinking_tokens, 512)
             self.assertGreaterEqual(args.max_output_tokens, args.thinking_tokens + 1024)
             self.assertIsNone(args.review_speed)

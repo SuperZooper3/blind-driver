@@ -4,6 +4,9 @@ from .driving_guidance import DRIVING_MECHANICS
 
 def prompt(role: str, speed: float, course: str, readable: bool = True) -> str:
     common = (
+        "Both agents run independently and may think at the same time; do not wait for a partner turn. "
+        "Each request has the latest available image and chat. Messages arriving during inference appear next request. "
+        "Message in_reply_to identifies the latest dialogue the speaker saw: an older reply may not have read your newest correction. "
         f"You are {role.upper()} in Blind Driver, cooperating with the other seat to drive at least 500m safely. "
         f"Game speed {speed:g}%; it keeps moving while you think. Inspect this NEW image. "
         "hud is an exact transcript of the visible instruments. Previous notes may be wrong/stale. "

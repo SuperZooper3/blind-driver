@@ -1,8 +1,10 @@
 # Visual-agent harness: first sketch
 
 The primary output is a recap video showing **two complete seat views in one Godot engine**, agent
-dialogue, keyboard inputs, timestamps, and live metrics. Python alternates the
-navigator and driver while Godot keeps running. Both seats use ordinary keyboard
+dialogue, keyboard inputs, timestamps, and live metrics. Python runs the
+navigator and driver independently while Godot keeps running. Each seat can make
+its next decision as soon as its own previous action is acknowledged, without
+waiting for its partner. Both model requests can be in flight together. Both seats use ordinary keyboard
 inputs. Each agent receives its full 1280×800 half of a 2560×800 game-rendered canvas.
 The HUD is duplicated per seat; cropping never removes instruments. Hidden world
 state is not sent to the models.
@@ -61,12 +63,10 @@ reasoning-specific API options. There is no silent model fallback.
 The default speed is **5% (1/20)**. One simulated minute takes about twenty real
 minutes. Each episode allows 60 game seconds, 200,000 combined input/output tokens,
 and 200 API calls. The token cap is checked between requests and can overshoot by
-an in-flight group. `--decision-interval-sim .6` spaces consecutive observations
-by at least 0.6 game seconds; navigator and driver alternate, so each normally acts
-about once per 1.2 game seconds. This avoids spending the budget repeatedly
-observing almost identical frames at slow speed. Provider latency and the shared
-18-request/minute limiter may lengthen that interval; the game keeps running.
-Set the interval to zero for immediate successive requests.
+an in-flight group. Both seats run independently with no default delay
+(`--decision-interval-sim 0`). Each takes its next fresh observation as soon as its
+own previous action is acknowledged. Provider latency and the shared
+18-request/minute limiter bound the actual rate; the game keeps running.
 
 The game still captures each **complete 1280×800 seat**. Provider inputs are
 uniformly resized to at most 768 pixels wide, with no crop. The navigator uses
@@ -118,7 +118,9 @@ current guidance and HUD rather than carrying old visual/maneuver notes forward.
 image tasks rather than a long conversation of repetitive assistant answers.
 The current context includes recent delivered speech, the newest partner message,
 actual held keys, rejected-action feedback, and repetition feedback. Private notes
-never cross seats. The full accepted dialogue and action history remain on disk.
+never cross seats. Every unread partner message is included in the next request, even if several
+arrive during inference; compact history does not discard them. The full accepted
+dialogue and action history remain on disk.
 Speech is optional. Changed navigator guidance is rendered as a concise driving
 instruction; unchanged straight cruise guidance is silent unless the model adds a
 warning, answer or question. `message_kind` distinguishes those from routine
@@ -134,6 +136,17 @@ immutable snapshots, count toward budgets, and do not delay an action waiting fo
 a second rate slot. A recap is explicitly older evidence, never a current sensor.
 Optional `--driver-instructions` / `--navigator-instructions` files append experiment
 coaching; `--label` identifies the experiment. Exact prompts and their hashes are saved.
+
+Both seats make decisions independently, with at most one decision or unacknowledged
+action per seat. A slow model or game acknowledgment never blocks its partner.
+The shared limiter permits two calls to start together and assigns later slots
+fairly. Background recaps use a separate worker and leave a rate slot for actions.
+`--decision-interval-sim 0` adds no delay (the default); a fresh frame or new chat
+starts the next eligible request. Optional positive intervals apply per seat, and
+new chat can wake it sooner. A request already in flight cannot accept new input;
+messages arriving during inference are retained in order for the next request.
+Message IDs and `in_reply_to` identify which dialogue a reply actually saw.
+The token cap is checked before dispatch; already-issued calls are still accounted.
 
 Three consecutive provider/format errors from either seat end the trial; valid
 replies from the other seat cannot reset that counter. Rejected responses receive
@@ -272,7 +285,7 @@ the model's decisions.
 
 The navigator observes, selects a view and sends speech, then the driver observes a new
 frame, chooses keys and replies. **Held keys remain pressed until that same agent's
-next accepted instruction replaces them.** Inference, the partner's turn, quota
+next accepted instruction replaces them.** Concurrent inference, quota
 waits, and rejected/failed responses do not release keys or apply automatic brakes.
 For example, `hold: ["W", "A"]` keeps accelerating left; a later `hold: ["W"]`
 straightens while continuing to accelerate; `hold: []` releases everything.
@@ -284,6 +297,7 @@ already accepted hold. Ending the episode (including errors, Ctrl-C, and limits)
 releases every held key. Game menus/network recovery retain their ordinary pause
 behavior. Pause/restart and changes to speed are not model actions.
 
+Schema version 8 adds `scheduling_policy: independent_seats_v1` and message/reply IDs.
 Schema version 7 adds timestamped current guidance to semantic decisions, bounded gestures and instrument transcription; new runs record `hold_policy: until_replaced_with_optional_key_pulses`. Older timed-hold runs remain
 readable, with their fallback metrics retained, but should not be pooled with new
 runs. The source/configuration fingerprint keeps those benchmark groups separate.

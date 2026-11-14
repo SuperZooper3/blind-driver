@@ -33,7 +33,7 @@ class NavigatorContextTests(unittest.TestCase):
         first = team.observation("driver", state(sim_time=1.1), memory, 0)["active_guidance"]
         self.assertFalse(first["already_acted_on"])
         team.acknowledge("driver", {"hold": ["A"], "tap": [], "message": ""},
-                         accepted=True, sim_time=1.2, observation_sim=1.1)
+                         accepted=True, sim_time=1.2, observation_sim=1.1, observation={"active_guidance": first})
         self.assertTrue(team.observation("driver", state(), memory, 0)["active_guidance"]["already_acted_on"])
         advise("right", 2, accepted=False)
         self.assertEqual(team.observation("driver", state(), memory, 0)["active_guidance"]["id"], first["id"])
@@ -43,6 +43,41 @@ class NavigatorContextTests(unittest.TestCase):
         self.assertFalse(latest["active_guidance"]["already_acted_on"])
         self.assertEqual(advise("straight", 4)["message"], "")
         self.assertNotIn("Private road observation", json.dumps(latest))
+
+    def test_late_driver_reply_does_not_consume_newer_guidance(self):
+        team, memory = TeamContext(), WorkingMemory(0)
+        base = {"hold": [], "tap": [], "message": "", "guidance":
+            {"travel": "forward", "steering": "left", "target_speed_kmh": 30, "steering_seconds": .15}}
+        team.acknowledge("navigator", base, accepted=True, sim_time=1, observation_sim=.5)
+        driver_input = team.observation("driver", state(sim_time=1.1), memory, 0)
+        team.acknowledge("navigator", {**base, "guidance": {**base["guidance"], "steering": "straight"}},
+            accepted=True, sim_time=2, observation_sim=1.5)
+        team.acknowledge("driver", {"hold": ["A"], "tap": [], "message": "Turning left"},
+            accepted=True, sim_time=2.1, observation_sim=1.1, observation=driver_input)
+        updated = team.observation("driver", state(sim_time=2.2), memory, 0)
+        self.assertEqual(updated["active_guidance"]["instruction"]["steering"], "straight")
+        self.assertFalse(updated["active_guidance"]["already_acted_on"])
+        team.acknowledge("driver", {"hold": [], "tap": [], "message": "Straightening"},
+            accepted=True, sim_time=2.3, observation_sim=2.2, observation=updated)
+        self.assertTrue(team.observation("driver", state(sim_time=2.4), memory, 0)["active_guidance"]["already_acted_on"])
+
+    def test_provider_receives_every_unread_message_and_reply_ids(self):
+        messages = [{"id": i, "in_reply_to": i - 1, "role": "navigator",
+            "message": "Instruction %d" % i, "sim_time": i / 10} for i in range(1, 11)]
+        observation = {"sim_time": 2, "coordination": {"recent_dialogue": messages[-4:]}}
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "view.jpg"
+            image.write_bytes(b"fixture")
+            agent = CohereAgent("driver", DEFAULT_MODEL, "unused", "Driver", 10, 1536, 2)
+            decision = {"pedal": "park", "steering": "straight", "message": "", "notes": "Waiting"}
+            with patch.object(agent, "_chat", return_value=(json.dumps(decision), {}, {})) as chat:
+                agent.decide(image, observation, messages)
+            text = chat.call_args.args[0]["messages"][0]["content"][0]["text"]
+            payload = json.loads(text.split("Current situation:\n", 1)[1])
+        self.assertEqual([m["id"] for m in payload["new_partner_messages"]], list(range(1, 11)))
+        self.assertEqual(payload["new_partner_messages"][0]["said"], "Instruction 1")
+        self.assertEqual(payload["new_partner_messages"][-1]["in_reply_to"], 9)
+        self.assertEqual(payload["dialogue"], [])  # No duplicate copies of unread speech.
 
     def test_map_loop_has_recent_dialogue_and_execution_feedback_without_telemetry(self):
         team, memory = TeamContext(), WorkingMemory(0)

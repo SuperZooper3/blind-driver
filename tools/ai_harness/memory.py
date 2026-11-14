@@ -6,16 +6,16 @@ import time
 
 
 class RateBudget:
-    """Two-call burst permits action + recap overlap; long-run rate stays bounded."""
+    """Two-call burst lets both seats start together; long-run rate stays bounded."""
     def __init__(self, per_minute, clock=time.monotonic):
         self.clock, self.rate = clock, per_minute / 60
         self.tokens, self.updated = 2.0, clock()
 
-    def take(self, count=1):
+    def take(self, count=1, *, reserve=0):
         now = self.clock()
         self.tokens = min(2.0, self.tokens + (now - self.updated) * self.rate)
         self.updated = now
-        if self.tokens < count:
+        if self.tokens < count + reserve:
             return False
         self.tokens -= count
         return True

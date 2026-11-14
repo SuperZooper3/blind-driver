@@ -13,7 +13,7 @@ from pathlib import Path
 HELD_KEYS = {"driver": {"W", "S", "A", "D", "SPACE"}, "navigator": {"B"}}
 TAP_KEYS = {"driver": {"H"}, "navigator": {"M", "C"}}
 DEFAULT_MODEL = "command-a-plus-05-2026"
-PROMPT_REVISION = "grounded-copilot-v12-steering"
+PROMPT_REVISION = "grounded-copilot-v13-concurrent"
 
 from .prompts import prompt, current_task
 from .actions import translate_decision, decision_schema, validate_guidance
@@ -106,11 +106,17 @@ class CohereAgent:
         coordination = observation.get("coordination", {})
         # Keep only fresh conversational context, without duplicate nested
         # observations, messages, assistant answers or recaps on every turn.
-        situation["dialogue"] = [{"who": m["role"], "said": m["message"],
-            "age": round(m.get("age_sim_seconds", 0), 1)}
-            for m in coordination.get("recent_dialogue", [])[-4:]]
+        unread_ids = {m["id"] for m in messages if "id" in m}
+        situation["dialogue"] = [{"id": m.get("id"), "in_reply_to": m.get("in_reply_to", 0),
+            "who": m["role"], "said": m["message"], "age": round(m.get("age_sim_seconds", 0), 1)}
+            for m in coordination.get("recent_dialogue", [])[-4:] if m.get("id") not in unread_ids]
         if messages:
-            situation["new_partner_message"] = messages[-1]["message"]
+            # A fast partner may speak several times during one inference. Keep
+            # every unread message in order; compact history must not drop them.
+            situation["new_partner_messages"] = [{"id": m.get("id"), "in_reply_to": m.get("in_reply_to", 0),
+                "who": m.get("role", "navigator" if self.role == "driver" else "driver"), "said": m["message"],
+                "age": round(max(0, observation.get("sim_time", 0) - m.get("sim_time", 0)), 2)}
+                for m in messages]
         if observation.get("working_memory", {}).get("text"):
             situation["earlier_recap"] = observation["working_memory"]
         repeats = coordination.get("consecutive_identical_messages", 0)

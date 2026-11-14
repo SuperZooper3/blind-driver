@@ -158,7 +158,9 @@ controls. The basic AI course restores roadside thorns and ends on four puncture
 Cohere runs default to Command A+ with bounded reasoning in both seats at 5% speed
 (1/20), with up to 60 game seconds, 200,000 tokens and 200 requests per run. The navigator is coached to
 give actionable directions, respond to the driver, and reassess after crashes;
-recent dialogue, a transcript of the visible instruments, and accepted-control feedback
+Both seats run independently, with overlapping model calls and no default pause
+between decisions. Each request includes the newest available chat and screenshot.
+Recent dialogue, a transcript of the visible instruments, and accepted-control feedback
 accompany each screenshot. Explicit short steering pulses prevent a small correction
 from staying held through both agents’ model calls. Continuous holds and toggles
 remain selectable, and AI-mode rocks and hazards use bright orange while trees stay green.

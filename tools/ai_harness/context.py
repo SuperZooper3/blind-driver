@@ -10,13 +10,14 @@ class TeamContext:
         self.last_messages = {}
         self.message_repeats = {}
         self.map_toggles = 0
+        self.message_id = 0
         self.last_map_view = None
         self.previous_hud = {}
         self.guidance = None
         self.guidance_sequence = 0
         self.driver_guidance_sequence = 0
 
-    def acknowledge(self, role, action, *, accepted, sim_time, observation_sim, error=""):
+    def acknowledge(self, role, action, *, accepted, sim_time, observation_sim, error="", observation=None):
         self.results[role] = {"accepted": accepted, "sim_time": sim_time,
             "observation_sim": observation_sim, "hold": list(action["hold"]),
             "tap": list(action["tap"]), "error": error}
@@ -29,7 +30,9 @@ class TeamContext:
                 self.guidance = {"id": self.guidance_sequence, "at": sim_time,
                     "observed_at": observation_sim, "instruction": deepcopy(action["guidance"])}
         else:
-            self.driver_guidance_sequence = self.guidance_sequence
+            # A newer navigator instruction may arrive during driver inference.
+            # Only acknowledge the guidance in that driver request's snapshot.
+            self.driver_guidance_sequence = (observation or {}).get("active_guidance", {}).get("id", 0)
         speech = action["message"].strip()
         normalized = " ".join(speech.casefold().split())
         self.message_repeats[role] = (self.message_repeats.get(role, 0) + 1
@@ -39,7 +42,9 @@ class TeamContext:
         # warning: the model must reassess whether it is still needed.
         if not speech:
             return None
-        message = {"role": role, "message": speech, "sim_time": sim_time,
+        self.message_id += 1
+        seen = (observation or {}).get("coordination", {}).get("latest_message_id", 0)
+        message = {"id": self.message_id, "in_reply_to": seen, "role": role, "message": speech, "sim_time": sim_time,
                    "observation_sim": observation_sim}
         self.dialogue.append(message)
         return deepcopy(message)
@@ -49,7 +54,7 @@ class TeamContext:
         dialogue = [{**m, "age_sim_seconds": round(max(0, now - m["sim_time"]), 3),
                      "evidence_age_sim_seconds": round(max(0, now - m["observation_sim"]), 3)}
                     for m in self.dialogue]
-        coordination = {"recent_dialogue": dialogue,
+        coordination = {"recent_dialogue": dialogue, "latest_message_id": self.message_id,
             "last_action_result": deepcopy(self.results.get(role)),
             "consecutive_identical_messages": self.message_repeats.get(role, 0)}
         if role == "navigator":

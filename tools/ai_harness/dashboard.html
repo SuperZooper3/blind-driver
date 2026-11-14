@@ -30,7 +30,7 @@ function lastActionText(action){
 }
 function detail(e){
  if(e.event==='message')return `${e.role.toUpperCase()} → ${e.to.toUpperCase()}: ${e.message}`;
- if(e.event==='memory_request')return `${e.role.toUpperCase()} updating recap through turn ${e.through_turn} · alongside action request ${e.concurrent_action}`;
+ if(e.event==='memory_request')return `${e.role.toUpperCase()} updating recap through turn ${e.through_turn} · alongside action request ${e.concurrent_actions?.join(", ")||e.concurrent_action}`;
  if(e.event==='memory_response')return `${e.role.toUpperCase()} recap updated in ${n(e.latency_seconds,2)}s: ${e.memory.text}`;
  if(e.event==='response_discarded')return `${e.role.toUpperCase()} late response recorded for usage; run already stopped`;
  if(e.event==='request')return `${e.role.toUpperCase()} is observing / waiting for model · request ${e.request_id}`;
@@ -47,7 +47,7 @@ function update(s){
  if(s.waiting){$('status').textContent='Waiting';$('connection').textContent='Local viewer ready; waiting for a new run.';return}
  const r=s.run,d=s.seats.driver,end=s.result.reason;
  if(lastRun!==r.run_id){lastRun=r.run_id;count=0;frames={};$('timeline').replaceChildren()}
- $('run').textContent=`${r.run_id} · ${r.prototype?`PROTOTYPE ${String(r.prototype).padStart(2,'0')}`:'Older recording'} · ${r.course} · ${r.sim_seconds??'?'} game s limit · ${r.max_tokens?.toLocaleString()??'?'} token cap · source ${(r.git_commit||'').slice(0,7)}`;
+ $('run').textContent=`${r.run_id} · ${r.prototype?`PROTOTYPE ${String(r.prototype).padStart(2,'0')}`:'Older recording'} · ${r.course} · ${r.scheduling_policy==='independent_seats_v1'?'Independent AI loops · ':''}${r.sim_seconds??'?'} game s limit · ${r.max_tokens?.toLocaleString()??'?'} token cap · source ${(r.git_commit||'').slice(0,7)}`;
  $('status').textContent=end?`Finished · ${end}`:'Live';
  const requests=s.events.filter(e=>['request','memory_request'].includes(e.event)),responses=s.events.filter(e=>e.usage);
  const tokens=responses.reduce((v,e)=>v+(e.usage?.input_tokens||0)+(e.usage?.output_tokens||0),0);
