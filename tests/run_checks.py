@@ -173,6 +173,10 @@ if __name__ == "__main__":
             reservation.bind(("127.0.0.1", 0))
             os.environ["BLIND_DRIVER_LAN_PORT"] = str(reservation.getsockname()[1])
         os.environ["BLIND_DRIVER_RECORDS_PATH"] = str(temporary / "records.cfg")
+        radio = subprocess.run(command("tests/radio_smoke.gd", temporary / "radio.log"), capture_output=True, text=True, timeout=20)
+        print(radio.stdout)
+        if radio.returncode or "FAIL:" in radio.stdout or "SCRIPT ERROR" in radio.stderr:
+            sys.exit(radio.stderr or "Driving radio check failed")
         surface = subprocess.run(command("tests/road_surface_smoke.gd", temporary / "road-surface.log"), capture_output=True, text=True, timeout=20)
         print(surface.stdout)
         if surface.returncode or "FAIL:" in surface.stdout or "SCRIPT ERROR" in surface.stderr:

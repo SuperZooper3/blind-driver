@@ -13,6 +13,7 @@ var ai_options: Dictionary = {}
 var ai_capture: Node
 var ai_navigator: Node
 var impact_audio: Node
+var radio: Node
 var police: Node3D
 var siren: AudioStreamPlayer
 var looking_back := false
@@ -120,6 +121,9 @@ func _ready() -> void:
 	car.impacted.connect(impact_audio.crash)
 	car.impacted.connect(_on_car_impact)
 	car.tire_popped.connect(impact_audio.pop)
+	radio = preload("res://scripts/driving_radio.gd").new()
+	add_child(radio)
+	car.impacted.connect(radio.crash)
 	siren = Siren.new()
 	siren.pursuit = police
 	siren.car = car
@@ -287,6 +291,7 @@ func _process(delta: float) -> void:
 	motor.enabled = started and not audio_muted and not ui.in_menu
 	_publish_browser_status(delta)
 	impact_audio.enabled = started and not audio_muted
+	_update_radio(delta)
 	if mode == "ai":
 		car.driving_enabled = not ui.in_menu and car.run_state == "driving" and ai_navigator.ready_to_drive
 	if ui.in_menu or car.run_state != "driving" or (session.online and not session.can_drive()):
@@ -340,6 +345,14 @@ func _process(delta: float) -> void:
 		ui.surface_label.text = repair_notice
 	ui.damage_label.text = car.damage.summary() if started else ""
 	motor.roughness = car.damage.engine_roughness()
+
+func _update_radio(delta: float) -> void:
+	var available: bool = started and not intro_playing() and not ui.in_menu and not session.recovering and not session.stale and session.role != "disconnected" and not car.reset_pending and car.recovery_grace == 0
+	if mode == "ai":
+		available = available and ai_navigator.ready_to_drive
+	if ai_capture != null:
+		available = available and ai_capture.active
+	radio.update(delta, car.run_id, available, car.run_state == "driving", car.signed_speed, car.damage.health, audio_muted)
 
 func _physics_process(delta: float) -> void:
 	# The navigator holds R. On one computer either seat's keyboard can; online,
@@ -403,6 +416,7 @@ func _restart_run() -> void:
 	world.reset_world()
 	police.reset()
 	car.run_id += 1
+	radio.reset(car.run_id)
 	car.punctured_tires = 0
 	car.damage.reset()
 	car.rollover_time = 0.0
