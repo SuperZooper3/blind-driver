@@ -53,6 +53,99 @@ class HarnessContractTests(unittest.TestCase):
             self.assertNotIn("fixture-key", json.dumps(requests))
             self.assertNotIn("image_url", json.dumps(agent.history))
 
+    def test_cleanup_preserves_outputs_and_failed_exports_keep_frames(self):
+        from tools.ai_harness.cleanup import cleanup_frames
+        from tools.ai_harness.recap import build_recap
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)/"recorded-run"
+            root.mkdir()
+            (root/"manifest.json").write_text(json.dumps({"run_id":root.name}))
+            for role in ("driver", "navigator"):
+                (root/role/"frames").mkdir(parents=True)
+                (root/role/"frames/0000000.jpg").write_bytes(b"raw frame")
+                (root/role/"frames.jsonl").write_text(json.dumps({"image":"frames/0000000.jpg"})+"\n")
+            with self.assertRaises(ValueError):
+                cleanup_frames(root)
+            self.assertTrue((root/"driver/frames/0000000.jpg").exists())
+            for name in ("result.json", "summary.json", "recap.jpg", "recap.mp4"):
+                (root/name).write_bytes(b"retained output")
+            with patch("tools.ai_harness.cleanup.subprocess.run", return_value=SimpleNamespace(stdout='{"streams":[{"width":1920,"height":1080}],"format":{"duration":"1.0"}}')):
+                result = cleanup_frames(root)
+            self.assertEqual(result["files_removed"], 2)
+            self.assertFalse((root/"driver/frames").exists())
+            self.assertTrue((root/"driver/frames.jsonl").exists())
+            with self.assertRaisesRegex(ValueError, "saved recap is unchanged"):
+                build_recap(root)
+            self.assertEqual((root/"recap.mp4").read_bytes(), b"retained output")
+
+    def test_score_penalties_use_game_seconds_and_separate_failure(self):
+        from tools.ai_harness.scoring import score_frame
+        row = {"forward_progress_m": 300, "impact_events": 2, "offroad_sim_seconds": 5,
+               "part_health": [1, 0], "run_state": "driving"}
+        score = score_frame(row)
+        self.assertEqual(score["score"], 190)
+        self.assertEqual(score["penalty_failure"], 0)
+        self.assertEqual(score_frame({**row, "run_state": "game_over"})["score"], 90)
+        self.assertEqual(score_frame({**row, "speed_percent": 5}), score)
+
+    def test_recaps_overlap_other_actions_and_do_not_mutate_provider_history(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+        from tools.ai_harness.memory import WorkingMemory, RateBudget
+        memory = WorkingMemory(1)
+        memory.record({"sim_time": 1}, [{"message": "Tree ahead"}],
+                      {"hold": [], "tap": [], "message": "Braking", "notes": "Speed zero; check obstruction"}, 1.1)
+        entered, release = Event(), Event()
+        class Agent:
+            def summarize(self, previous, turns):
+                entered.set()
+                release.wait(3)
+                return turns[0]["action"]["notes"], {"input_tokens": 8}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            memory.start(pool, Agent(), 4)
+            self.assertTrue(entered.wait(1))
+            other_action = pool.submit(lambda: "other agent action completed")
+            self.assertEqual(other_action.result(timeout=1), "other agent action completed")
+            self.assertEqual(memory.recap["through_turn"], 0)
+            memory.turns[0]["action"]["notes"] = "changed after dispatch"
+            release.set()
+            recap, usage = memory.finish()
+            self.assertEqual(recap, {"text": "Speed zero; check obstruction", "through_turn": 1})
+            self.assertEqual(usage["input_tokens"], 8)
+        clock = [0]
+        budget = RateBudget(60, lambda: clock[0])
+        self.assertTrue(budget.take(2))
+        self.assertFalse(budget.take())
+        clock[0] = 1
+        self.assertTrue(budget.take())
+        clock[0] = 3
+        self.assertTrue(budget.take(2))
+
+    def test_summary_is_text_only_and_current_actions_keep_exactly_one_image(self):
+        requests = []
+        action = {"hold": [], "tap": [], "message": "Stopped", "notes": "Check the road"}
+        def fake_open(request, timeout):
+            body = json.loads(request.data)
+            requests.append(body)
+            content = json.dumps(action) if isinstance(body["messages"][-1]["content"], list) else "Observed a stop."
+            return io.BytesIO(json.dumps({"message": {"content": [{"type": "text", "text": content}]}}).encode())
+        with tempfile.TemporaryDirectory() as tmp, patch("urllib.request.urlopen", fake_open):
+            image = Path(tmp)/"current.jpg"
+            image.write_bytes(b"current-only")
+            agent = CohereAgent("driver", "c4ai-aya-vision-32b", "fixture-key", "Drive", 10, 512, 32)
+            agent.decide(image, {}, [{"message": "Tree ahead"}])
+            original = json.dumps(agent.history)
+            text, _ = agent.summarize({}, [{"turn": 1, "action": action}])
+            self.assertEqual(original, json.dumps(agent.history))
+            agent.decide(image, {"working_memory": {"text": text, "through_turn": 1}}, [])
+        self.assertNotIn("image_url", json.dumps(requests[1]))
+        image_count = sum(p.get("type") == "image_url" for m in requests[-1]["messages"]
+                          if isinstance(m["content"], list) for p in m["content"])
+        self.assertEqual(image_count, 1)
+        self.assertIn("Tree ahead", json.dumps(requests[-1]))
+        self.assertIn("Observed a stop", json.dumps(requests[-1]))
+
     def test_key_is_loaded_without_copying_it_into_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/".env"
@@ -120,26 +213,33 @@ class HarnessContractTests(unittest.TestCase):
         self.assertIn("until next instruction", text)
         self.assertNotIn("\x1b", text)
 
-    def test_cli_defaults_to_aya_and_normal_motion(self):
+    def test_cli_defaults_to_command_a_and_normal_motion(self):
         from tools.ai_harness.__main__ import main
         with patch("sys.argv", ["ai_harness", "run", "--provider", "cohere"]), \
              patch("tools.ai_harness.__main__.run_episode") as run:
             main()
             args = run.call_args.args[0]
-            self.assertEqual(args.driver_model, "c4ai-aya-vision-32b")
-            self.assertEqual(args.navigator_model, "c4ai-aya-vision-32b")
+            self.assertEqual(args.driver_model, "command-a-plus-05-2026")
+            self.assertEqual(args.navigator_model, "command-a-plus-05-2026")
+            self.assertEqual(args.memory_every, 8)
+            self.assertEqual(args.sim_seconds, 60)
+            self.assertEqual(args.max_requests, 100)
+            self.assertEqual(args.max_tokens, 200000)
             self.assertEqual(args.speed, 25)
             self.assertIsNone(args.review_speed)
 
     def test_local_viewer_exposes_only_spectator_data_and_frame_paths(self):
         from tools.ai_harness.dashboard import handler_for
+        from tools.ai_harness.controls import RunController
+        import time
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root/'manifest.json').write_text(json.dumps({'run_id':'fixture', 'secret':'private-fixture'}))
             (root/'driver/frames').mkdir(parents=True)
             (root/'driver/frames/1.jpg').write_bytes(b'jpeg-fixture')
             atomic_json(root/'driver/latest.json', {'image':'frames/1.jpg','held':['W'], 'secret':'private-fixture'})
-            server = ThreadingHTTPServer(('127.0.0.1',0),handler_for(root,False))
+            controller = RunController()
+            server = ThreadingHTTPServer(('127.0.0.1',0),handler_for(root,False,controller))
             worker = Thread(target=server.serve_forever,daemon=True)
             worker.start()
             base = f'http://127.0.0.1:{server.server_port}'
@@ -148,6 +248,21 @@ class HarnessContractTests(unittest.TestCase):
                     body=response.read().decode()
                     self.assertNotIn('private-fixture',body)
                     self.assertEqual(json.loads(body)['seats']['driver']['held'],['W'])
+                    token = json.loads(body)['control_token']
+                atomic_json(root/'runner.json', {'phase':'running','heartbeat':time.time()})
+                for origin, run_id, expected in (('http://outside.invalid','fixture',403),(base,'wrong-run',409),(base,'fixture',202)):
+                    request = urllib.request.Request(base+'/control',data=json.dumps({'action':'stop','run_id':run_id}).encode(),
+                        headers={'Origin':origin,'X-Control-Token':token,'Content-Type':'application/json'})
+                    if expected == 202:
+                        with patch.object(controller, '_complete'):
+                            with urllib.request.urlopen(request) as response:
+                                self.assertEqual(response.status,202)
+                        self.assertEqual(json.loads((root/'control.json').read_text())['run_id'],'fixture')
+                    else:
+                        with self.assertRaises(urllib.error.HTTPError) as error:
+                            urllib.request.urlopen(request)
+                        self.assertEqual(error.exception.code,expected)
+                        error.exception.close()
                 with urllib.request.urlopen(base+'/image/driver') as response:
                     self.assertEqual(response.read(),b'jpeg-fixture')
                 atomic_json(root/'driver/latest.json', {'image':'../manifest.json'})

@@ -140,12 +140,18 @@ Agents should read [AGENTS.md](AGENTS.md) for branch ownership, merge compatibil
 and playtesting from the latest `main`. Upcoming gameplay ideas are recorded in
 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md); they are not implemented yet.
 
-The first [visual-agent harness](docs/AI_HARNESS.md) runs two complete game windows,
+The first [visual-agent harness](docs/AI_HARNESS.md) runs one game engine with two complete seat views,
 accepts keyboard inputs from both agents, and records a recap video with dialogue
 and metrics. It supports scripted/Cohere agents, adjustable simulation speed, and
 model/role/speed comparisons, a live terminal timeline for both agents, and recaps
-that restore normal game speed. Cohere runs default to Aya Vision 32B in both seats
-at 25% speed. The [research plan](docs/AI_HARNESS_PLAN.md) describes
+that restore normal game speed. It includes a large-display profile with sound
+captions, background conversation recaps, safety scoring, and local Stop/Restart
+controls. The basic AI course restores roadside thorns and ends on four punctures.
+Cohere runs default to Command A+ in both seats at 25% speed, with up to 60 seconds
+of game time, 200,000 tokens and 100 requests per run. The navigator is coached to
+give actionable directions, respond to the driver, and reassess after crashes;
+recent dialogue and accepted-control feedback accompany each screenshot.
+The [research plan](docs/AI_HARNESS_PLAN.md) describes
 the longer path toward reinforcement learning.
 
 The project intentionally builds almost everything in code. The editor's main scene is a small entry point, so an empty-looking 3D editor is expected: **run the project to see the world**.

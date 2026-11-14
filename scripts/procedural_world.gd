@@ -456,8 +456,6 @@ func recovery_spot(at: Vector3) -> Dictionary:
 	return best
 
 func thorn_at(at: Vector3) -> bool:
-	if basic_course:
-		return false
 	# The same global grid defines the visible thicket and tire contact on both peers.
 	var center := Vector3((floorf(at.x / THORN_CELL) + 0.5) * THORN_CELL, 0, (floorf(at.z / THORN_CELL) + 0.5) * THORN_CELL)
 	return road_distance(center) >= THORN_DISTANCE and void_at(center).is_empty() and void_at(at).is_empty()

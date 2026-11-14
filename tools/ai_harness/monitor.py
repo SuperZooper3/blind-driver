@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import time
 import unicodedata
+from .scoring import score_frame
 
 
 def safe_text(value) -> str:
@@ -17,6 +18,7 @@ class ConsoleMonitor:
     def __init__(self, directory: Path, manifest: dict, output=None):
         self.output = output or sys.stdout
         self.started = manifest["created_unix"]
+        self.scoring = manifest.get("scoring")
         self.last_status = 0.0
         self.finished = False
         self.pending = None
@@ -56,11 +58,18 @@ class ConsoleMonitor:
             detail = (f"{role} answered in {item['latency_seconds']:.2f}s | "
                       f"hold={'+'.join(action['hold']) or 'none'} tap={'+'.join(action['tap']) or 'none'} "
                       f"{holding} | awaiting game acknowledgment")
+        elif kind == "memory_request":
+            self.requests += 1
+            detail = f"{role} updating recap through turn {item['through_turn']} in background"
+        elif kind == "memory_response":
+            usage = item.get("usage", {})
+            self.tokens += usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+            detail = f"{role} RECAP: {item['memory']['text']}"
         elif kind == "message":
             detail = f"{role} → {item['to'].upper()}: {item['message']}"
         elif kind == "action_ack" and not item.get("accepted"):
             detail = f"{role} ACTION REJECTED: {item.get('error', '')}"
-        elif kind in {"request_error", "infrastructure_error", "recap_error"}:
+        elif kind in {"request_error", "infrastructure_error", "recap_error", "memory_error"}:
             self.pending = None
             self.errors += 1
             usage = item.get("usage", {})
@@ -95,6 +104,7 @@ class ConsoleMonitor:
             f"[real {max(0, now-self.started):6.1f}s | sim {driver.get('sim_time', 0):6.2f}s] "
             f"STATUS {driver.get('speed_kmh', 0):5.1f} km/h | "
             f"progress {driver.get('forward_progress_m', 0):.1f} m | "
+            f"score {score_frame(driver, self.scoring)['score']:.1f} | "
             f"hits {driver.get('impact_events', 0)} | " + " / ".join(keys) +
             f" | {self.pending + ' thinking' if self.pending else 'between requests'} | "
             f"{self.requests} requests / {self.tokens} known tokens / {self.errors} errors"))

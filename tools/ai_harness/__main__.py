@@ -4,31 +4,35 @@ from pathlib import Path
 
 from .run import ROOT, find_godot, prepare, run_episode
 from .recap import build_recap, summarize_runs
+from .agents import DEFAULT_MODEL
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Two complete Godot windows, visual agents, keyboard controls, and recap videos")
+    parser = argparse.ArgumentParser(description="One Godot engine with two complete seat views, visual agents, keyboard controls, and recap videos")
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="Record one episode")
     batch = sub.add_parser("benchmark", help="Run model-pair × speed × seed comparisons")
     for p in (run, batch):
         p.add_argument("--provider", choices=["scripted", "cohere"], default="scripted")
-        p.add_argument("--driver-model", default="c4ai-aya-vision-32b")
-        p.add_argument("--navigator-model", default="c4ai-aya-vision-32b")
+        p.add_argument("--driver-model", default=DEFAULT_MODEL)
+        p.add_argument("--navigator-model", default=DEFAULT_MODEL)
         p.add_argument("--driver-instructions", help="Optional coaching text appended to the driver's prompt")
         p.add_argument("--navigator-instructions", help="Optional coaching text appended to the navigator's prompt")
         p.add_argument("--speed", type=float, default=25, help="Simulation speed percentage (1–100)")
         p.add_argument("--seed", type=int, default=72419)
         p.add_argument("--course", choices=["basic", "standard"], default="basic")
-        p.add_argument("--sim-seconds", type=float, default=10)
+        p.add_argument("--sim-seconds", type=float, default=60)
         p.add_argument("--capture-fps", type=int, default=6)
         p.add_argument("--video-fps", type=int, default=15)
         p.add_argument("--review-speed", type=float, help="Override normal-game-speed recap with this multiplier of real capture time")
         p.add_argument("--rpm", type=float, default=18, help="Combined API requests/minute across both seats")
-        p.add_argument("--max-requests", type=int, default=60)
-        p.add_argument("--max-tokens", type=int, default=100000)
+        p.add_argument("--max-requests", type=int, default=100)
+        p.add_argument("--max-tokens", type=int, default=200000)
         p.add_argument("--max-output-tokens", type=int, default=512)
-        p.add_argument("--history-turns", type=int, default=16)
+        p.add_argument("--history-turns", type=int, default=32)
+        p.add_argument("--memory-every", type=int, default=8, help="Background recap every N own turns; 0 disables it (calls count toward budgets)")
+        p.add_argument("--readable-ui", action=argparse.BooleanOptionalAction, default=True)
+        p.add_argument("--keep-frames", action="store_true", help="Keep raw screenshots for debugging/rebuilding; otherwise clean them after the recap")
         p.add_argument("--timeout", type=float, default=30)
         p.add_argument("--max-action-age-sim", type=float, default=5)
         p.add_argument("--scripted-interval", type=float, default=.8)
@@ -48,13 +52,19 @@ def main():
     watch = sub.add_parser("watch", help="Follow both agents and game status in one read-only terminal")
     watch.add_argument("directory", type=Path)
     watch.add_argument("--latest", action="store_true", help="Follow the newest run under this output directory, including future runs")
-    live = sub.add_parser("serve", help="Show full game views, messages and status on a read-only localhost page")
+    live = sub.add_parser("serve", help="Local game views, messages, Stop and Restart controls")
     live.add_argument("directory", type=Path)
     live.add_argument("--latest", action="store_true")
     live.add_argument("--port", type=int, default=8766)
     summarize = sub.add_parser("summarize", help="Export CSV and graphs across recorded runs")
     summarize.add_argument("directory", type=Path)
+    cleanup = sub.add_parser("cleanup", help="Remove raw screenshots from a successfully rendered run")
+    cleanup.add_argument("directory", type=Path)
     args = parser.parse_args()
+    if args.command == "cleanup":
+        from .cleanup import cleanup_frames
+        print(cleanup_frames(args.directory))
+        return
     if args.command == "serve":
         if not 0 <= args.port <= 65535:
             parser.error("Port must be 0–65535 (0 chooses an available port)")
@@ -81,6 +91,8 @@ def main():
             parser.error(f"--{field.replace('_','-')} must be positive and finite")
     if not 1 <= args.speed <= 100 or not 1 <= args.capture_fps <= 30 or not 1 <= args.video_fps <= 60:
         parser.error("Speed must be 1–100%; capture FPS 1–30; video FPS 1–60")
+    if args.memory_every < 0:
+        parser.error("Memory interval must be zero or positive")
     if args.command == "run":
         run_episode(args)
     else:

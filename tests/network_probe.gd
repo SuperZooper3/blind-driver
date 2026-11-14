@@ -17,6 +17,7 @@ var lan_recovered := false
 var damaged := false
 var cut_before_driver := false
 var waiting_cut := false
+var scenario_started := false
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -74,6 +75,17 @@ func _run() -> void:
 func _tick() -> void:
 	if finished:
 		return
+	# Startup/import time differs between the two processes. Begin the scenario
+	# only after both seats connect, so the host cannot exit before client checks.
+	if not is_host and cut_before_driver and not waiting_cut and game.session.relay.is_ready and not game.started:
+		waiting_cut = true
+		game.session.relay.socket.close()
+		print("WAITING_RECONNECT")
+	if not scenario_started:
+		var ready: bool = game.session.navigator_id != 0 if is_host else game.session.graph_received and game.session.snapshots_received > 0
+		if not ready: return
+		scenario_started = true
+		elapsed = 0.0
 	elapsed += root.get_process_delta_time()
 	if expect_lan_recovery and game.session.recovering:
 		lan_recovered = true
@@ -116,15 +128,12 @@ func _tick() -> void:
 			print("%s: host recovery checks, reconnects=%d, braked=%s" % ["PASS" if passed else "FAIL", game.session.relay.reconnects, saw_braking])
 			_finish(0 if passed else 1)
 	else:
-		if cut_before_driver and not waiting_cut and game.session.relay.is_ready and not game.started:
-			waiting_cut = true
-			game.session.relay.socket.close()
-			print("WAITING_RECONNECT")
 		if elapsed > duration - 2.0:
 			var session = game.session
 			var latest: Dictionary = session.snapshots.back() if not session.snapshots.is_empty() else {}
 			var follows_host: bool = not latest.is_empty() and game.car.global_position.distance_to(latest.transform.origin) < 4.0
-			var patrol_matches: bool = not latest.is_empty() and game.police.global_position.distance_to(Vector3(latest.police.position[0], latest.police.position[1], latest.police.position[2])) < 5.0 and game.police.phase == latest.police.phase
+			# The patrol is drawn up to ~0.35 s behind the newest snapshot (interpolation delay), so allow for its travel.
+			var patrol_matches: bool = not latest.is_empty() and game.police.global_position.distance_to(Vector3(latest.police.position[0], latest.police.position[1], latest.police.position[2])) < 5.0 + absf(float(latest.police.speed)) * 0.35 and game.police.phase == latest.police.phase
 			var clock_matches: bool = not latest.is_empty() and game.world.challenge_time > 0 and absf(game.world.challenge_time - latest.challenge_time) < 0.3
 			var bridge_matches := false
 			var route_choices_match := false
@@ -151,6 +160,8 @@ func _tick() -> void:
 				passed = passed and lan_recovered and not session.recovering and not session.stale
 			if expect_recovery:
 				passed = passed and session.relay.reconnects >= 1 and session.relay.is_ready and not session.stale and session.last_sequence + session.last_pose_sequence > 1000
+			if not passed:
+				print("CHECK DETAILS: ", {"follows_host": follows_host, "patrol": patrol_matches, "routes": route_choices_match, "culdesac": culdesac_matches, "heat": game.ui.heat_label.text == "HEAT %d / 5" % heat, "started": game.started, "menu": game.ui.in_menu, "frozen": game.car.freeze, "waiting_cut": waiting_cut, "lights": not latest.is_empty() and game.car.headlights[0].visible == bool(latest.lights)})
 			print("%s: navigator received %d snapshots, %d roads, reset=%d, distance=%.1f, remote=%s, bridge=%s, clock=%s" % ["PASS" if passed else "FAIL", session.snapshots_received, game.world.roads.size(), session.received_reset, game.car.distance_driven, game.car.remote, bridge_matches, clock_matches])
 			_finish(0 if passed else 1)
 

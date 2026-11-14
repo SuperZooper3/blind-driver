@@ -42,6 +42,11 @@ func _ready() -> void:
 	ai_options = AICapture.read_options()
 	if not ai_options.is_empty():
 		Engine.time_scale = float(ai_options.speed_percent) / 100.0
+		if ai_options.get("shared_screens", false):
+			# Render two full 1280x800 seats regardless of the physical window size.
+			get_window().content_scale_size = Vector2i(2560, 800)
+			get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+			get_window().content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	records.load_record()
 	_setup_input()
 	_setup_environment()
@@ -66,6 +71,9 @@ func _ready() -> void:
 	driver_camera = _make_camera(driver_view)
 	navigator_camera = _make_camera(navigator_view)
 	ui = UI.new()
+	ui.readable_ui = bool(ai_options.get("readable_ui", false))
+	ui.complete_seats = bool(ai_options.get("shared_screens", false))
+	ui.readable_game = self
 	add_child(ui)
 	ui.driver_screen.texture = driver_view.get_texture()
 	# Draw the driver's cracks inside their low-resolution view, so the blur pass
@@ -173,6 +181,15 @@ func _ready() -> void:
 		ai_capture.game = self
 		ai_capture.options = ai_options
 		add_child(ai_capture)
+		if ai_options.get("shared_screens", false):
+			var navigator_capture := AICapture.new()
+			navigator_capture.game = self
+			navigator_capture.options = ai_options.duplicate(true)
+			navigator_capture.options.role = "navigator"
+			navigator_capture.options.directory = ai_options.navigator_directory
+			navigator_capture.leader = ai_capture
+			ai_capture.peer = navigator_capture
+			add_child(navigator_capture)
 
 func _setup_environment() -> void:
 	var env := Environment.new()
@@ -215,7 +232,7 @@ func _make_view(view_name: String) -> SubViewport:
 
 func _make_camera(view: SubViewport) -> Camera3D:
 	var camera := Camera3D.new()
-	camera.fov = 80.0
+	camera.fov = 60.0 if ai_options.get("readable_ui", false) else 80.0
 	camera.near = 0.07
 	camera.far = 650.0
 	camera.current = true
@@ -228,9 +245,12 @@ func _resize_views() -> void:
 	navigator_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if ui.navigator_screen.visible else SubViewport.UPDATE_DISABLED
 	var size := get_viewport().get_visible_rect().size
 	var width := size.x * 0.5 if mode == "split" and not ui.in_menu else size.x
+	var view_height: float = size.y - 78 - (0 if ui.in_menu else UI.FOOTER_HEIGHT)
+	if (ui.readable_ui or ui.complete_seats) and not ui.in_menu:
+		view_height = size.y - 72 - 170
 	# Low resolution plus the blur pass makes the driver's vision genuinely unreadable.
-	driver_view.size = Vector2i(maxi(64, int(width / 5.0)), maxi(64, int((size.y - 78 - (0 if ui.in_menu else UI.FOOTER_HEIGHT)) / 5.0)))
-	navigator_view.size = Vector2i(int(width), maxi(64, int(size.y - 78 - (0 if ui.in_menu else UI.FOOTER_HEIGHT))))
+	driver_view.size = Vector2i(maxi(64, int(width / 5.0)), maxi(64, int(view_height / 5.0)))
+	navigator_view.size = Vector2i(int(width), maxi(64, int(view_height)))
 
 func _process(delta: float) -> void:
 	world.focus = car.global_position
@@ -306,6 +326,8 @@ func _physics_process(delta: float) -> void:
 		police.advance(delta, running and not world.basic_course)
 	if not started or car.remote or car.reset_pending or car.recovery_grace > 0:
 		return
+	if ai_capture != null and not ai_capture.active:
+		return
 	var hole: Dictionary = world.void_at(car.global_position)
 	if not hole.is_empty():
 		var rim: float = hole.position.y + hole.size.y
@@ -317,6 +339,10 @@ func _physics_process(delta: float) -> void:
 	if car.run_state == "driving":
 		car.check_rollover(delta)
 		car.wear_tires(world.puncture_mask(car), delta)
+		# The practice course has no police to catch a crippled car. Exhausting
+		# all four tires in its roadside thorns is therefore a terminal failure.
+		if world.basic_course and car.punctured_tires == 15:
+			car.finish_run("Thorns destroyed all four tires")
 	if car.global_position.y < -55.0 and car.run_state != "game_over":
 		car.begin_fall("You fell into the valley")
 		car.finish_run()
@@ -370,7 +396,7 @@ func _update_cameras(delta: float) -> void:
 		camera_initialized = true
 	driver_camera.global_transform = driver_camera.global_transform.interpolate_with(driver_target, weight)
 	navigator_camera.global_transform = navigator_camera.global_transform.interpolate_with(nav_target, weight)
-	navigator_camera.fov = lerpf(navigator_camera.fov, 76.0 + absf(car.signed_speed) * 0.24, delta * 2.0)
+	navigator_camera.fov = lerpf(navigator_camera.fov, (60.0 if ai_options.get("readable_ui", false) else 76.0) + absf(car.signed_speed) * 0.24, delta * 2.0)
 
 func _update_route() -> void:
 	if world.basic_course:

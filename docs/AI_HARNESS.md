@@ -1,10 +1,12 @@
 # Visual-agent harness: first sketch
 
-The primary output is a recap video showing **two complete game windows**, agent
+The primary output is a recap video showing **two complete seat views in one Godot engine**, agent
 dialogue, keyboard inputs, timestamps, and live metrics. Python alternates the
 navigator and driver while Godot keeps running. Both seats use ordinary keyboard
-inputs. No split-screen crops, reconstructed dashboards, or world-state observations
-are sent to the models.
+inputs. Each agent receives its full 1280×800 half of a 2560×800 game-rendered canvas.
+The HUD is duplicated per seat; cropping never removes instruments. Hidden world
+state is not sent to the models.
+A game-rendered large-display profile and audible-event captions improve readability.
 
 This is an evaluation prototype, not reinforcement-learning training yet. It can
 establish baselines and collect demonstrations for later coaching/fine-tuning.
@@ -24,7 +26,7 @@ python3 -m venv .venv
 
 # With COHERE_API_KEY already exported in this terminal:
 .venv/bin/python -m tools.ai_harness run \
-  --provider cohere --speed 25 --sim-seconds 30 --max-requests 36
+  --provider cohere --speed 25 --sim-seconds 60 --max-tokens 200000 --max-requests 100
 ```
 
 Set `GODOT` or pass `--godot /path/to/Godot` if the executable is not detected.
@@ -33,8 +35,9 @@ variable, with `--env-file` selecting its path. Never place keys in tracked file
 or CLI arguments. The key is removed from the Godot child-process environments
 and is not included in manifests, screenshots, provider error bodies, or logs.
 
-Each command launches and cleans up its own two processes, uses a free localhost
-LAN port, and saves personal-best records within the run. It does not control
+Each command launches and cleans up one Godot process. Both seats share the same
+car, physics clock and world, with no LAN/relay transport or pose prediction.
+Personal-best records are saved within the run. It does not control
 existing game instances. Use Ctrl-C to stop; the captured portion is still compiled
 into a recap. API requests already in flight may take up to `--timeout` to finish.
 Do not operate the game controls during a scored run: this sketch does not block
@@ -47,10 +50,13 @@ scripted result is prominently labeled and is not a model-performance claim.
 
 ## Model choices, prompts, and speeds
 
-Both seats default to `c4ai-aya-vision-32b`, our initial smaller-model baseline.
-The stronger-model candidate is `command-a-plus-05-2026`; these are experiment
-choices, not an established performance ranking. Both support image input.
-[Aya Vision documentation](https://docs.cohere.com/docs/aya-vision).
+Both seats default to `command-a-plus-05-2026` (Command A+). It supports image
+input and JSON Schema responses. The original `command-a-03-2025` is text-only
+and cannot operate this screenshot harness. `command-a-vision-07-2025` and
+`c4ai-aya-vision-32b` remain explicit alternatives. This model change is an
+experiment, not a measured driving-performance ranking.
+[Cohere model capabilities](https://docs.cohere.com/docs/models),
+[Command A+](https://docs.cohere.com/docs/command-a-plus).
 
 ```sh
 .venv/bin/python -m tools.ai_harness run --provider cohere \
@@ -65,11 +71,46 @@ one simulated minute takes about twenty real minutes. The recorder also measures
 actual clock advancement, because rendering and host load can change it.
 
 Each seat has its own history, model ID, prompt, and received messages. Only the
-current full-window JPEG is sent on each request. The last 16 role-local text
-turns are retained by default; old visual frames are not repeatedly resent.
+current complete-seat JPEG is sent on each request. The last 32 role-local text
+turns are retained by default; previous images are never sent. Each action may also
+contain short `notes` recording observations, its decision, and unresolved questions.
+Notes belong to that seat; only `message` goes to its partner. These are concise
+working records, not private chain-of-thought transcripts.
+Every eight own accepted actions (`--memory-every 8`), that seat updates a rolling
+recap while the other seat makes its next action request. Recap calls are text-only,
+use the same model, and receive immutable snapshots of conversation/notes. They do
+not select controls, pause play, or overwrite live history. The latest completed
+recap, with a `through_turn` watermark, accompanies later current-image requests.
+Recent turns remain verbatim even while a recap is pending. Set `--memory-every 0`
+to disable this. Errors retain the previous recap and are recorded separately.
 The history policy and exact prompts are saved. Use `--history-turns` to change it.
+Older text turns retain observations and notes without repeatedly embedding earlier
+recap/dialogue windows. This keeps the context from growing with duplicate summaries.
 Optional `--driver-instructions file.txt` and `--navigator-instructions file.txt`
 append coaching instructions; use `--label coached-v1` to identify the experiment.
+
+The `cooperative-navigation-v2` prompt makes the navigator an active copilot:
+
+- Give immediate steering/braking directions, timing, and when to straighten.
+  Distinguish a straight road from a car that is actually aligned with it.
+- Read the latest driver question/acknowledgment, check whether the last advice
+  worked, and correct it using current evidence. Speech is optional: `message: ""`
+  means silence; private map-check narration belongs in `notes`.
+- Prefer watching the road. Open the map for a route question, read it on a later
+  screenshot, then close it. The driver cannot check the map. North-up map directions
+  must be converted to the driver's left/right using the car's heading.
+- Reassess after crash/pop captions, loss of movement, or visible drift. Inspect
+  clearance before proposing recovery; an impact caption alone cannot identify a tree.
+
+Each current observation includes the last eight **delivered** messages from both
+seats with delivery/evidence ages, the seat's latest control acknowledgment, and
+repetition counts for its speech and navigator map toggles. Discrete view labels
+(`open/opening/closing/closed`, seat/chase, forward/rear) describe the visible UI.
+They contain no road geometry, obstacle positions, partner controls, or partner
+private notes. Rejected actions never deliver speech; whitespace-only messages
+never create a chat event. Repeated urgent instructions are still delivered.
+The harness does not fabricate directions or silently rewrite a model's advice.
+Recaps distinguish observations, speech, and control acceptance from actual outcomes.
 
 Cohere is the first implemented provider. Command A+ uses JSON Schema output and
 disables thinking for the initial latency baseline. Aya Vision and Command A Vision use JSON
@@ -83,10 +124,15 @@ invalid output still counts as an error.
 [structured output](https://docs.cohere.com/docs/structured-outputs),
 [reasoning controls](https://docs.cohere.com/docs/reasoning).
 
-The shared limiter defaults to 18 requests/minute across both seats. Latency can
-make the actual rate lower. Bound runs with `--max-requests`, `--max-tokens`, and
-`--timeout`; the token cap is checked between requests and can overshoot by one
-response. Three consecutive provider/format errors stop the trial. No hidden
+The shared limiter defaults to 18 requests/minute across both seats, including
+background recap calls, with a two-call burst for concurrent action/recap requests.
+A due action/recap pair uses two rate slots when available. If only one is available,
+the action proceeds and the recap waits. Recapping still uses quota; it is an explicit
+benchmark condition. Defaults allow 60 simulation seconds (about four real minutes
+at 25% speed), 200,000 combined input/output tokens, and 100 requests including recaps.
+Bound runs with `--sim-seconds`, `--max-requests`, `--max-tokens`, and
+`--timeout`; the token cap is checked between requests and can overshoot by an
+in-flight group (up to three calls). Three consecutive provider/format errors stop the trial. No hidden
 provider/model fallback occurs. Dollar cost is recorded as unknown, not zero;
 token usage is retained for calculating it using the account's actual pricing.
 
@@ -95,7 +141,7 @@ token usage is retained for calculating it using the account's actual pricing.
 `run` now prints a single chronological stream for both agents: requests, inference
 latency, proposed keys, accepted messages, errors, token usage, and periodic game
 status (simulation/real time, speed, progress, hits, and held keys).
-These are completed responses, not token-by-token generation or private reasoning.
+These are completed responses and factual working recaps, not token-by-token generation or private reasoning.
 Messages are shown as delivered only after the game acknowledges their action.
 
 To open the same live timeline in a separate terminal, without an API key:
@@ -112,14 +158,22 @@ To open the same live timeline in a separate terminal, without an API key:
 # Open http://127.0.0.1:8766/
 ```
 
-Closing this read-only viewer does not stop the run. Ctrl-C in the terminal
+Closing the viewer does not stop the run. **Stop run** releases both agents’ keys,
+ends the episode, and saves its partial recap. **Restart run** first stops/saves
+the selected run, then starts a fresh episode with the same models, seed, speed,
+and budgets. Conversation and working memory start fresh. Existing artifacts remain.
+Restart uses the current checkout revision, recorded in the new manifest. Ctrl-C in the terminal
 running the `run` command does stop it and compiles the captured portion.
 The viewer retains scrollback, while `events.jsonl` and `transcript.txt` preserve
 the timeline on disk. It does not expose API keys or image payloads.
 The browser page includes both complete screenshots and updates once per second.
-It serves only on localhost, has no game-control endpoints, and requires no key.
-The newest run appears automatically. Disable **Follow latest** to read older
-messages; the recap link appears after video rendering finishes.
+It serves only on localhost. Viewing and stopping require no provider key; Cohere
+restart requires `COHERE_API_KEY` in the viewer server’s environment. Controls use
+a same-origin token, a specific run ID, and fixed argument lists, never browser-supplied
+commands. They cannot control unrelated game instances.
+The newest run appears automatically. **Follow latest** scrolls only when a new
+partner message arrives, never on image refreshes or bookkeeping updates. Disable
+it to keep reading older messages; the recap link appears after video rendering finishes.
 
 ## Keyboard contract
 
@@ -129,7 +183,8 @@ Both models return the same shape:
 {
   "hold": ["W", "A"],
   "tap": [],
-  "message": "Turning left; tell me when to straighten."
+  "message": "Turning left; tell me when to straighten.",
+  "notes": "Road bends left. Need the next view to confirm alignment."
 }
 ```
 
@@ -143,7 +198,12 @@ key-down/key-up pair. Toggles retain normal semantics: tapping M twice opens the
 closes the map. The normal map animation/occlusion is preserved. S brakes, then
 reverses after stopping. Opposite inputs, duplicate keys, cross-role controls,
 malformed responses, and stale observations are rejected. Messages are capped at
-240 characters. There is no hold-duration field.
+240 characters; optional notes at 600. There is no hold-duration field.
+If the game window loses focus and Godot clears keyboard state, the adapter
+restores the requested held keys before physics. It never repeats taps. Telemetry
+records both requested `held` keys and actual `pressed_keys`, plus an
+`input_reassertions` counter, so control delivery can be checked separately from
+the model's decisions.
 
 The navigator observes, sends a message and keys, then the driver observes a new
 frame, chooses keys and replies. **Held keys remain pressed until that same agent's
@@ -158,38 +218,59 @@ already accepted hold. Ending the episode (including errors, Ctrl-C, and limits)
 releases every held key. Game menus/network recovery retain their ordinary pause
 behavior. Pause/restart and changes to speed are not model actions.
 
-Schema version 2 records `hold_policy: until_replaced`. Older timed-hold runs remain
+Schema version 4 adds the shared local engine, working recaps and readable-display settings; it still records `hold_policy: until_replaced`. Older timed-hold runs remain
 readable, with their fallback metrics retained, but should not be pooled with new
 runs. The source/configuration fingerprint keeps those benchmark groups separate.
 
 ## Small game-side adapter
 
 [`ai_capture.gd`](../scripts/ai_capture.gd) is activated only by
-`BLIND_DRIVER_AI_CONFIG`. It saves complete root-window JPEGs, reads atomically
+`BLIND_DRIVER_AI_CONFIG`. It reads one 2560×800 root-viewport image per capture and saves its two complete
+1280×800 seat halves as JPEGs. It reads atomically
 written keyboard commands, dispatches them through `Input.parse_input_event`, and
 records telemetry. It forces a redraw at capture cadence so macOS window occlusion
-does not silently freeze one camera. Captures include the real HUD, driver blur,
+does not silently freeze one camera. Each capture includes that seat’s real HUD, driver blur where appropriate,
 windshield damage, and the navigator's map. Python never assembles observations
 from game internals.
 
 This intentionally uses local files rather than another server/API protocol.
 Each process has its own directory and monotonically increasing command sequence.
 Acknowledgments record what was applied. PNG/JPEG processing and video composition
-stay separate from model inference. The first sketch stores every captured JPEG;
-long runs need a disk-space budget or a streaming-video upgrade.
+stay separate from model inference. Raw frame folders are removed after a successful recap. The harness verifies the
+video before removing frames; failed exports keep them for recovery. All recording
+directories contain `.gdignore`, and the repository’s `runs/.gdignore` prevents
+Godot from scanning/importing recordings. `--keep-frames` opts out for debugging.
+The final video, recap still, metrics and text logs remain. The browser derives
+finished seat previews from the recap still, without retaining raw screenshots.
 
-The existing LAN connection supplies the navigator's world. Only harness instances
-use wall-clock LAN send intervals, so 5% simulation speed does not reduce snapshot
-frequency to 1.5 Hz. Existing network interpolation still adds its normal delay.
-The two captured windows are aligned by timestamps rather than claimed to be
-pixel-simultaneous. A capture stall over three seconds invalidates the run.
+Both captures come from the same GPU readback and share frame ID, simulation/real
+timestamp, car state and process ID. Two role-specific command readers dispatch
+normal input events into the same engine. Navigator keys never replace held driver
+keys. Stop from either reader releases both. The visible window can be smaller
+than the render canvas; its recording resolution remains fixed. No game network
+connection, synchronization, interpolation, or prediction is used. The localhost
+browser viewer is only a recorder/control interface. A capture stall over three
+seconds invalidates the run.
 
 ## Courses and measurement
 
 `--course basic` gives one continuing road with gentle bends and sparse rocks,
-without police, forks, jumps, timed bridges, lakes, thorns, or heat escalation.
+without police, forks, jumps, timed bridges, lakes, or heat escalation. Roadside
+thorns start roughly 18 metres from the road center. In this basic course, all
+four tires punctured by thorns ends the run. The normal human/standard course
+retains its existing crippled-car behavior; flat tires alone do not end that mode.
 Vehicle physics, blur, collisions, rollover, and modular damage remain active.
 The full map is accessible but route planning is limited on this first course.
+
+`--readable-ui` is on by default for harness runs; `--no-readable-ui` keeps the original map orientation/scale and
+camera field of view, while retaining complete duplicated instruments. The default profile uses large digital speed/odometer/surface/movement readouts,
+a narrower 60° camera field of view (objects appear larger), and a map with doubled
+text/line/icon scale, north-up orientation, and a larger rotating car arrow plus
+heading degrees. The map still covers the road but leaves the instruments visible.
+Collision, tire-pop, engine-knock and siren captions appear in the game itself;
+unheard caption events with timestamps also accompany the next model request.
+No map obstacle detector, angle advice, or hidden damage/location values are added
+to model inputs. Ordinary human sessions retain their existing UI.
 `--course standard` selects the existing human game and all its hazards.
 
 The basic profile's progress measure is the maximum new forward (-Z) displacement
@@ -207,18 +288,35 @@ FPS, capture cost, applied keys, hold policy, and real/simulation clocks. Impact
 events come from the game's impact signal, not every physics contact. Per-request
 logs include observations, image references, dialogue, latencies, tokens,
 responses, validation failures, and acknowledgments. Precise telemetry is never
-included in model inputs.
+included in model inputs. Sound captions and discrete own-seat view labels are
+explicit accessibility exceptions; exact map-reveal fractions stay in telemetry.
+
+The versioned evaluation score is:
+
+`forward progress metres − 25 × significant hits − 2 × off-road simulation seconds
+− 100 × mean fraction of part health lost − 100 if Game Over`.
+
+The hit count uses audible collision events (roughly above 3 m/s closing speed,
+with contact/cooldown deduplication), not every persistent physics contact. The
+weights are a first evaluation choice, recorded in each manifest; raw measurements
+remain available for alternative scoring. A time/token/request limit or operator
+stop is a truncation, not a failure penalty. Negative scores are valid. Scoring is
+for evaluation only; no policy is being trained. Score and penalty components
+appear in the live page, video, CSV and summary. Background recap counts, tokens,
+and latency are also exported separately from action latency.
 
 | Artifact | Purpose |
 | --- | --- |
-| `recap.mp4` | Main video at normal game speed, two complete views with conversation/controls/metrics |
+| `recap.mp4` | Main video at normal game speed, two complete synchronized views with conversation/controls/metrics |
 | `recap_simulation.mp4` | Same normal-speed video; retained separately when an explicit review-speed override is used |
 | `recap.jpg` | Final recap still |
 | `recap_settings.json` | Playback/export settings used by the latest recap rebuild |
-| `metrics.png` | Speed, progress, road deviation, and distance plots |
+| `metrics.png` | Speed, progress, road deviation, distance, score and penalty plots |
 | `metrics.csv`, `summary.json` | Detailed driver telemetry and episode statistics |
 | `transcript.txt`, `events.jsonl` | Delivered dialogue and causal request/action events |
-| `driver/`, `navigator/` | Full screenshots, per-frame telemetry, prompts, input acknowledgments, and game logs |
+| `driver/`, `navigator/` | Per-frame telemetry, prompts and input logs; raw screenshots only during a run or with `--keep-frames` |
+| `cleanup.json` | Removed file count and recovered disk space |
+| `godot.log` | Shared engine log |
 | `manifest.json`, `result.json` | Source hash, models, configuration, budgets, end reason, validity, termination/truncation |
 
 The default recap compensates for game slowdown using the measured simulation
@@ -228,8 +326,9 @@ video, independent of inference/recording wall time. This also removes simulatio
 stalls from the default replay. The live terminal continues at real recording time.
 
 The review has a rolling transcript; accelerated messages can be brief.
-Rebuild at the default normal game speed or explicitly slow it to read dialogue,
-without making any new API calls:
+If the run was made with `--keep-frames`, rebuild at normal game speed or slow it
+to read dialogue without new model calls. After automatic cleanup, use the saved
+video’s playback-speed control instead; raw-frame rebuilds are no longer available:
 
 ```sh
 .venv/bin/python -m tools.ai_harness recap runs/RUN_ID
@@ -237,7 +336,10 @@ without making any new API calls:
 .venv/bin/python -m tools.ai_harness recap runs/RUN_ID --review-speed 1
 ```
 
-Videos are silent in this sketch. Captures are sampled, not a promise of perfect
+Use `python -m tools.ai_harness cleanup runs/RUN_ID` to clean an older completed
+run after verifying its recap. Failed/unrendered runs are kept.
+
+Videos are silent in this sketch; on-screen sound captions remain visible. Captures are sampled, not a promise of perfect
 frame pacing. The normal-pace video follows the measured simulation clock. Frames
 and logs preserve what happened; repeating controls does not guarantee identical
 physics. Seeds reproduce course configuration in fresh processes, not model output.
@@ -277,6 +379,7 @@ trainable policy weights, rewards, and a training loop; none is claimed here.
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -p 'test_ai_harness.py' -v
+.venv/bin/python -m unittest discover -s tests -p 'test_navigator_context.py' -v
 godot --headless --path . --fixed-fps 60 --script tests/ai_harness_smoke.gd
 python3 tests/run_checks.py --relay
 npm --prefix server test
@@ -284,6 +387,10 @@ npm --prefix server test
 
 The smoke check verifies real key dispatch for both roles, stale/duplicate/invalid
 actions, holds persisting beyond the old timeout, explicit release, stop cleanup,
-continued simulation, and the basic course at 5% speed.
-Rendered scripted runs verify the full-window capture/recap path. Live provider
+continued simulation, the readable map/captions, roadside thorns, and terminal
+all-tire punctures in the basic course at 5% speed. Unit tests cover one-image
+requests, text history, concurrent immutable recaps, score terms, and scoped HTTP controls.
+Navigator regressions cover the repeated-map conversation, crash captions, dialogue
+ages, silent/rejected delivery, map animation labels, and exclusion of hidden telemetry.
+Rendered scripted runs verify the complete-seat capture/recap path. Live provider
 trials are separate from those deterministic checks.

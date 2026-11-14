@@ -1,0 +1,134 @@
+"""Regressions for the map-loop run: context, delivery, and provider payloads."""
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from tools.ai_harness.agents import CohereAgent, DEFAULT_MODEL, prompt
+from tools.ai_harness.context import TeamContext
+from tools.ai_harness.memory import WorkingMemory
+
+
+def state(**extra):
+    return {"frame": 17, "sim_time": 5.0, "held": [], "map_open": True, "map_reveal": 1,
+        "camera": "chase", "look_back": False, "position": [999, 999, 999],
+        "speed_kmh": 91, "road_distance_m": 25, "impact_events": 7, "part_health": [0],
+        "sound_events": [{"id": 2, "sim_time": 4.5, "text": "CRASH — hard impact", "strength": 99}], **extra}
+
+
+class NavigatorContextTests(unittest.TestCase):
+    def test_map_loop_has_recent_dialogue_and_execution_feedback_without_telemetry(self):
+        team, memory = TeamContext(), WorkingMemory(0)
+        for i in range(3):
+            team.acknowledge("navigator", {"hold": [], "tap": ["M"],
+                "message": "Check map for upcoming turns and obstacles.", "notes": "private navigator notes"},
+                accepted=True, sim_time=i + 1, observation_sim=i + .5)
+            team.acknowledge("driver", {"hold": ["W"], "tap": [], "message": "Still blocked; which way?",
+                "notes": "private driver notes"}, accepted=True, sim_time=i + 1.5, observation_sim=i + 1)
+        observation = team.observation("navigator", state(), memory, 1)
+        coordination = observation["coordination"]
+        self.assertEqual(coordination["consecutive_map_toggles"], 3)
+        self.assertEqual(coordination["consecutive_identical_messages"], 3)
+        self.assertEqual(coordination["recent_dialogue"][-1]["message"], "Still blocked; which way?")
+        self.assertEqual(coordination["recent_dialogue"][-1]["age_sim_seconds"], 1.5)
+        self.assertEqual(coordination["recent_dialogue"][-1]["evidence_age_sim_seconds"], 2)
+        self.assertTrue(coordination["last_action_result"]["accepted"])
+        self.assertEqual(observation["view"], {"camera": "chase", "facing": "forward", "map": "open"})
+        self.assertEqual(observation["sound_captions"], [{"id": 2, "sim_time": 4.5, "text": "CRASH — hard impact"}])
+        serialized = json.dumps(observation)
+        for private in ("position", "speed_kmh", "road_distance_m", "impact_events", "part_health", "strength", "private", '"W"'):
+            self.assertNotIn(private, serialized)
+        driver = team.observation("driver", state(held=["W"]), memory, 2)
+        self.assertEqual(driver["view"], {"camera": "seat", "facing": "forward", "map": "closed"})
+        self.assertEqual(driver["sound_captions"], [])
+
+    def test_silence_rejected_actions_and_repeated_urgent_warnings(self):
+        team, memory = TeamContext(), WorkingMemory(0)
+        warning = {"hold": [], "tap": ["M"], "message": "Brake! Rock ahead.", "notes": "private"}
+        for i in range(2):
+            self.assertEqual(team.acknowledge("navigator", warning, accepted=True,
+                sim_time=i, observation_sim=i)["message"], warning["message"])
+        self.assertIsNone(team.acknowledge("navigator", {**warning, "message": "Never delivered"},
+            accepted=False, sim_time=2, observation_sim=0, error="stale_observation"))
+        observed = team.observation("navigator", state(), memory, 0)
+        self.assertFalse(observed["coordination"]["last_action_result"]["accepted"])
+        self.assertEqual(observed["coordination"]["consecutive_map_toggles"], 2)
+        self.assertNotIn("Never delivered", json.dumps(observed))
+        silent = {"hold": [], "tap": [], "message": "  \n", "notes": "Checking map privately"}
+        self.assertIsNone(team.acknowledge("navigator", silent, accepted=True, sim_time=3, observation_sim=3))
+        observed = team.observation("navigator", state(), memory, 0)
+        self.assertEqual(len(observed["coordination"]["recent_dialogue"]), 2)
+        self.assertEqual(observed["coordination"]["consecutive_map_toggles"], 0)
+        self.assertEqual(observed["coordination"]["consecutive_identical_messages"], 0)
+        self.assertEqual(observed["held_keys"], [])
+
+    def test_dialogue_bounded_and_returned_observation_is_a_snapshot(self):
+        team, memory = TeamContext(), WorkingMemory(0)
+        for i in range(20):
+            team.acknowledge("driver", {"hold": ["W"], "tap": [], "message": str(i)},
+                accepted=True, sim_time=i, observation_sim=i)
+        observed = team.observation("driver", state(sim_time=21), memory, 0)
+        self.assertEqual([m["message"] for m in observed["coordination"]["recent_dialogue"]],
+                         list(map(str, range(12, 20))))
+        observed["coordination"]["last_action_result"]["hold"].clear()
+        observed["coordination"]["recent_dialogue"][0]["message"] = "mutated"
+        fresh = team.observation("driver", state(sim_time=21), memory, 0)
+        self.assertEqual(fresh["coordination"]["last_action_result"]["hold"], ["W"])
+        self.assertEqual(fresh["coordination"]["recent_dialogue"][0]["message"], "12")
+
+    def test_map_animation_and_rear_view_labels(self):
+        team, memory = TeamContext(), WorkingMemory(0)
+        for opening, reveal, expected in ((True, .2, "opening"), (True, 1, "open"),
+                                         (False, .3, "closing"), (False, 0, "closed")):
+            observed = team.observation("navigator", state(map_open=opening, map_reveal=reveal), memory, 0)
+            self.assertEqual(observed["view"]["map"], expected)
+        observed = team.observation("navigator", state(map_open=False, map_reveal=0, look_back=True), memory, 0)
+        self.assertEqual(observed["view"]["facing"], "rear")
+
+    def test_recap_records_do_not_embed_previous_recaps_or_duplicate_dialogue(self):
+        memory = WorkingMemory(8)
+        memory.record({"sim_time": 3, "working_memory": {"text": "old recap"},
+            "coordination": {"recent_dialogue": [{"message": "old speech"}]},
+            "sound_captions": [{"text": "CRASH"}]}, [{"message": "Are we blocked?"}],
+            {"hold": [], "tap": [], "message": "Let me check.", "notes": "Obstruction uncertain"}, 4)
+        serialized = json.dumps(memory.turns)
+        self.assertNotIn("old recap", serialized)
+        self.assertNotIn("old speech", serialized)
+        for fact in ("CRASH", "Are we blocked?", "Obstruction uncertain"):
+            self.assertIn(fact, serialized)
+
+    def test_command_payload_keeps_latest_dialogue_and_one_image_without_recursive_recaps(self):
+        team, memory = TeamContext(), WorkingMemory(0)
+        memory.recap = {"text": "Prior road looked straight, outcome unverified", "through_turn": 3}
+        team.acknowledge("driver", {"hold": [], "tap": [], "message": "Hit something; now stopped."},
+                         accepted=True, sim_time=4, observation_sim=3.5)
+        requests = []
+        action = {"hold": [], "tap": ["M"], "message": "Release W; I need to check clearance.",
+                  "notes": "Impact audible; map covers road; closing it to inspect."}
+        def chat(body):
+            requests.append(body)
+            return json.dumps(action), {}, {}
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "current.jpg"
+            image.write_bytes(b"fixture")
+            agent = CohereAgent("navigator", DEFAULT_MODEL, "unused", prompt("navigator", 25, "basic"), 10, 512, 1)
+            with patch.object(agent, "_chat", side_effect=chat):
+                for _ in range(3):
+                    agent.decide(image, team.observation("navigator", state(), memory, 0), [])
+        body = requests[-1]
+        self.assertEqual(body["thinking"], {"type": "disabled"})
+        self.assertEqual(body["response_format"]["type"], "json_object")
+        self.assertEqual(body["response_format"]["schema"]["properties"]["hold"]["items"]["enum"], ["B"])
+        content = body["messages"][-1]["content"]
+        self.assertIn("Hit something; now stopped.", content[0]["text"])
+        self.assertIn("CRASH", content[0]["text"])
+        self.assertEqual(sum(p.get("type") == "image_url" for m in body["messages"]
+                             if isinstance(m["content"], list) for p in m["content"]), 1)
+        self.assertNotIn("working_memory", json.dumps(agent.history))
+        self.assertNotIn("coordination", json.dumps(agent.history))
+        self.assertIn("Impact audible", json.dumps(agent.history))
+
+
+if __name__ == "__main__":
+    unittest.main()
