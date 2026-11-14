@@ -34,6 +34,12 @@ agents on different computers. Read `README.md` before changing the project.
   merge the completed task, and push normally. If another computer updates
   `main` before your push, fetch, integrate its changes, and recheck compatibility
   before retrying. Never force-push `main` or overwrite another agent's history.
+- **Bump the version with every merge to `main`.** Increase `PROTOTYPE` in
+  `scripts/version.gd` by one in the change you merge (resolve a clash with
+  another agent's bump by taking the higher number plus one). Players read it as
+  "PROTOTYPE NN" in the header and on the start screen, and the game warns when the
+  two players' numbers differ, so an unbumped merge looks identical to the old
+  build. Name the new number in your report.
 - Report what was merged, what was checked, and any deployment steps still needed.
 
 ## Playtests always use current main

@@ -129,6 +129,7 @@ func _ready() -> void:
 		car.driving_enabled = not ui.in_menu and session.can_drive())
 	session.room_created.connect(ui.display_lobby_ready)
 	session.seat_changed.connect(_apply_seat)
+	session.relay.partner_build.connect(_check_partner_build)
 	session.seats_swapped.connect(func(value: String):
 		if value == "host":
 			# The new driver owns the next ride: start it fresh for both players.
@@ -585,6 +586,18 @@ func _join_from_invite(code: String) -> void:
 	ui.set_online_busy(true)
 	ui.online_status.text = "Joining room %s…" % short
 	_join_online(ui.relay_address.text, short)
+
+## Warn when the two games are different builds: features and bugs will not match.
+func _check_partner_build(build: int) -> void:
+	var Version := preload("res://scripts/version.gd")
+	if build == Version.PROTOTYPE:
+		ui.version_label.text = "%s   ·   your partner is on the same version" % Version.label()
+		return
+	var theirs := "an older version (before version numbers)" if build < 0 else "PROTOTYPE %02d" % build
+	var message := "Your partner is on %s; you are on %s. Both of you should update to the latest version." % [theirs, Version.label()]
+	ui.version_label.text = message
+	ui.online_status.text = message
+	ui.status_label.text = "VERSION MISMATCH   /   PARTNER %s" % ("OLD" if build < 0 else "%02d" % build)
 
 ## The relay decides who drives: follow it whenever our seat changes.
 func _apply_seat(value: String) -> void:
