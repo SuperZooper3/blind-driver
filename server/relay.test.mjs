@@ -177,6 +177,27 @@ test('compact poses reach the navigator; malformed ones close the driver', async
   assert.equal((await closed)[0], 1008);
 });
 
+test('direct-link offers pass between partners in both directions and are validated', async t => {
+  const { connect } = await setup(t);
+  const driver = await connect();
+  driver.send({ type: 'create', version: 9 });
+  const created = await driver.next();
+  const navigator = await connect();
+  navigator.send({ type: 'join', version: 9, room: created.share });
+  await navigator.next();
+  await driver.next();
+  const offer = { type: 'direct', on: true, reply: false, addrs: ['10.0.33.210', '192.168.1.4'], port: 18770, key: 'ab'.repeat(16) };
+  driver.send(offer);
+  assert.deepEqual(await navigator.next(), offer);
+  navigator.send({ ...offer, reply: true, addrs: ['10.0.33.215'] });
+  assert.deepEqual(await driver.next(), { ...offer, reply: true, addrs: ['10.0.33.215'] });
+  navigator.send({ type: 'direct', on: false, reply: false });
+  assert.deepEqual(await driver.next(), { type: 'direct', on: false, reply: false, addrs: [], port: 0, key: '' });
+  const closed = once(driver.socket, 'close');
+  driver.send({ ...offer, addrs: ['8.8.8.8'] });
+  assert.equal((await closed)[0], 1008);
+});
+
 test('rooms are isolated and malformed state is rejected', async t => {
   const { connect } = await setup(t);
   const first = await connect();

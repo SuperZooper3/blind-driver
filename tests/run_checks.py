@@ -103,6 +103,28 @@ def run_lag_check(temporary):
         stop(relay)
 
 
+def run_direct_pair(temporary, relay_url, blocked=""):
+    """Players meet through the relay, then link directly; `blocked` ("driver" or
+    "navigator") refuses incoming connections, like a Mac firewall in stealth mode."""
+    first = second = None
+    tag = "direct-" + (blocked or "open")
+    first_path = temporary / (tag + "-driver-output.txt")
+    env = {**os.environ, "BLIND_DRIVER_DIRECT_LOOPBACK": "1"}
+    no_listen = {**env, "BLIND_DRIVER_DIRECT_NO_LISTEN": "1"}
+    try:
+        with first_path.open("w+") as first_output:
+            first = subprocess.Popen(command("tests/direct_probe.gd", temporary / (tag + "-driver.log"), "--", "--relay-url=" + relay_url), stdout=first_output, stderr=subprocess.STDOUT, env=no_listen if blocked == "driver" else env)
+            code = wait_output(first, first_path, r"ROOM_READY=([A-Z0-9]{6})").group(1)
+            second = subprocess.run(command("tests/direct_probe.gd", temporary / (tag + "-navigator.log"), "--", "--relay-url=" + relay_url, "--relay-room=" + code), capture_output=True, text=True, timeout=60, env=no_listen if blocked == "navigator" else env)
+            first.wait(timeout=20)
+        outputs = first_path.read_text() + second.stdout
+        print(f"[direct link, {blocked or 'both'} {'blocked' if blocked else 'listening'}]", "\n".join(line for line in outputs.splitlines() if line.startswith(("PASS", "FAIL", "SCRIPT ERROR"))))
+        if first.returncode or second.returncode or "FAIL:" in outputs or "SCRIPT ERROR" in outputs + second.stderr:
+            raise RuntimeError(second.stderr + "\nDirect link integration failed")
+    finally:
+        stop(first)
+
+
 def run_swap_pair(temporary, relay_url):
     """After a run ends, the navigator swaps seats and the two games trade driver and navigator."""
     first = second = None
@@ -205,6 +227,8 @@ if __name__ == "__main__":
                         run_code_pair(temporary, f"ws://127.0.0.1:{port}/ws")
                         run_swap_pair(temporary, f"ws://127.0.0.1:{port}/ws")
                         run_lag_check(temporary)
+                        for blocked in ("", "navigator", "driver"):
+                            run_direct_pair(temporary, f"ws://127.0.0.1:{port}/ws", blocked)
                         run_pair(temporary, f"ws://127.0.0.1:{port}/ws", hazards=True)
                     if "--resilience" in sys.argv:
                         print("[faults]", "\n".join(line for line in relay_output.read_text().splitlines() if "FAULT:" in line))

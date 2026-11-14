@@ -12,6 +12,8 @@ signal navigator_left
 signal graph_received(roads: Array)
 signal snapshot_received(state: Dictionary)
 signal pose_received(pose: Dictionary)
+## The partner offered (or withdrew) a direct local-network link.
+signal direct_offer(offer: Dictionary)
 signal failed(message: String)
 signal recovering(message: String)
 signal restored(peer_connected: bool)
@@ -333,33 +335,45 @@ func _handle(message: Dictionary) -> void:
 			Log.event("peer_reconnecting", {"role": message.get("role", "")})
 			peer_waiting.emit()
 		"peer_restored": peer_restored.emit()
-		"graph":
-			if not message.get("roads") is Array:
-				_fail("Invalid road data from relay.")
-				return
-			var roads := Wire.graph_from_json(message.get("roads", []))
-			if roads.is_empty():
-				_fail("Invalid road data from relay.")
-			else:
-				graph_received.emit(roads)
-		"pose":
-			var pose := Wire.pose_from_json(message.get("state", {})) if message.get("state") is Dictionary else {}
-			if pose.is_empty():
-				_fail("Invalid car pose from relay.")
-			else:
-				pose_received.emit(pose)
-		"snapshot":
-			if not message.get("state") is Dictionary:
-				_fail("Invalid car state from relay.")
-				return
-			var snapshot := Wire.snapshot_from_json(message.get("state", {}))
-			if snapshot.is_empty():
-				_fail("Invalid car state from relay.")
-			else:
-				snapshot_received.emit(snapshot)
+		"graph", "pose", "snapshot":
+			if not handle_game_message(message):
+				_fail("Invalid game data from relay.")
+		"direct":
+			direct_offer.emit(message)
 		"error", "room_closed":
 			Log.event("server_rejected", {"code": message.get("code", type)})
 			_fail(str(message.get("message", "Room closed. Create a new room.")))
+
+## Decode the driver's game data (from the relay or a direct link) and emit it.
+## Returns false if it is malformed.
+func handle_game_message(message: Dictionary) -> bool:
+	match str(message.get("type", "")):
+		"graph":
+			var roads := Wire.graph_from_json(message.roads) if message.get("roads") is Array else []
+			if roads.is_empty():
+				return false
+			graph_received.emit(roads)
+		"pose":
+			var pose := Wire.pose_from_json(message.state) if message.get("state") is Dictionary else {}
+			if pose.is_empty():
+				return false
+			pose_received.emit(pose)
+		"snapshot":
+			var snapshot := Wire.snapshot_from_json(message.state) if message.get("state") is Dictionary else {}
+			if snapshot.is_empty():
+				return false
+			snapshot_received.emit(snapshot)
+		_:
+			return false
+	return true
+
+func send_direct(offer: Dictionary) -> bool:
+	var message := {"type": "direct", "on": bool(offer.get("on", false)), "reply": bool(offer.get("reply", false))}
+	if message.on:
+		message.addrs = Array(offer.addrs)
+		message.port = int(offer.port)
+		message.key = str(offer.key)
+	return is_ready and _send(message)
 
 func _send(message: Dictionary) -> bool:
 	if socket == null or socket.get_ready_state() != WebSocketPeer.STATE_OPEN:

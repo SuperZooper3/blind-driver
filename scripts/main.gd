@@ -118,6 +118,15 @@ func _ready() -> void:
 			_restart_run()
 			_resume())
 	ui.swap_requested.connect(func(): session.request_swap())
+	ui.direct_toggled.connect(func(on: bool):
+		if session.online and (session.navigator_id != 0 or session.role == "join"):
+			session.set_direct(on))
+	session.direct_status_changed.connect(func(text: String, wanted: bool):
+		ui.set_direct_status(text, wanted)
+		if session.direct.is_linked():
+			ui.status_label.text = "DIRECT LINK   /   " + session.direct.partner_address()
+		elif wanted:
+			ui.status_label.text = "INTERNET RELAY   /   LOOKING FOR DIRECT LINK")
 	session.online_joined.connect(_online_ready)
 	session.ride_restored.connect(func(): car.driving_enabled = not ui.in_menu and session.can_drive())
 	ui.network_session = session
@@ -541,6 +550,8 @@ func _apply_seat(value: String) -> void:
 func _online_ready() -> void:
 	var first_connection: bool = not started or ui.connecting
 	ui.connecting = false
+	if ui.direct_toggle.button_pressed and not session.direct_wanted:
+		session.set_direct(true)
 	started = true
 	if first_connection:
 		ui.show_menu(false)

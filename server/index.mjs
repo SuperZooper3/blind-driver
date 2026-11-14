@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue, validPose, poseIssue, normalizeLobby, normalizeShare, SHARE_ALPHABET, SHARE_LENGTH } from './protocol.mjs';
+import { VERSION, MAX_PAYLOAD, isRecord, validSnapshot, validGraph, snapshotIssue, graphIssue, validPose, poseIssue, validDirect, normalizeLobby, normalizeShare, SHARE_ALPHABET, SHARE_LENGTH } from './protocol.mjs';
 
 export function createRelay(options = {}) {
   const maxRooms = options.maxRooms ?? Number(process.env.MAX_ROOMS || 100);
@@ -222,6 +222,15 @@ export function createRelay(options = {}) {
         return;
       }
       if (message.type === 'leave') { detach(client, true); socket.close(1000, 'Left room'); return; }
+      if (message.type === 'direct') {
+        // Either player may offer a direct local-network link; only the partner sees it.
+        const room = rooms.get(client.room);
+        if (!room || room[client.role]?.client !== client || raw.length > 1024 || !validDirect(message)) { reject(client, 'Invalid direct offer'); return; }
+        const { on, reply, addrs = [], port = 0, key = '' } = message;
+        send(room[otherRole(client.role)]?.client, { type: 'direct', on, reply, addrs, port, key });
+        log('direct_offer', client, { on, addresses: addrs.length });
+        return;
+      }
       if (message.type === 'swap') {
         // Either player may swap seats, but only while both are connected.
         const room = rooms.get(client.room);

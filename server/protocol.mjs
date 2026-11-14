@@ -49,6 +49,19 @@ export function poseIssue(state) {
 }
 export const validPose = state => poseIssue(state) === null;
 
+// Direct-link offer between players on one local network: private IPv4 addresses,
+// a listening port and a random key, relayed to the partner (never used by the relay).
+const privateIPv4 = value => typeof value === 'string' && /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(value)
+  && value.split('.').every(part => Number(part) <= 255)
+  && (/^10\./.test(value) || /^192\.168\./.test(value) || /^169\.254\./.test(value) || /^127\./.test(value)
+    || (/^172\./.test(value) && Number(value.split('.')[1]) >= 16 && Number(value.split('.')[1]) <= 31));
+export function validDirect(message) {
+  if (typeof message.on !== 'boolean' || typeof message.reply !== 'boolean') return false;
+  if (!message.on) return true;
+  return Array.isArray(message.addrs) && message.addrs.length <= 8 && message.addrs.every(privateIPv4)
+    && integer(message.port, 0, 65535) && typeof message.key === 'string' && /^[a-f0-9]{32}$/.test(message.key);
+}
+
 export function graphIssue(roads) {
   if (!Array.isArray(roads) || roads.length < 1 || roads.length > 100) return 'road_count';
   const ids = new Set();

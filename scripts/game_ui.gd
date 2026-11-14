@@ -4,6 +4,7 @@ signal play_requested(mode: String)
 signal resume_requested
 signal restart_requested
 signal swap_requested
+signal direct_toggled(on: bool)
 signal connect_requested(address: String)
 signal host_requested
 signal leave_requested
@@ -75,6 +76,8 @@ var copy_code_button: Button
 var copy_link_button: Button
 var join_code_button: Button
 var shared_code := ""
+var direct_toggle: CheckButton
+var direct_label: Label
 var online_status: Label
 var create_online_button: Button
 var create_room_button: Button
@@ -329,6 +332,19 @@ func _build_menu() -> void:
 	join_code_button = _button("Join", _join_room)
 	join_code_button.custom_minimum_size.x = 110
 	join_row.add_child(join_code_button)
+	# Same-network shortcut: game data goes straight between the two computers.
+	direct_toggle = CheckButton.new()
+	direct_toggle.text = "Direct connection (same Wi-Fi / network)"
+	direct_toggle.add_theme_font_size_override("font_size", 14)
+	direct_toggle.toggled.connect(func(on: bool):
+		_save_preferences()
+		direct_toggled.emit(on))
+	direct_toggle.visible = not OS.has_feature("web")
+	box.add_child(direct_toggle)
+	direct_label = _label("Only works when you're both on the same local network. Not encrypted. Falls back to the internet if it can't connect.", 12, muted)
+	direct_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	direct_label.visible = direct_toggle.visible
+	box.add_child(direct_label)
 	online_status = _label("Create a room, or join a friend's with their code. The ride starts when you're both in.", 13, amber)
 	online_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	online_status.custom_minimum_size.y = 42
@@ -413,6 +429,7 @@ func _show_secondary(panel: PanelContainer) -> void:
 func _load_preferences(path: String = Settings.PATH) -> void:
 	var saved := Settings.read(path)
 	preferred_seat = saved.seat
+	direct_toggle.set_pressed_no_signal(saved.direct)
 	relay_address.text = OS.get_environment("BLIND_DRIVER_RELAY_URL")
 	if relay_address.text.is_empty():
 		relay_address.text = saved.address
@@ -430,7 +447,7 @@ func _highlight_seat() -> void:
 	join_online_button.add_theme_stylebox_override("normal", _style(Color("52715c") if preferred_seat == "navigator" else Color("29483f"), 8))
 
 func _save_preferences() -> Error:
-	var result := Settings.write(relay_address.text, "", preferred_seat)
+	var result := Settings.write(relay_address.text, "", preferred_seat, Settings.PATH, direct_toggle.button_pressed)
 	if result != OK:
 		online_status.text = "Couldn’t save preferences on this computer. You can still join."
 	return result
@@ -458,6 +475,10 @@ func _join_room() -> void:
 	set_online_busy(true)
 	online_status.text = "Joining room %s… The server may take a moment to wake up." % code
 	online_join_requested.emit(relay_address.text, code)
+
+func set_direct_status(text: String, wanted: bool) -> void:
+	direct_toggle.set_pressed_no_signal(wanted)
+	direct_label.text = text
 
 func _copy(text: String, done: String) -> void:
 	if text.is_empty():
