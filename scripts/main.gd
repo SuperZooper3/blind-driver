@@ -381,7 +381,7 @@ func _process(delta: float) -> void:
 		ui.surface_label.text = "REPAIRING / CAN'T DRIVE"
 	elif repair_notice_time > 0.0:
 		ui.surface_label.text = repair_notice
-	ui.damage_label.text = car.damage.summary() if started else ""
+	ui.update_damage(car, started and not intro_playing())
 	motor.roughness = car.damage.engine_roughness()
 
 func _update_radio(delta: float) -> void:
@@ -422,7 +422,7 @@ func _physics_process(delta: float) -> void:
 		if car.run_state == "falling" and (car.global_position.y < hole.position.y + 2.5 or (hole.kind == "lake" and car.global_position.y < rim - 3.0)):
 			car.finish_run()
 	if car.run_state == "driving":
-		car.check_rollover(delta)
+		car.track_rollover(delta)
 		car.wear_tires(world.puncture_mask(car), delta)
 		var spikes: int = world.spike_mask(car)
 		for wheel in 4:

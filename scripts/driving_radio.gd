@@ -51,8 +51,10 @@ func _ready() -> void:
 
 func _voice() -> AudioStreamPlayer:
 	var voice := AudioStreamPlayer.new()
-	# Web's Sample mode bypasses bus effects; Stream keeps damage audible there.
-	voice.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
+	# Browser-native sample playback avoids starving the single-threaded Web
+	# mixer. Static, dropouts and pitch wobble still convey damage there;
+	# desktop builds additionally apply the bus distortion/low-pass effects.
+	voice.playback_type = AudioServer.PLAYBACK_TYPE_SAMPLE if OS.has_feature("web") else AudioServer.PLAYBACK_TYPE_STREAM
 	voice.bus = bus_name
 	add_child(voice)
 	return voice

@@ -25,6 +25,8 @@ const DirectionWarning = preload("res://scripts/direction_warning.gd")
 const Seasons = preload("res://scripts/season_style.gd")
 const HeatWelcome = preload("res://scripts/heat_welcome.gd")
 const RepairOverlay = preload("res://scripts/repair_overlay.gd")
+const DamageOverlay = preload("res://scripts/damage_overlay.gd")
+var damage_overlays: Array[Control] = []
 var repair_overlays: Array[Control] = []
 var heat_welcomes: Array[Control] = []
 var welcome_run := -1
@@ -69,7 +71,6 @@ var resume_button: Button
 var address: LineEdit
 var blur_slider: HSlider
 var hint_label: Label
-var damage_label: Label
 var in_menu := true
 var map_open := false
 var map_reveal := 0.0
@@ -186,6 +187,9 @@ func _build_views() -> void:
 	driver_screen.clip_contents = true
 	navigator_screen.clip_contents = true
 	for screen in [driver_screen, navigator_screen]:
+		var damage := DamageOverlay.new()
+		screen.add_child(damage)
+		damage_overlays.append(damage)
 		var overlay := RepairOverlay.new()
 		screen.add_child(overlay)
 		repair_overlays.append(overlay)
@@ -221,7 +225,11 @@ func update_repairs(car: Node, started: bool) -> void:
 	driver_tag.visible = not in_menu and not active and not welcome_active and mode in ["split", "host"]
 	navigator_tag.visible = not in_menu and not active and not welcome_active and mode not in ["host", "ai"]
 	hud.get_node("RouteCard").visible = not in_menu and not active and mode not in ["host", "ai"]
-	damage_label.visible = not active
+
+func update_damage(car: Node, started: bool) -> void:
+	var active: bool = started and not in_menu and not car.repairing and car.run_state == "driving"
+	for i in damage_overlays.size():
+		damage_overlays[i].update_damage(car, active, 76.0 if i == 1 and mode not in ["host", "ai"] and not map_open else 12.0)
 
 func _build_hud() -> void:
 	hud = Control.new()
@@ -309,13 +317,6 @@ func _build_hud() -> void:
 	hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	hint_label.position = Vector2(28, -FOOTER_HEIGHT - 90)
 	hud.add_child(hint_label)
-	damage_label = _label("", 13, Color("e58a6a"))
-	damage_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	# Just above the dashboard footer.
-	damage_label.offset_top = -FOOTER_HEIGHT - 30
-	damage_label.offset_bottom = -FOOTER_HEIGHT - 8
-	damage_label.offset_left = 28
-	hud.add_child(damage_label)
 
 func _menu_box(panel: PanelContainer) -> VBoxContainer:
 	panel.add_theme_stylebox_override("panel", _style(ink, 14))

@@ -530,16 +530,14 @@ func finish_run(reason: String = "") -> void:
 	brake_input = 1.0
 	impact_strength = 1.0
 
-func check_rollover(delta: float) -> void:
+func track_rollover(delta: float) -> void:
 	if run_state != "driving":
 		return
-	# Let airborne tricks finish; fail once the body has landed on its roof/side.
+	# Telemetry only. A rollover never ends the run; the pursuit keeps going.
 	if global_basis.y.dot(Vector3.UP) < 0.25 and get_contact_count() > 0:
 		rollover_time += delta
 	else:
 		rollover_time = 0.0
-	if rollover_time >= 0.65:
-		finish_run("You rolled the car")
 
 ## Thorns tear at every tire touching them until each goes flat. Flats never end
 ## the run; they slow the car down until the police catch it.

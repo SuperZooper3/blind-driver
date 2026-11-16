@@ -17,6 +17,8 @@ const THORN_DISTANCE := 18.0
 const THORN_CELL := 4.0
 const CULDESAC_RADIUS := 14.0
 const HEAT_DISTANCE := 750.0
+## Resource ceiling, reached only many kilometres into Hell. Leave room for signs/lakes.
+const MAX_OBSTACLES := 60
 const CLIFF_SIZE := Vector3(160, 36, 112)
 ## A narrower pit fits between the two through routes when it sits in the middle.
 const MIDDLE_HOLE_SIZE := Vector3(64, 36, 64)
@@ -84,6 +86,23 @@ static func ground_point(x: float, z: float, lift: float = 0.0) -> Vector3:
 
 static func heat_for_distance(distance: float) -> int:
 	return clampi(floori(distance / HEAT_DISTANCE), 0, 4)
+
+## Geography, rather than elapsed time, makes revisits and both clients agree.
+func hell_depth(at: Vector3) -> float:
+	return maxf(0.0, season_edges[3] - at.z) if season_edges.size() == 4 and not basic_course else 0.0
+
+func thorn_distance_at(at: Vector3) -> float:
+	# Slowly consume the shoulder, approaching a narrow central driving corridor.
+	return 5.5 + (THORN_DISTANCE - 5.5) / (1.0 + hell_depth(at) / 1800.0)
+
+func obstacle_count(profile: String, at: Vector3) -> int:
+	if basic_course: return 1
+	var count := 2 + difficulty / 2
+	if profile == "scenic": count = 1 + difficulty / 2
+	elif profile == "rough": count = 3 + mini(3, difficulty)
+	elif profile == "culdesac": count = 1 if difficulty < 3 else 2
+	var step := 1500.0 if profile == "scenic" else (500.0 if profile == "rough" else 750.0)
+	return mini(MAX_OBSTACLES, count + floori(hell_depth(at) / step))
 
 func set_season(value: int) -> bool:
 	value = clampi(value, 0, 4)
@@ -283,30 +302,33 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 			var kinds := ["rock", "tree", "ramp", "bumps", "construction"]
 			# Spike strips start at heat 4.
 			if difficulty >= SPIKE_MIN_DIFFICULTY: kinds.append("spikes")
-			var count := 2 + difficulty / 2
+			var count := obstacle_count(profile, start)
 			if basic_course:
 				kinds = ["rock"]
-				count = 1
-			if profile == "scenic": count = 1 + difficulty / 2
-			elif profile == "rough": count = 3 + mini(3, difficulty)
-			elif profile == "culdesac": count = 1 if difficulty < 3 else 2
 			# Seeded per road (so every game sees the same world), but with no fixed
 			# rhythm: random kinds, spacing within even bands, and shoulder sides.
 			var span := 22.0 / count
 			var plan: Array = []
 			var previous := ""
 			for slot in count:
-				var index := clampi(roundi(rng.randf_range(5.0 + slot * span + 0.8, 5.0 + (slot + 1) * span - 0.8)), 5, 27)
+				# Continuous stations avoid stacking dozens of hazards on 23 vertices.
+				var jitter := rng.randf()
+				var station := 5.0 + (slot + lerpf(0.2, 0.8, jitter)) * span
+				if count <= 8:
+					# Preserve the original sparse layout before the late-game ramp.
+					station = clampf(roundf(lerpf(5.0 + slot * span + 0.8, 5.0 + (slot + 1) * span - 0.8, jitter)), 5.0, 27.0)
+				var index := clampi(roundi(station), 5, 27)
 				var choices: Array = kinds.duplicate()
 				if choices.size() > 1: choices.erase(previous)
 				# Spikes sit at least SPIKE_WARNING metres past the sign at the road's start.
-				if _distance_along(points, 1, index) < SPIKE_WARNING: choices.erase("spikes")
+				var along := _distance_along(points, 1, floori(station)) + points[floori(station)].distance_to(points[floori(station) + 1]) * fposmod(station, 1.0)
+				if along < SPIKE_WARNING: choices.erase("spikes")
 				# Each tree bends the road around it; keep chicanes apart.
 				for other: Dictionary in plan:
 					if other.kind == "tree" and absi(other.index - index) < 8: choices.erase("tree")
 				var kind: String = choices[rng.randi() % choices.size()]
 				previous = kind
-				plan.append({"kind": kind, "index": index})
+				plan.append({"kind": kind, "index": index, "station": station})
 			for item: Dictionary in plan:
 				if item.kind != "spikes": continue
 				# Every route onto this road passes its start, so one sign covers all paths.
@@ -323,7 +345,8 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 					points[j] += side * sin(float(j - index + 3) / 6.0 * PI) * 2.0
 					points[j].y = height_at(points[j].x, points[j].z) + 0.17
 			for item: Dictionary in plan:
-				var index: int = item.index
+				var station: float = float(item.index) if item.kind == "tree" else item.station
+				var index := floori(station)
 				var kind: String = item.kind
 				var direction := (points[index + 1] - points[index]).normalized()
 				var side := direction.cross(Vector3.UP)
@@ -333,7 +356,7 @@ func _add_road(start: Vector3, heading: float, depth: int, parent_id: int, lengt
 					offset = (-1.0 if rng.randf() < 0.5 else 1.0) * ROAD_WIDTH * 0.25
 				if basic_course:
 					offset = -2.0 if rng.randf() < 0.5 else 2.0
-				var at := points[index] + side * offset
+				var at := points[index].lerp(points[index + 1], station - index) + side * offset
 				at.y = height_at(at.x, at.z) + 0.18
 				hazards.append({"kind": kind, "position": at, "size": Vector3.ONE, "yaw": atan2(-direction.x, -direction.z)})
 		if not basic_course and profile == "main" and depth > 0 and depth % 6 == 0:
@@ -608,7 +631,7 @@ func recovery_spot(at: Vector3) -> Dictionary:
 func thorn_at(at: Vector3) -> bool:
 	# The same global grid defines the visible thicket and tire contact on both peers.
 	var center := Vector3((floorf(at.x / THORN_CELL) + 0.5) * THORN_CELL, 0, (floorf(at.z / THORN_CELL) + 0.5) * THORN_CELL)
-	return not BankSite.contains(center) and not BankSite.contains(at) and road_distance(center) >= THORN_DISTANCE and void_at(center).is_empty() and void_at(at).is_empty()
+	return not BankSite.contains(center) and not BankSite.contains(at) and road_distance(center) >= thorn_distance_at(center) and void_at(center).is_empty() and void_at(at).is_empty()
 
 func puncture_mask(car: RigidBody3D) -> int:
 	if car.grounded_wheels == 0 or car.global_basis.y.dot(Vector3.UP) < 0.4:

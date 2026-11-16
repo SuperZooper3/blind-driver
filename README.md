@@ -142,7 +142,7 @@ godot --path .
 The [deployment guide](deployment.md) has the browser build, Render/Railway setup,
 full controls, gameplay details, code map, verification commands, and
 [release security review](deployment.md#public-release-security-review).
-The frontend and both clients must agree with the relay’s **protocol 12**.
+The frontend and both clients must agree with the relay’s **protocol 13**.
 
 ## Contributing and release notes
 

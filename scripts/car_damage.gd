@@ -8,6 +8,7 @@ extends RefCounted
 enum { WHEEL_FL, WHEEL_FR, WHEEL_RL, WHEEL_RR, ENGINE, FRONT_BUMPER, REAR_BUMPER, WINDSHIELD }
 const PART_COUNT := 8
 const NAMES := ["FL TIRE", "FR TIRE", "RL TIRE", "RR TIRE", "ENGINE", "FRONT BUMPER", "REAR BUMPER", "WINDSHIELD"]
+const DISPLAY_NAMES := ["Front left tire", "Front right tire", "Rear left tire", "Rear right tire", "Engine", "Front bumper", "Rear bumper", "Windshield"]
 ## Closing speed (m/s) below which a hit does no harm: 3.5 m/s is about 13 km/h.
 const SAFE_SPEED := 3.5
 ## Hit severity grows faster than speed, like crash energy: (speed - SAFE_SPEED) ^ CURVE.
@@ -252,20 +253,24 @@ func reset() -> void:
 
 func summary() -> String:
 	var lost: PackedStringArray = []
-	for i in PART_COUNT:
-		if i == WINDSHIELD:
-			if not alive(i):
-				lost.append("WINDSHIELD SHATTERED")
-			elif health[i] < 0.7:
-				lost.append("WINDSHIELD CRACKED")
-		elif not alive(i):
-			if i <= WHEEL_RR:
-				lost.append(NAMES[i] + (" FLAT" if car.punctured_tires & (1 << i) else " LOST"))
-			else:
-				lost.append(NAMES[i] + (" WRECKED" if i == ENGINE else " OFF"))
-		elif health[i] < 0.5:
-			lost.append(NAMES[i] + " DAMAGED")
+	for item: Dictionary in status_entries():
+		lost.append(item.name + " · " + item.status)
 	return "" if lost.is_empty() else "DAMAGE:  " + "  /  ".join(lost)
+
+## Both seat HUDs and the readable capture use the same complete part list.
+func status_entries() -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	for i in PART_COUNT:
+		if health[i] >= 1.0:
+			continue
+		var status := "Damaged · %d%% health" % mini(99, roundi(health[i] * 100.0))
+		if not alive(i):
+			if i <= WHEEL_RR:
+				status = "Flat" if car.punctured_tires & (1 << i) else "Lost"
+			else:
+				status = "Shattered" if i == WINDSHIELD else ("Wrecked" if i == ENGINE else "Off")
+		entries.append({"part": i, "name": DISPLAY_NAMES[i], "status": status, "broken": not alive(i)})
+	return entries
 
 func _update_visual(part: int) -> void:
 	var wear := 1.0 - health[part]

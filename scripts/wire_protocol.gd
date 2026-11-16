@@ -123,7 +123,7 @@ static func graph_from_json(data: Array) -> Array:
 				return []
 		if ids.has(road.id) or typeof(road.get("expanded")) != TYPE_BOOL or not road.get("points") is Array:
 			return []
-		if typeof(road.get("danger")) != TYPE_BOOL or not road.get("hazards") is Array or road.hazards.size() > 8:
+		if typeof(road.get("danger")) != TYPE_BOOL or not road.get("hazards") is Array or road.hazards.size() > 64:
 			return []
 		if not road.get("profile") in ["main", "scenic", "rough", "culdesac", "cliff"] or not _integer(road.get("level"), 0, 4) or not _integer(road.get("next"), -1, 2147483647) or not _integer(road.get("merge_with"), -1, 2147483647): return []
 		if road.danger != (road.profile == "cliff") or (road.profile in ["culdesac", "cliff", "rough"] and not road.expanded): return []

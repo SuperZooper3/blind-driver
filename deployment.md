@@ -64,7 +64,7 @@ for this implementation. You do not need to install Docker or Godot locally.
 5. Open the frontend URL. Players click **Get in the car**; one creates a room
    and shares its code or invite link (`…/?room=K7Q4MZ`), the other joins with
    it. Its `/healthz` verifies the exported files; the relay's `/healthz`
-   must separately report **protocol 12** for online play.
+   must separately report **protocol 13** for online play.
 
 Before online play, upgrade the existing relay using the next section. If you
 already created a Static Site, create the Web Service above as a separate
@@ -83,7 +83,7 @@ References: [Render Web Services](https://render.com/docs/web-services),
 
 ## Upgrade the existing service first
 
-This revision uses **protocol 12**: spike strips with warning signs, WebRTC peer-to-peer negotiation between browsers, short room codes, seat choice when creating a room, and seat assignment on join, on top of route choices, cul-de-sacs, rejoining connections, and heat levels, including ramp gaps, timed bridges, and the shared crossing clock, alongside police pursuit, punctured tires, ravines, named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
+Release **1.2.0** uses **protocol 13**, expanding road records to 64 hazards for deep Hell. It retains spike strips with warning signs, WebRTC peer-to-peer negotiation between browsers, short room codes, seat choice when creating a room, and seat assignment on join, on top of route choices, cul-de-sacs, rejoining connections, and heat levels, including ramp gaps, timed bridges, and the shared crossing clock, alongside police pursuit, punctured tires, ravines, named lobbies, navigator-first joining, and resumable seats. Both clients and the relay must be updated together. The backend is verified locally; this change does not deploy Render.
 
 1. Push these commits to the branch linked to your existing Render service (`git push origin main` if it uses main).
 2. Open **blind-driver-relay** in Render, then **Manual Deploy → Deploy latest commit**. Auto-deploy is off in the supplied configuration.
@@ -229,7 +229,7 @@ Use two computers, ideally on different networks, and check:
 - The navigator receives newly generated roads on the safe branch, and sees the same rocks, trees, ramps, bumps, construction, cliffs, and lakes.
 - There is no R/gamepad recovery shortcut. **Start a new ride** in the driver’s pause menu resets both views and the trip odometer.
 - Headlights, suspension, impacts, and car rotation remain in sync.
-- Drive deep into the thorn forest: both players see punctured tires and the same failure reason. Roll onto the roof: the cabin stays above the ground and the failure screen appears after landing.
+- Drive deep into the thorn forest: both players see punctured tires and the same failure reason. Roll onto the roof: the cabin stays above the ground and the run continues until the police catch you.
 - Hold B / RB on the navigator: the full rear view reveals the patrol and its gap/closing estimate. The driver’s forward view stays unchanged.
 - Both players should see the same patrol position and flashing lights, hear a louder siren as it approaches, and see the same police-capture Game Over. Pause on the driver or disconnect temporarily: pursuit must freeze instead of catching you during recovery.
 - Each computer saves its own PB from the shared run distance. Restart and relaunch to check that the best remains while the trip resets.
@@ -357,7 +357,7 @@ The Render Blueprint deploys the frontend and relay. For manual setup, follow
 [Add the playable frontend](#add-the-playable-frontend-in-the-render-dashboard)
 above. The frontend's Dockerfile exports
 the game with Godot 4.7.2; players open its URL, create a room, and share a code or invite link.
-The Web export uses a single thread and Stream playback for procedural audio.
+The Web export uses a single thread with browser-native Sample playback for the engine, siren, and radio. Prebuilt looping tones replace frame-fed audio generators.
 Browser-specific mode controls and downloadable logs are included. Invite links
 use `?room=CODE` and preserve the invitation through the landing-page launch.
 The page uses the supplied screenshots in `frontend/media/`; CSS crops their
@@ -470,7 +470,7 @@ for internet rooms. Two windows and direct LAN are desktop-only.
 | F8 | Connection check, live network metrics, and logs |
 | Escape | Menu; driver applies brakes while the menu is open |
 
-Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, holding the right shoulder button (RB) looks behind, and Start opens the menu. Keyboard and gamepad can be used together. **Settings** has the driver-blur slider. There is no recovery shortcut. Use **Start a new ride** in the pause menu, or **Drive again** after Game Over; both reset the run and trip odometer while keeping your personal best. Landing on the roof/side ends the run automatically. A badly damaged car keeps driving, slowly, until the police catch it. In the thorn forest, where the police never follow, three broken tires (or the engine and two tires) end the run.
+Gamepad: left stick steers, right trigger accelerates, left trigger brakes/reverses, A applies the handbrake, Y toggles the map, holding the right shoulder button (RB) looks behind, and Start opens the menu. Keyboard and gamepad can be used together. **Settings** has the driver-blur slider. There is no recovery shortcut. Use **Start a new ride** in the pause menu, or **Drive again** after Game Over; both reset the run and trip odometer while keeping your personal best. Landing on the roof or side keeps the run going; the police can still catch you. A badly damaged car keeps driving, slowly, until the police catch it. In the thorn forest, where the police never follow, three broken tires (or the engine and two tires) end the run.
 
 Talk to each other in person or over your preferred voice call. The navigator sees only the top edge of a folded map at the bottom of their view. **M / Tab** slides it up to cover their entire screen (their half in shared-screen mode), so checking the map means looking away from the road. Red **X / CLIFF** marks a fatal dead end. A circular **DEAD END / TURN AROUND** marks a solid cul-de-sac. Green **LONG / QUIETER** and amber **SHORT / HEAVY HAZARDS** routes rejoin; check the map to choose between extra distance and more dodging. Jump gaps, timed bridges, lakes, and construction zones are mapped; small obstacles are not. The navigator must also watch the clear road view and call out rocks, trees, ramps, bumps, cones, and spike strips.
 
@@ -496,6 +496,8 @@ bitcrushing, muffling, static, pitch wobble and dropouts; repairs clean it up.
 Menus and connection recovery pause the radio. Both seats hear their own radio
 react to shared damage, and **V** mutes it along with the other sounds.
 
+On Web, the radio uses browser-native Sample playback: damage retains pitch wobble, dropouts and static, while desktop playback also applies low-pass/distortion effects. This avoids forcing the single-threaded Web mixer to keep up with rendering; see [Godot audio playback](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html#audio-playback).
+
 The prepared track is `assets/audio/driving_music.ogg`. To rebuild it from the
 original supplied `music.mp3`, use `python3 tools/prepare_driving_music.py /path/to/music.mp3`
 with FFmpeg on PATH. The crossfade is baked into the audio and the player loops
@@ -515,7 +517,7 @@ Hits under about 13 km/h are harmless. Harder hits on rocks, trees, barriers and
 
 **Opening scene.** Every new ride, including restarts, opens outside the bank the pair just robbed: the alarm bell rings, a red light flashes, and the driver's glasses fly off and break on the road. Both players see the bank, then the broken glasses, before the camera flies into their own seat and the ride begins (about 8.5 seconds; the car and the police wait until it ends). Both opening views stay sharp; the driver becomes blurry only after entering their head. The bank's clearing stays free of trees, rocks and thorns. Pausing freezes the opening; resuming continues it.
 
-The engine sounds only while actively accelerating or reversing. Coasting and idling have no engine sound or rolling hiss. The music, crash effects and damage-based radio interference remain separate.
+The engine and siren use prebuilt seamless PCM loops mixed independently of rendered frames (browser-native samples on Web), so terrain/render stalls cannot empty a frame-fed generator buffer. Their pitch, gain and stereo position follow the shared car/pursuit state. The engine sounds only while actively accelerating or reversing. Coasting and idling have no engine sound or rolling hiss. The music, crash effects and damage-based radio interference remain separate.
 
 **Spike strips** appear from heat 4. An oversized yellow sign with a black spike pictogram and **100 m** distance plate stands at the start of the road, and the strip is always at least 100 m past it. It lies across one half of the road, striped yellow and black with red spikes, and pops every tire that rolls over it; steer into the clear half.
 
@@ -531,7 +533,7 @@ Police beacons grow brighter and their red/blue glow grows larger as the patrol
 gets farther away, so distant flashes remain conspicuous in both camera views.
 The glow still sits in the world: hills and solid obstacles can hide it.
 
-Damage lasts until you repair it or start over. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot. Tuning lives at the top of `scripts/car_damage.gd` (`SAFE_SPEED`, `CURVE`, `RATE`, breakdown penalties) and `scripts/car.gd` (`THORN_WEAR`, `FLAT_TIRE_DRAG`, `HUB_SCRAPE`).
+Each seat has a bottom **CAR DAMAGE** panel listing every damaged part, including minor dents, its remaining health, and specific broken states such as Flat, Lost, Off, Wrecked, or Shattered. The navigator’s list stays visible above the map; the repair overlay takes over while fixing the car. Damage lasts until you repair it or start over. **Start a new ride** or **Drive again** gives you a fresh car. The driver's game decides the damage and sends it to the navigator in each snapshot. Tuning lives at the top of `scripts/car_damage.gd` (`SAFE_SPEED`, `CURVE`, `RATE`, breakdown penalties) and `scripts/car.gd` (`THORN_WEAR`, `FLAT_TIRE_DRAG`, `HUB_SCRAPE`).
 
 
 ## Gameplay implementation details
@@ -545,11 +547,11 @@ Damage lasts until you repair it or start over. **Start a new ride** or **Drive 
 - Faster acceleration and a 158 km/h engine cutoff (about 111 km/h sustained on a flat test road), physical boulders, tree chicanes, half-width ramps that can overturn the car, speed bumps, and construction cones/barriers. Roadside clutter is static and collides; it is not independently simulated debris. Each road's obstacles are seeded but random: their kinds, spacing and shoulder side change from road to road. Roads are one continuous surface through bends, with a round pad where branches meet.
 - Two arcade crossing challenges alternate on clear, straight connector roads. A full-width ramp launches you over a 16 m gap: line up and approach at **65+ km/h** for a forgiving takeoff assist, then land using the normal car physics. A sliding bridge initially opens for six seconds in a twelve-second cycle, warns for the last two seconds, and retracts sideways to expose a real pit. Roadside signals, the navigator’s route card, and live map markers show when to go. Miss either crossing and you fall, crash, and receive Game Over. The patrol jumps the ramp and waits for the bridge too.
 - Bridge motion, lights, map countdowns, and failure states follow the driver’s run clock, interpolated with the car on the navigator. Driver menus, connection recovery, and Game Over pause the clock; starting a new ride resets it. These challenges replace ordinary clutter on their road, leaving room to line up or wait.
-- Dense thorn bushes start roughly 18 m from the road center, leaving room to dodge obstacles on the shoulder. Deep-forest brambles wear down any tire touching them until it pops flat, slowing the car (see Car damage). Flat tires, part damage and the failure reason synchronize to the navigator.
+- Dense thorn bushes start roughly 18 m from the road center. Inside Hell, their clearance shrinks with northward depth: about 10.2 m after 3 km and 7.6 m after 9 km, gradually approaching 5.5 m. Visible bushes and tire contact use the same spatial rule on both seats. Deep-forest brambles wear down any tire touching them until it pops flat, slowing the car (see Car damage). Flat tires, part damage and the failure reason synchronize to the navigator.
 - The navigator's seated camera is attached to the car's full position and rotation, including late network pose updates. The cabin stays fixed in the passenger view through turns, bumps, and impacts; look-back remains attached too. The driver retains head stabilization and impact shake, and external/intro cameras retain their own movement.
-- Roof and cabin collision protect the seats when the car flips. A car resting on its roof or side for 0.65 seconds ends the run; an airborne flip can still land safely.
+- Roof and cabin collision protect the seats when the car flips. Resting on the roof or side never ends the run by itself; the police pursuit continues.
 - A seeded road graph with one growth frontier. After the introductory cliff fork, three-way junctions offer a longer, quieter road, a shorter road with more hazards, and a cul-de-sac or cliff. Half of three-way junctions put the dead end (pit or cul-de-sac) straight ahead in the middle, with both through routes swinging around it; the rest put it on the left or right (25% each). Both through routes rejoin the same continuation. Cul-de-sacs have a broad, solid turning circle and a no-through-road sign. Other forks offer one continuing road and a cul-de-sac. Dead ends and the forest cannot spawn extra routes. Distant sections are removed and forest tiles load incrementally. Trees use MultiMesh rendering; nearby-road queries use a spatial index.
-- Five heat levels, shown on the dashboard, increase every **750 m** of trip distance, reaching level five at 3 km. New rough shortcuts grow from three to six obstacles while quieter alternatives grow from one to three. Future bridge windows shorten by half a second per level, down to four seconds. Existing road layouts and bridge timing stay fixed; restarting resets heat. The patrol also increases its normal cruising speed with distance.
+- Five heat levels, shown on the dashboard, increase every **750 m** of trip distance, reaching level five at 3 km. New rough shortcuts grow from three to six obstacles while quieter alternatives grow from one to three. Future bridge windows shorten by half a second per level, down to four seconds. Past the Hell boundary, new rough roads gain another obstacle every 500 m of northward depth; main/dead-end roads every 750 m and scenic routes every 1,500 m. This continues to 60 obstacles per ordinary road (plus signs), keeping streamed worlds and relay messages bounded. Clear jump/bridge approaches stay intact. Existing road layouts and bridge timing stay fixed; restarting resets heat and Hell depth. The patrol also increases its normal cruising speed with distance.
 - Each heat has a name in the bottom-left display: **Spring**, **Summer**, **Fall**, **Winter**, and **Hell**. Increasing heat opens the next region beyond all already generated terrain and objects. Existing forest, roadside trees, and other scenery keep their original appearance, including when revisited or rebuilt. Spring is light green; summer uses the original deep greens; fall mixes orange/red foliage with bare trees; winter has snow and bare trees; hell has red earth, dead trees, and flickering fires. New ground blends from the previous region across its first 80 m, and the sky/fog ease toward the region you are actually entering. A wipe-in **Welcome to …** title appears at the top of both seat views on first entering each region in a ride. Region boundaries travel in the existing relay graph so both players and late joiners see the same geography. Snow and fire remain cosmetic; restarting clears the regions and begins in spring.
 - A police pursuit with an 85 m initial gap and a six-second head start. The patrol navigates the connected road network, takes rejoining routes, turns back through junctions if you change branches, steers around obstacles, and slows for bumps and bends. Its cruising speed starts at 50 km/h and rises steadily through the chase (about 1 km/h every 7 s) to a cap of 111 km/h, a healthy car's sustained top speed, so driving perfectly is never overtaken while damaged cars are eventually reeled in. A rubber band stops the lead growing: from about 150 m behind it starts matching your pace, and by 240 m it is fully leashed (briefly up to 126 km/h to make up corners), so it stays at the back instead of being lost. It brakes earlier for obstacles and junctions at catch-up speed and does not teleport forward.
 - Sirens grow louder with physical proximity and switch to a faster wail nearby. Police can catch you on the shoulder: capture reaches 24 m across the ground when they are within 14 m along your route and 4 m in height. Staying in that range for 2 seconds ends the run with **The police caught you**. Route and height checks prevent captures across separate branches or into a pit. Driver menus and connection recovery freeze pursuit. A new ride resets it. The patrol uses route steering and proximity capture.
@@ -701,7 +703,7 @@ the project, so the repository/build is not represented as fully cleared for pub
 reuse. Confirm those rights or replace/remove the track before redistribution.
 The provided screenshots are project screenshots, not evidence of music rights.
 
-Deploy the reviewed frontend, check its `/healthz`, and confirm relay protocol 12.
+Deploy the reviewed frontend, check its `/healthz`, and confirm relay protocol 13.
 Then test a fresh room from two computers. Render auto-deploy is off in the checked-in
 blueprint; a Git push alone does not deploy either service. Never force-push main
 or rewrite history to conceal a secret: revoke it first and coordinate cleanup.

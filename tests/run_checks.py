@@ -182,6 +182,10 @@ if __name__ == "__main__":
         print(radio.stdout)
         if radio.returncode or "FAIL:" in radio.stdout or "SCRIPT ERROR" in radio.stderr:
             sys.exit(radio.stderr or "Driving radio check failed")
+        release = subprocess.run(command("tests/release_12_smoke.gd", temporary / "release-12.log"), capture_output=True, text=True, timeout=30)
+        print(release.stdout)
+        if release.returncode or "FAIL:" in release.stdout or "SCRIPT ERROR" in release.stderr:
+            sys.exit(release.stderr or "Release 1.2 regression check failed")
         surface = subprocess.run(command("tests/road_surface_smoke.gd", temporary / "road-surface.log"), capture_output=True, text=True, timeout=20)
         print(surface.stdout)
         if surface.returncode or "FAIL:" in surface.stdout or "SCRIPT ERROR" in surface.stderr:

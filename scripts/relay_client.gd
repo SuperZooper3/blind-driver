@@ -30,7 +30,7 @@ signal check_finished(message: String)
 
 const Wire = preload("res://scripts/wire_protocol.gd")
 const Log = preload("res://scripts/network_log.gd")
-const VERSION := 12
+const VERSION := 13
 ## Matches server/protocol.mjs: six characters, no 0/O or 1/I/L lookalikes.
 const SHARE_ALPHABET := "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 const SHARE_LENGTH := 6

@@ -320,8 +320,8 @@ Add an opt-in `ai_basic_v1` profile, keeping normal human play as the default. U
 a continuing road, gentle bends, sparse static rocks/trees or cones, and enough
 clearance for avoidance. Disable gap jumps, timed bridges, ramps, police, fatal
 route choices, lakes, thorns, and heat escalation. Keep handling, blur, and seat
-asymmetry. Grounded rollover and other applicable physical game-over conditions
-still end a run. Ordinary collisions remain penalties/metrics; they need not all
+asymmetry. Applicable physical game-over conditions still end a run.
+Since release 1.2.0, grounded rollovers themselves are nonfatal. Ordinary collisions remain penalties/metrics; they need not all
 end the episode.
 
 The map remains accessible but is less useful on one continuing road. Add

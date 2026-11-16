@@ -43,7 +43,7 @@ func _run() -> void:
 	car.recovery_grace = 3
 	await frames(180)
 	var head: Vector3 = car.global_transform * Vector3(-0.43, 1.23, -0.05)
-	check(car.run_state == "game_over" and car.crash_reason.contains("rolled") and game.ui.result_panel.visible, "landing upside down automatically shows failure")
+	check(car.run_state == "driving" and car.rollover_time > 0.65 and not game.ui.result_panel.visible, "resting upside down no longer ends the run")
 	check(head.y > world.height_at(head.x, head.z) + 0.2 and game.driver_camera.global_position.y > world.height_at(head.x, head.z), "roof collision holds occupants and first-person camera above terrain")
 	loaded.observe(12.0)
 	loaded.save_record()

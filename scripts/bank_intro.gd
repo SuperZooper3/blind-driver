@@ -21,9 +21,6 @@ var glasses: Node3D
 var alarm_light: OmniLight3D
 var alarm_lamp: StandardMaterial3D
 var bell: AudioStreamPlayer
-var bell_playback: AudioStreamGeneratorPlayback
-var bell_phase := 0.0
-var bell_clock := 0.0
 var bell_gain := 1.0
 var glasses_start: Transform3D
 var glasses_end: Transform3D
@@ -56,7 +53,7 @@ func _process(delta: float) -> void:
 			_break_glasses()
 	# The bell keeps ringing into the ride, fading out over two seconds.
 	bell_gain = 1.0 if time < DURATION else maxf(0.0, 1.0 - (time - DURATION) / 2.0)
-	_feed_bell()
+	bell.volume_db = -12.0 + linear_to_db(maxf(0.00001, bell_gain))
 
 ## Where a camera sits during the intro. `seat` is that camera's normal view;
 ## the last shot flies into it.
@@ -180,25 +177,28 @@ func _break_glasses() -> void:
 
 func _build_bell() -> void:
 	bell = AudioStreamPlayer.new()
-	var generator := AudioStreamGenerator.new()
-	generator.mix_rate = 22050
-	generator.buffer_length = 0.12
-	bell.stream = generator
+	bell.playback_type = AudioServer.PLAYBACK_TYPE_SAMPLE if OS.has_feature("web") else AudioServer.PLAYBACK_TYPE_STREAM
+	bell.stream = build_bell_loop()
 	bell.volume_db = -12
 	add_child(bell)
 	bell.play()
-	bell_playback = bell.get_stream_playback()
 
-## A classic alarm bell: a bright tone struck about twenty times a second.
-func _feed_bell() -> void:
-	if bell_playback == null:
-		return
-	for _i in bell_playback.get_frames_available():
-		bell_clock += 1.0 / 22050.0
-		bell_phase = fmod(bell_phase + 1180.0 / 22050.0, 1.0)
-		var strike := exp(-fmod(bell_clock, 0.05) * 60.0)
-		var sample := (sin(bell_phase * TAU) + 0.4 * sin(bell_phase * TAU * 2.76)) * strike * bell_gain * 0.35
-		bell_playback.push_frame(Vector2(sample, sample))
+## Prebake the repeating alarm; all harmonics close at the one-second seam.
+static func build_bell_loop() -> AudioStreamWAV:
+	var data := PackedByteArray()
+	data.resize(22050 * 2)
+	for i in 22050:
+		var t := float(i) / 22050.0
+		var strike := exp(-fmod(t, 0.05) * 60.0)
+		var sample := (sin(t * TAU * 1180.0) + 0.4 * sin(t * TAU * 3260.0)) * strike * 0.35
+		data.encode_s16(i * 2, roundi(sample * 32767.0))
+	var tone := AudioStreamWAV.new()
+	tone.format = AudioStreamWAV.FORMAT_16_BITS
+	tone.mix_rate = 22050
+	tone.data = data
+	tone.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	tone.loop_end = 22050
+	return tone
 
 ## Once the bell has faded, only the bank stays behind; the glasses stay on the floor.
 func done_with_sound() -> bool:
@@ -207,4 +207,3 @@ func done_with_sound() -> bool:
 func _exit_tree() -> void:
 	if bell != null:
 		bell.stop()
-	bell_playback = null

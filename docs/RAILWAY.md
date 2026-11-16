@@ -14,7 +14,7 @@ personal bests, and network diagnostics are available in the browser.
 The frontend and relay are separate services. The relay pairs the players and
 forwards state; the driver's browser still simulates the car and police.
 Both services can live in the same Railway project. An existing Render relay
-also works, provided its `/healthz` reports **protocol 12**.
+also works, provided its `/healthz` reports **protocol 13**.
 
 ## Add the frontend to your existing Railway project
 

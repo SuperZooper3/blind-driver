@@ -11,6 +11,7 @@ var saw_over := false
 var saw_restart := false
 var saw_puncture := false
 var saw_rollover := false
+var saw_damage := false
 var saw_caught := false
 var saw_summer := false
 var saw_winter := false
@@ -49,6 +50,8 @@ func _run() -> void:
 func _tick() -> void:
 	if finished: return
 	elapsed += root.get_process_delta_time()
+	var panel = game.ui.damage_overlays[0 if host else 1]
+	saw_damage = saw_damage or (panel.is_visible_in_tree() and not panel.entries.is_empty() and panel.entries == game.car.damage.status_entries())
 	if host:
 		if phase == 0 and game.session.navigator_id != 0:
 			phase = 1
@@ -85,6 +88,13 @@ func _tick() -> void:
 			game.car.reset_pending = true
 			game.car.recovery_grace = 3
 			phase = 8
+		if phase == 8 and game.car.rollover_time > 1.0 and game.police.phase == "waiting":
+			# A grounded rollover stays live until the actual patrol catches it.
+			game.police.phase = "chasing"
+			game.police.elapsed = 7.0
+			game.police.station = game.police._project(game.car.global_position, game.police.road_id).station - 8.0
+			game.police.speed = 15.0
+			game.police._place(1, 1.0)
 		if phase == 8 and game.car.run_state == "game_over":
 			phase = 9
 			phase_at = elapsed
@@ -113,7 +123,7 @@ func _tick() -> void:
 			phase = 13
 			phase_at = elapsed
 		if phase == 13 and elapsed - phase_at > 2.0:
-			_finish(true, "driver completes cliff, puncture, rollover, shoulder police capture, and restarts")
+			_finish(saw_damage, "driver displays damage and completes cliff, puncture, rollover, shoulder police capture, and restarts")
 	else:
 		if game.session.graph_received and phase == 0:
 			var record: Dictionary = game.world.roads[1].hazards[0]
@@ -143,8 +153,8 @@ func _tick() -> void:
 			for i in game.car.wheel_pivots.size():
 				if game.car.punctured_tires & (1 << i):
 					saw_puncture = saw_puncture and is_equal_approx(game.car.wheel_pivots[i].scale.y, 0.55)
-		if game.car.run_id == 2 and game.car.run_state == "game_over":
-			saw_rollover = game.car.crash_reason.contains("rolled") and game.car.punctured_tires == 0 and game.ui.result_panel.visible
+		if game.car.run_id == 2 and game.car.run_state == "driving":
+			saw_rollover = saw_rollover or (game.car.global_basis.y.dot(Vector3.UP) < 0.0 and game.car.punctured_tires == 0 and not game.ui.result_panel.visible)
 		if game.car.run_id == 3 and game.car.run_state == "game_over":
 			# Keep the observation: a reset snapshot can move the car to spawn
 			# before the next interpolation tick updates its run_id.
@@ -153,7 +163,7 @@ func _tick() -> void:
 		# The visual palette follows the received distance on the next render frame.
 		if game.car.run_id == 4 and game.car.run_state == "driving" and game.world.seasons.stage == 0:
 			saw_restart = game.car.distance_driven < 2.0 and game.car.punctured_tires == 0 and game.world.roads[0].id > 0 and game.car.global_position.distance_to(Vector3(0, 1.6, 12)) < 2.0 and game.records.best_distance >= 3456.0 and game.police.phase == "waiting" and game.police.catch_time == 0 and game.world.seasons.stage == 0
-			_finish(saw_graph and saw_fall and saw_over and saw_restart and saw_reconnect and saw_puncture and saw_rollover and saw_caught and saw_summer and saw_winter and saw_hell, "navigator matches hazards=%s fall=%s result=%s reconnect=%s restart=%s puncture=%s rollover=%s caught=%s seasons=%s" % [saw_graph, saw_fall, saw_over, saw_reconnect, saw_restart, saw_puncture, saw_rollover, saw_caught, saw_summer and saw_winter and saw_hell])
+			_finish(saw_damage and saw_graph and saw_fall and saw_over and saw_restart and saw_reconnect and saw_puncture and saw_rollover and saw_caught and saw_summer and saw_winter and saw_hell, "navigator matches hazards=%s fall=%s result=%s reconnect=%s restart=%s puncture=%s rollover=%s caught=%s seasons=%s" % [saw_graph, saw_fall, saw_over, saw_reconnect, saw_restart, saw_puncture, saw_rollover, saw_caught, saw_summer and saw_winter and saw_hell])
 	if elapsed > 38.0:
 		_finish(false, "hazard network probe timed out at phase %d" % phase)
 
